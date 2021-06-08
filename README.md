@@ -2,6 +2,13 @@
 
 A Shell script designed to create cloud-init enabled, server oriented, disk images of Alpine Linux. The script can be run on Alpine, Debian, or Ubuntu host machines.
 
+---
+**NOTE: This script is a work-in-progress and not yet stable. The initial
+aim is to fully test QEMU VM and Raspberry Pi disk images and then a few
+Cloud provider images.**
+
+---
+
 The script is based on an Ansible playbook which I've developed over the past 12+ months for creating tailored Alpine disk images for use with QEMU VMs, physical PCs, and Raspberry Pis.
 
 Features:
@@ -46,14 +53,24 @@ The ```generic``` cloud disk image works with multiple cloud providers.
 
 Individual cloud provider specific images (with provider-specific tools built-in) can also be built:
 
-- aliyun (Alibaba Cloud)
-- aws
-- azure
-- digitalocean
-- gce
-- hetzner
-- scaleway
-- vultr
+- Aliyun (Alibaba Cloud)
+- AWS
+- Azure
+- Bigstep
+- Brightbox
+- Digitalocean
+- E24
+- Exoscale
+- Google
+- Hetzner
+- Hyperone
+- IBM Cloud
+- Oracle Cloud
+- Rootbox
+- Scaleway
+- Tencent
+- Upcloud
+- Vultr
 
 Resultant disk images then need to be imported into whichever Clouds using cloud-specific method(s). More information on this is detailed in individual READMEs in the Cloud directory.
 
@@ -71,11 +88,13 @@ Can create disk images for the follow machines:
 
 Can create disk images for the following hypervisors:
 
+- Libvirtd
 - Openstack
 - ProxMox
 - QEMU
 - RHEVm
-- VMWare
+- Virtualbox
+- VMware
 - VSphere
 
 Resultant disk images can then be converted using ```qemu-img convert``` to the required format for the hypervisor, i.e. OVA, QCOW2.
@@ -88,20 +107,20 @@ With no options specified the default it to build a x86_64 image running Alpine 
 
 Build a **generic** x86_64 Cloud image running Alpine 3.13 that can be used with multiple Cloud Providers:
 
-    create-alpine-disk-image -c generic -r 3.13
+    create-alpine-disk-image --cloud generic --release 3.13
 
 Build a AWS x86_64 image running Alpine 3.13:
 
-    create-alpine-disk-image -c aws -r 3.13
+    create-alpine-disk-image --cloud aws --release 3.13
 
 Build a AWS aarch64 image running Alpine Edge:
 
-    create-alpine-disk-image -c aws -a aarch64
+    create-alpine-disk-image --cloud aws --aarch aarch64
 
 Build a Raspberry Pi 4 aarch64 image running Alpine 3.13:
 
-    create-alpine-disk-image -p rpi4 -r 3.13
+    create-alpine-disk-image --physical rpi4 --release 3.13
 
 Build a Raspberry Pi 3 armv7 image running Alpine Edge:
 
-    create-alpine-disk-image -p rpi3 -a armv7
+    create-alpine-disk-image --physical rpi3 --arch armv7
