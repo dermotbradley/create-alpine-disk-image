@@ -5,7 +5,7 @@
 ##
 ##  create-alpine-disk-image
 ##
-##  Version 0.1
+##  Version 0.2
 ##
 ##  Copyright 2021 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
@@ -18,7 +18,6 @@
 #############################################################################
 
 TMPDIR="/var/tmp"
-LOGFILE="$(basename "$0").log"
 
 DEFAULT_ALPINE_RELEASE="edge"
 DEFAULT_APK_STATIC_VERSION="2.10.4"
@@ -144,7 +143,7 @@ EOF
 
 
 #
-#
+# Enable base Alpine init.d services
 #
 add_base_init_d() {
 
@@ -201,6 +200,72 @@ EOF
   rc-update add mount-ro shutdown
   rc-update add savecache shutdown
 } >> \$LOGFILE
+EOF
+
+}
+
+
+
+#
+# Adds an entry to /etc/fstab file
+#
+add_fstab_entry() {
+
+  local ENTRY_TYPE=$1
+  local ENTRY_VALUE=$2
+  local MOUNT_POINT=$3
+  local FS_TYPE=$4
+  local FS_OPTIONS=$5
+  local ENTRY_LOG=$6
+
+  if [ "$ENTRY_TYPE" = "BIND" ]; then
+    local FS_OPTIONS="bind,${FS_OPTIONS}"
+    local FS_PASSNO="0"
+  elif [ "$MOUNT_POINT" = "/" ]; then
+    local FS_PASSNO="1"
+  else
+    local FS_PASSNO="2"
+  fi
+
+  if [ "$ENTRY_TYPE" = "BIND" ]; then
+    FSTAB_ENTRY="${ENTRY_VALUE}"
+  else
+    FSTAB_ENTRY="${ENTRY_TYPE}=${ENTRY_VALUE}"
+  fi
+  FSTAB_ENTRY="${FSTAB_ENTRY}\t${MOUNT_POINT}\t${FS_TYPE}\t${FS_OPTIONS} 0 ${FS_PASSNO}"
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "  Add ${ENTRY_LOG} entry"
+# shellcheck disable=SC2169
+echo -e "${FSTAB_ENTRY}" >> /etc/fstab
+EOF
+
+}
+
+
+
+#
+# Adds an entry to the specified /etc/mkinitfs/features.d/*.modules file
+#
+add_initramfs_entry() {
+
+  modules_file=$1
+  modules_entry=$2
+
+  if [ "${modules_entry%% *}" != "#" ]; then
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "  Add '${modules_entry}' entry to ${modules_file}.modules"
+EOF
+
+  fi
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+cat <<-_SCRIPT_ >> /etc/mkinitfs/features.d/${modules_file}.modules
+	$modules_entry
+	_SCRIPT_
 EOF
 
 }
@@ -281,7 +346,7 @@ EOF
 echo -e "\n\n$LOGIN_BANNER\n\n" > /etc/motd
 
 write_log "  Set the keymap to '$IMAGE_KEYMAP'"
-setup-keymap $IMAGE_KEYMAP >> \$LOGFILE 2>&1
+setup-keymap $IMAGE_KEYMAP >> "\$LOGFILE" 2>&1
 EOF
 
   if [ "$DEBUG" = "true" ]; then
@@ -301,12 +366,12 @@ sed -i -E \
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/profile.d/locale.sh-orig /etc/profile.d/locale.sh \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/profile.d/locale.sh-orig
 
@@ -315,19 +380,19 @@ EOF
 EOF
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+  cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Fixup rc.conf so that keyboards and screens use Unicode"
 sed -i -e 's/^#unicode="NO"/unicode="YES"/' /etc/rc.conf
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/rc.conf-orig /etc/rc.conf \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/rc.conf-orig
 }
@@ -406,6 +471,113 @@ calculate_image_size() {
 }
 
 
+
+#
+# Check that the host OS has necessary packages installed for
+# running user-mode QEMU via binfmt and that it is configured.
+#
+check_binfmt_packages() {
+  arch=$1
+
+  host_os=$(detect_host_os)
+
+  case $host_os in
+
+    alpine )
+
+      REQUIRED_PACKAGES="qemu-openrc"
+      case $arch in
+        aarch64)
+          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-aarch64"
+          ;;
+        armv7)
+          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-arm"
+          ;;
+        x86)
+          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-x86"
+          ;;
+        x86_64)
+          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-x86_64"
+          ;;
+        *)
+          echo "Unsupported archicture: $arch!"
+          exit 1
+          ;;
+      esac
+      if [ -n "$(apk info -q "$REQUIRED_PACKAGES" 1>/dev/null)" ]; then
+        echo
+        echo "The following Alpine packages need to be installed:"
+        echo "  $REQUIRED_PACKAGES"
+        echo
+        exit 1
+      fi
+
+      ;;
+
+    debian | ubuntu )
+
+      REQUIRED_PACKAGES="binfmt-support qemu-user-static"
+      if [ "$(dpkg-query -W -f='${Status}\n' "$REQUIRED_PACKAGES")" -ne 0 ]; then
+        echo
+        echo "The following packages need to be installed:"
+        echo "  $REQUIRED_PACKAGES"
+        echo
+        exit 1
+      fi
+
+      ;;
+
+    * )
+
+      echo
+      echo "Unsupported host OS!" 
+      echo
+      exit 1
+
+      ;;
+
+  esac
+
+  # Is binfmt configured for this QEMU arch?
+  case $arch in
+
+    aarch64 )
+      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-aarch64"
+      ;;
+
+    armv7 )
+      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-arm"
+      ;;
+
+    x86 )
+      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-x86"
+      ;;
+
+    x86_64 )
+      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-x86_64"
+      ;;
+
+  esac
+  if [ -e "$BINFMT_FILE" ]; then
+    BINFMT_ARCH_ENABLED=$(head -1 /proc/sys/fs/binfmt_misc/qemu-aarch64)
+    if [ "$BINFMT_ARCH_ENABLED" = "enabled" ]; then
+      return
+    else
+      echo
+      echo "Binfmt is not enabled for $arch"
+      echo
+      exit 1
+    fi
+  else
+    echo
+    echo "Binfmt and QEMU are not configured for $arch"
+    echo
+    exit 1
+  fi
+}
+
+
+
 #
 # Checks that the host OS has all necessary packages installed
 #
@@ -441,94 +613,6 @@ check_required_packages() {
       exit 1
       ;;
   esac
-}
-
-
-
-#
-# Check that the host OS has necessary packages installed for
-# running user-mode QEMU via binfmt and that it is configured.
-#
-check_binfmt_packages() {
-  arch=$1
-
-  host_os=$(detect_host_os)
-
-  case $host_os in
-    alpine)
-      REQUIRED_PACKAGES="qemu-openrc"
-      case $arch in
-        aarch64)
-          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-aarch64"
-          ;;
-        armv7)
-          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-arm"
-          ;;
-        x86)
-          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-x86"
-          ;;
-        x86_64)
-          REQUIRED_PACKAGES="$REQUIRED_PACKAGES qemu-x86_64"
-          ;;
-        *)
-          echo "Unsupported archicture: $arch!"
-          exit 1
-          ;;
-      esac
-      if [ -n "$(apk info -q "$REQUIRED_PACKAGES" 1>/dev/null)" ]; then
-        echo
-        echo "The following Alpine packages need to be installed:"
-        echo "  $REQUIRED_PACKAGES"
-        echo
-        exit 1
-      fi
-      ;;
-    debian|ubuntu)
-      REQUIRED_PACKAGES="binfmt-support qemu-user-static"
-      if [ "$(dpkg-query -W -f='${Status}\n' "$REQUIRED_PACKAGES")" -ne 0 ]; then
-        echo
-        echo "The following packages need to be installed:"
-        echo "  $REQUIRED_PACKAGES"
-        echo
-        exit 1
-      fi
-      ;;
-    *)
-      echo
-      echo "Unsupported host OS!" 
-      echo
-      exit 1
-      ;;
-  esac
-
-  # Is binfmt configured for this QEMU arch?
-  case $arch in
-    aarch64)
-      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-aarch64"
-      ;;
-    armv7)
-      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-arm"
-      ;;
-    x86)
-      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-x86"
-      ;;
-    x86_64)
-      BINFMT_FILE="/proc/sys/fs/binfmt_misc/qemu-x86_64"
-      ;;
-  esac
-  if [ -e "$BINFMT_FILE" ]; then
-    BINFMT_ARCH_ENABLED=$(head -1 /proc/sys/fs/binfmt_misc/qemu-aarch64)
-    if [ "$BINFMT_ARCH_ENABLED" = "enabled" ]; then
-      write_log "Binfmt and QEMU are configured for $arch"
-      return
-    else
-      write_log "Binfmt is not enabled for $arch"
-      exit 1
-    fi
-  else
-    write_log "Binfmt and QEMU are not configured for $arch"
-    exit 1
-  fi
 }
 
 
@@ -712,7 +796,7 @@ EOF
   cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Update /etc/default/grub"
-KERNEL_OPTS="rootfstype=ext4 nomodeset console=tty1"
+KERNEL_OPTS="rootfstype=ext4 console=tty1"
 EOF
 
   if [ -n "${SERIAL_CONSOLE+x}" ] && \
@@ -720,6 +804,14 @@ EOF
 
     cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 KERNEL_OPTS="\$KERNEL_OPTS console=${SERIAL_PORT_NAME},115200"
+EOF
+
+  fi
+
+  if [ "$IMAGE_BOOT_TYPE" = "bios" ]; then
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+KERNEL_OPTS="\$KERNEL_OPTS nomodeset"
 EOF
 
   fi
@@ -923,14 +1015,22 @@ EOF
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Update update-extlinux.conf"
-KERNEL_OPTS="rootfstype=ext4 nomodeset console=tty1"
+KERNEL_OPTS="rootfstype=ext4 console=tty1"
 EOF
 
   if [ -n "${SERIAL_CONSOLE+x}" ] && \
      [ "$SERIAL_CONSOLE" = "true" ]; then
 
-    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-KERNEL_OPTS="$KERNEL_OPTS console=${SERIAL_PORT_NAME},115200"
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+KERNEL_OPTS="\$KERNEL_OPTS console=${SERIAL_PORT_NAME},115200"
+EOF
+
+  fi
+
+  if [ "$IMAGE_BOOT_TYPE" = "bios" ]; then
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+KERNEL_OPTS="\$KERNEL_OPTS nomodeset"
 EOF
 
   fi
@@ -1024,43 +1124,33 @@ configure_fstab() {
 
 write_log "Add /etc/fstab entries"
 
-write_log "  Add rootfs entry"
 EOF
 
-  if [ "$IMAGE_BOOT_REFERENCE" = "label" ]; then
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-# shellcheck disable=SC2169
-echo -e "LABEL=$DEFAULT_ROOTFS_LABEL\\t/\\text4\\trw,relatime 0 1" >> /etc/fstab
-EOF
-
-	else
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-# shellcheck disable=SC2169
-echo -e "UUID=$ROOT_FS_UUID\\t/ext4\\trw,relatime 0 1" >> /etc/fstab
-EOF
-
-	fi
+  case $IMAGE_BOOT_REFERENCE in
+    label )
+      add_fstab_entry LABEL "$DEFAULT_ROOTFS_LABEL" "/" "ext4" "rw,relatime" "rootfs"
+      ;;
+	  * )
+      add_fstab_entry UUID "$ROOT_FS_UUID" "/" "ext4" "rw,relatime" "rootfs"
+      ;;
+	esac
 
 	if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
 
-    if [ "$IMAGE_BOOT_REFERENCE" = "label" ]; then
+    local MOUNTPOINT="/efi"
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-write_log "  Add ESP filesystem entry"
-# shellcheck disable=SC2169
-echo -e "LABEL=System_EFI\\t/efi\\tvfat\\trw 0 2" >> /etc/fstab
-EOF
-		else
+    case $IMAGE_BOOT_REFERENCE in
+      label )
+        add_fstab_entry LABEL "SYSTEM_EFI" "${MOUNTPOINT}" "vfat" "rw" "ESP filesystem"
+        ;;
+		  *)
+        add_fstab_entry UUID "$ESP_FS_UUID" "${MOUNTPOINT}" "vfat" "rw" "ESP filesystem"
+        ;;
+		esac
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-write_log "  Add ESP filesystem entry"
-# shellcheck disable=SC2169
-echo -e "UUID=$ESP_FS_UUID\\t/efi\\tvfat\\trw 0 2" >> /etc/fstab
-EOF
-
-		fi
+    if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+      add_fstab_entry BIND "/efi/EFI/BOOT" "/boot" "none" "rw,relatime" "/boot ESP bind-mount"
+    fi
 
 	fi
 
@@ -1071,30 +1161,15 @@ EOF
 
     if [ "$IMAGE_BOOT_REFERENCE" = "label" ]; then
 
-    	cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-write_log "  Add /media/sdcard entry"
-# shellcheck disable=SC2169
-echo -e "LABEL=boot\t/media/sdcard\tvfat\trw,relatime 0 2" >> /etc/fstab
-EOF
+      add_fstab_entry LABEL "boot" "/media/sdcard" "vfat" "rw,relatime" "/media/sdcard"
 
     else
 
-    	cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-write_log "  Add /media/sdcard entry"
-# shellcheck disable=SC2169
-echo -e "UUID=$RPI_BOOT_FS_UUID\\t/media/sdcard\\tvfat\\trw,relatime 0 2" >> /etc/fstab
-EOF
+      add_fstab_entry UUID "$RPI_BOOT_FS_UUID" "/media/sdcard" "vfat" "rw,relatime" "/media/sdcard"
 
 		fi
 
-    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-write_log "  Add /boot bind-mount entry"
-# shellcheck disable=SC2169
-echo -e "/media/sdcard\t/boot\t\tnone\tbind,rw,relatime 0 0" >> /etc/fstab
-EOF
+    add_fstab_entry BIND "/media/sdcard" "/boot" "none" "rw,relatime" "/boot bind-mount"
 
 #    if [ "$PHYSICAL_TYPE" = "rpi4" ]; then
 #      # RPI4
@@ -1134,7 +1209,7 @@ EOF
 {
   # Debug
   write_debug_log "  Resultant /etc/fstab contents:"
-  cat /etc/fstab >> \$LOGFILE
+  cat /etc/fstab >> "\$LOGFILE"
 }
 EOF
   fi
@@ -1273,7 +1348,7 @@ EOF
       fi
 
       cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-FEATURES="\$FEATURES ext4 keymap kms mmc network"
+FEATURES="\$FEATURES ext4 keymap kms mmc network usb"
 EOF
 
     fi
@@ -1299,7 +1374,7 @@ EOF
     fi
 
     cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-FEATURES="\$FEATURES ext4 keymap kms network virtio"
+FEATURES="\$FEATURES ext4 keymap kms network scsi virtio"
 EOF
 
   fi
@@ -1341,79 +1416,56 @@ EOF
 EOF
   fi
 
+  # ata.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/ata.modules"
+
+:> /etc/mkinitfs/features.d/ata.modules
 EOF
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/ata.modules
-	# This file is empty for Cloud machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "ata" "# This file is empty for Cloud machines"
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
     # Physical machine
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/ata.modules
-	kernel/drivers/ata/ahci.ko
-	kernel/drivers/ata/ahci_platform.ko
-	kernel/drivers/ata/ata_generic.ko
-	kernel/drivers/ata/ata_piix.ko
-	kernel/drivers/ata/libahci.ko
-	kernel/drivers/ata/libahci_platform.ko
-	kernel/drivers/ata/libata.ko
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "ata" "kernel/drivers/ata/ahci.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/ahci_platform.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/ata_generic.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/ata_piix.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/libahci.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/libahci_platform.ko"
+      add_initramfs_entry "ata" "kernel/drivers/ata/libata.ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/ata.modules
-	# This file is empty for Raspberry Pi machines
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "ata" "# This file is empty for Raspberry Pi machines"
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual Machine
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/ata.modules
-	# This file is empty for Virtual Machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "ata" "# This file is empty for Virtual machines"
 
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/ata.modules-orig \
     /etc/mkinitfs/features.d/ata.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/ata.modules-orig
 
   cp /etc/mkinitfs/features.d/base.modules \
     /etc/mkinitfs/features.d/base.modules-orig
@@ -1421,52 +1473,50 @@ EOF
 EOF
   fi
 
+  # base.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/base.modules"
 
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/base.modules
-	kernel/crypto/jitterentropy_rng.ko
+:> /etc/mkinitfs/features.d/base.modules
 EOF
+
+  if [ "$IMAGE_ARCH" != "aarch86" ] || \
+     [ "$IMAGE_TYPE" != "vm" ]; then
+
+    # jitterentropy_rng is a module for all machines except for
+    # aarch64 VMs where it is compiled into the linux-virt kernel.
+
+    add_initramfs_entry "base" "kernel/crypto/jitterentropy_rng.ko"
+
+  fi
 
   if [ "$IMAGE_ARCH" = "aarch64" ]; then
     if [ "$IMAGE_CLASS" = "cloud" ] || \
        [ "$IMAGE_CLASS" = "vm" ]; then
-
       # aarch64 Cloud and Virtual machines
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Cloud & VM
-	kernel/drivers/acpi/button.ko
-EOF
+      add_initramfs_entry "base" "kernel/drivers/acpi/button.ko"
     fi
   fi
 
   if [ "$IMAGE_ARCH" = "x86" ] || \
      [ "$IMAGE_ARCH" = "x86_64" ]; then
-
     # all x86 and x86_64 machines
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# x86_64
-	kernel/drivers/acpi/button.ko
-EOF
+    add_initramfs_entry "base" "kernel/drivers/acpi/button.ko"
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	_SCRIPT_
-EOF
-
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/base.modules-orig \
     /etc/mkinitfs/features.d/base.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/base.modules-orig
 
   cp /etc/mkinitfs/features.d/kms.modules \
     /etc/mkinitfs/features.d/kms.modules-orig
@@ -1474,59 +1524,27 @@ EOF
 EOF
   fi
 
+  # kms.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/kms.modules"
+
+:> /etc/mkinitfs/features.d/kms.modules
 EOF
 
-  if [ "$IMAGE_ARCH" = "aarch64" ]; then
-
-    # Aarch64
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/kms.modules
-	# aarch64
-	###kernel/drivers/gpu/drm
-	kernel/drivers/i2c
-	kernel/drivers/video/fbdev/core
-EOF
-
-  elif [ "$IMAGE_ARCH" = "x86" ] || \
-       [ "$IMAGE_ARCH" = "x86_64" ]; then
-
-    # x86 or x86_64
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/kms.modules
-	# x86 or x86_64
-	kernel/drivers/gpu/drm/ttm
-	kernel/drivers/gpu/drm/*.ko
-	kernel/drivers/i2c/algos
-	kernel/drivers/i2c/*.ko
-	kernel/drivers/video/fbdev/core
-	kernel/drivers/video/fbdev/uvesafb.ko
-	kernel/drivers/video/fbdev/vga16fb.ko
-EOF
-
-  fi
+  add_initramfs_entry "kms" "kernel/drivers/i2c/i2c-core.ko"
+  add_initramfs_entry "kms" "kernel/drivers/video/fbdev/core"
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
+    add_initramfs_entry "kms" "kernel/drivers/gpu/drm/virtio"
 
     if [ "$CLOUD_TYPE" = "azure" ] || \
        [ "$CLOUD_TYPE" = "generic" ]; then
-
       # Azure
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Azure
-	kernel/drivers/video/fbdev/core
-	kernel/drivers/video/fbdev/hyperv_fb.ko
-EOF
-
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/hyperv_fb.ko"
     fi
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
@@ -1534,73 +1552,75 @@ EOF
     # Physical machine
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# x86_64 physical machine
-	kernel/drivers/char/agp/agpgart.ko
-	kernel/drivers/char/agp/amd64-agp.ko
-	kernel/drivers/char/agp/intel-agp.ko
-	kernel/drivers/char/agp/intel-gtt.ko
-	kernel/drivers/gpu/drm/amd
-	kernel/drivers/gpu/drm/gma500
-	kernel/drivers/gpu/drm/i2c
-	kernel/drivers/gpu/drm/i915
-	kernel/drivers/gpu/drm/nouveau
-	kernel/drivers/gpu/drm/radeon
-	kernel/drivers/gpu/drm/scheduler
-	kernel/drivers/i2c/busses/i2c-amd*.ko
-	kernel/drivers/i2c/busses/i2c-piix4.ko
-	kernel/drivers/video/fbdev/aty/radeonfb.ko
-	kernel/drivers/video/fbdev/intelfb
-	kernel/drivers/video/fbdev/nvidia
-EOF
-
+      add_initramfs_entry "kms" "kernel/drivers/char/agp/agpgart.ko"
+      add_initramfs_entry "kms" "kernel/drivers/char/agp/amd64-agp.ko"
+      add_initramfs_entry "kms" "kernel/drivers/char/agp/intel-agp.ko"
+      add_initramfs_entry "kms" "kernel/drivers/char/agp/intel-gtt.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/amd"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/gma500"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/i2c"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/i915"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/nouveau"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/radeon"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/scheduler"
+      add_initramfs_entry "kms" "kernel/drivers/i2c/busses/i2c-amd*.ko"
+      add_initramfs_entry "kms" "kernel/drivers/i2c/busses/i2c-piix4.ko"
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/aty/radeonfb.ko"
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/intelfb"
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/nvidia"
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/uvesafb.ko"
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/vga16fb.ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Raspberry Pi
-	###kernel/drivers/gpu
-	kernel/drivers/gpu/drm/vc4/vc4.ko
-	kernel/drivers/i2c
-	kernel/drivers/video/fbdev/core
-EOF
-
+      add_initramfs_entry "kms" "# kernel/drivers/gpu"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/vc4/vc4.ko"
+      add_initramfs_entry "kms" "kernel/drivers/i2c"
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual Machine
+    add_initramfs_entry "kms" "# kernel/drivers/gpu/drm/virtio"
 
     if [ "$VM_TYPE" = "hyperv" ] || \
        [ "$VM_TYPE" = "generic" ]; then
+      # Hyper-V
+      add_initramfs_entry "kms" "kernel/drivers/video/fbdev/hyperv_fb.ko"
+    fi
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Hyperv
-	kernel/drivers/video/fbdev/hyperv_fb.ko
-EOF
+    if [ "$VM_TYPE" = "qemu" ] || \
+       [ "$VM_TYPE" = "generic" ]; then
+      # QEMU
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/drm.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/drm_kms_helper.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/drm_panel_orientation_quirks.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/drm_ttm_helper.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/drm_vram_helper.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/bochs/bochs-drm.ko"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/ttm"
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/virtio"
+    fi
 
+    if [ "$VM_TYPE" = "virtualbox" ] || \
+       [ "$VM_TYPE" = "generic" ]; then
+      # Virtualbox
+      add_initramfs_entry "kms" "kernel/drivers/gpu/drm/vboxvideo/vboxvideo.ko"
     fi
 
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	_SCRIPT_
-EOF
-
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/kms.modules-orig \
     /etc/mkinitfs/features.d/kms.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/kms.modules-orig
 
   cp /etc/mkinitfs/features.d/network.modules \
     /etc/mkinitfs/features.d/network.modules-orig
@@ -1608,45 +1628,33 @@ EOF
 EOF
   fi
 
+  # network.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/network.modules"
 
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/network.modules
-	kernel/net/packet/af_packet.ko
+:> /etc/mkinitfs/features.d/network.modules
 EOF
+
+  add_initramfs_entry "network" "kernel/net/packet/af_packet.ko"
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	kernel/drivers/net/virtio_net.ko
-	kernel/drivers/virtio/virtio_pci.ko
-EOF
+    add_initramfs_entry "network" "kernel/drivers/net/virtio_net.ko"
+    add_initramfs_entry "network" "kernel/drivers/virtio/virtio_pci.ko"
 
     if [ "$CLOUD_TYPE" = "aws" ] || \
        [ "$CLOUD_TYPE" = "generic" ]; then
-
       # AWS
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# AWS
-	kernel/drivers/net/ethernet/amazon/ena
-EOF
-
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/amazon/ena"
     fi
 
     if [ "$CLOUD_TYPE" = "azure" ] || \
        [ "$CLOUD_TYPE" = "generic" ]; then
-
       # Azure
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Azure
-	kernel/drivers/net/hyperv
-EOF
-
+      add_initramfs_entry "network" "kernel/drivers/net/hyperv"
     fi
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
@@ -1654,88 +1662,71 @@ EOF
     # Physical machine
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# x86_64 physical machine
-	kernel/drivers/net/ethernet/atheros/alx
-	kernel/drivers/net/ethernet/broadcom/tg3.ko
-	kernel/drivers/net/ethernet/intel/e1000
-	kernel/drivers/net/ethernet/intel/e1000e
-	kernel/drivers/net/ethernet/intel/i40e
-	kernel/drivers/net/ethernet/intel/ice
-	kernel/drivers/net/ethernet/intel/igb
-	kernel/drivers/net/ethernet/intel/igbvf
-	kernel/drivers/net/ethernet/intel/igc
-	kernel/drivers/net/ethernet/intel/ixgb
-	kernel/drivers/net/ethernet/intel/ixgbe
-	kernel/drivers/net/ethernet/intel/ixgbevf
-	kernel/drivers/net/ethernet/nvidia
-	kernel/drivers/net/ethernet/realtek/r8169.ko
-	kernel/drivers/net/mii.ko
-	kernel/drivers/net/phy/realtek.ko
-EOF
-
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/atheros/alx"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/broadcom/tg3.ko"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/e1000"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/e1000e"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/i40e"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/ice"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/igb"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/igbvf"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/igc"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/ixgb"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/ixgbe"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/intel/ixgbevf"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/nvidia"
+      add_initramfs_entry "network" "kernel/drivers/net/ethernet/realtek/r8169.ko"
+      add_initramfs_entry "network" "kernel/drivers/net/mii.ko"
+      add_initramfs_entry "network" "kernel/drivers/net/phy/realtek.ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Raspberry Pi
-	#????????
-EOF
-
+      add_initramfs_entry "network" "# No additions for Raspberry Pi machines"
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual machine
 
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# Virtual machine
-	kernel/drivers/net/virtio_net.ko
-	kernel/drivers/virtio/virtio_pci.ko
-EOF
-
     if [ "$VM_TYPE" = "hyperv" ] || \
        [ "$VM_TYPE" = "generic" ]; then
+      # Hyper-V
+      add_initramfs_entry "network" "kernel/drivers/net/hyperv"
+    fi
 
-      # HyperV
+    if [ "$VM_TYPE" = "qemu" ] || \
+       [ "$VM_TYPE" = "generic" ]; then
+      # QEMU
+      add_initramfs_entry "network" "kernel/drivers/net/virtio_net.ko"
+      add_initramfs_entry "network" "kernel/drivers/virtio/virtio_pci.ko"
+    fi
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# HyperV
-	kernel/drivers/net/hyperv
-EOF
+    if [ "$VM_TYPE" = "virtualbox" ] || \
+       [ "$VM_TYPE" = "generic" ]; then
+      # Virtualbox
+      add_initramfs_entry "network" "kernel/drivers/net/virtio_net.ko"
+      add_initramfs_entry "network" "kernel/drivers/virtio/virtio_pci.ko"
     fi
 
     if [ "$VM_TYPE" = "vmware" ] || \
        [ "$VM_TYPE" = "generic" ]; then
-
       # VMware
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	# VMware
-	kernel/drivers/net/vmxnet3
-EOF
+      add_initramfs_entry "network" "kernel/drivers/net/vmxnet3"
     fi
 
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-	_SCRIPT_
-EOF
-
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/network.modules-orig \
     /etc/mkinitfs/features.d/network.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/network.modules-orig
 
   cp /etc/mkinitfs/features.d/nvme.modules \
     /etc/mkinitfs/features.d/nvme.modules-orig
@@ -1743,9 +1734,13 @@ EOF
 EOF
   fi
 
+  # nvme.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/nvme.modules"
+
+:> /etc/mkinitfs/features.d/nvme.modules
 EOF
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
@@ -1754,24 +1749,10 @@ EOF
 
     if [ "$CLOUD_TYPE" = "aws" ] || \
        [ "$CLOUD_TYPE" = "generic" ]; then
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/nvme.modules
-	# AWS
-	kernel/drivers/nvme/host/nvme.ko
-	_SCRIPT_
-EOF
-
+      # AWS
+      add_initramfs_entry "nvme" "kernel/drivers/nvme/host/nvme.ko"
     else
-
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/nvme.modules
-	# This file is empty for non-AWS Cloud machines
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "nvme" "# This file is empty for non-AWS Cloud machines"
     fi
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
@@ -1779,52 +1760,31 @@ EOF
     # Physical
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/nvme.modules
-	kernel/drivers/nvme/host/nvme.ko
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "nvme" "kernel/drivers/nvme/host/nvme.ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/nvme.modules
-	# This file is empty for Raspberry Pi machines
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "nvme" "# This file is empty for Raspberry Pi machines"
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual machine
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/nvme.modules
-	# This file is empty for Virtual machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "nvme" "# This file is empty for Virtual machines"
 
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/nvme.modules-orig \
     /etc/mkinitfs/features.d/nvme.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/nvme.modules-orig
 
   cp /etc/mkinitfs/features.d/scsi.modules \
     /etc/mkinitfs/features.d/scsi.modules-orig
@@ -1832,83 +1792,61 @@ EOF
 EOF
 fi
 
+  # scsi.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/scsi.modules"
+
+:> /etc/mkinitfs/features.d/scsi.modules
 EOF
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/scsi.modules
-	# Cloud machines
-	kernel/drivers/scsi/sr_mod.ko
-	kernel/drivers/scsi/virtio_scsi.ko
-	_SCRIPT_
-EOF
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/scsi_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/sd_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/sr_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/virtio_scsi.ko"
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
     # Physical
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/scsi.modules
-	kernel/drivers/scsi/scsi_mod.ko
-	kernel/drivers/scsi/sd_mod.ko
-	kernel/drivers/scsi/ses.ko
-	kernel/drivers/scsi/sg.ko
-	kernel/drivers/scsi/sr_mod.ko
-	kernel/drivers/scsi/*iscsi*.ko
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/scsi_mod.ko"
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/sd_mod.ko"
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/ses.ko"
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/sg.ko"
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/sr_mod.ko"
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/*iscsi*.ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/scsi.modules
-	# Raspberry Pi machines
-	kernel/drivers/scsi/ses.ko
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "scsi" "kernel/drivers/scsi/ses.ko"
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual machine
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/scsi.modules
-	# x86 and x86_64 Virtual machines
-	kernel/drivers/scsi/sr_mod.ko
-	kernel/drivers/scsi/virtio_scsi.ko
-	_SCRIPT_
-EOF
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/scsi_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/sd_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/sr_mod.ko"
+    add_initramfs_entry "scsi" "kernel/drivers/scsi/virtio_scsi.ko"
 
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/scsi.modules-orig \
     /etc/mkinitfs/features.d/scsi.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/scsi.modules-orig
 
   cp /etc/mkinitfs/features.d/usb.modules \
     /etc/mkinitfs/features.d/usb.modules-orig
@@ -1916,102 +1854,78 @@ EOF
 EOF
   fi
 
+  # usb.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/usb.modules"
+
+:> /etc/mkinitfs/features.d/usb.modules
 EOF
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/usb.modules
-	# This file is empty for Cloud machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "usb" "# This file is empty for Cloud machines"
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
     # Physical
 
     if [ "$PHYSICAL_TYPE" = "pc" ]; then
-
       # x86 or x86_64 PC
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/usb.modules
-	# x86 or x86_64 Physical machines
-	kernel/drivers/usb/storage/uas.ko
-	kernel/drivers/hid/usbhid
-	kernel/drivers/hid/hid-generic.ko
-	kernel/drivers/hid/hid-cherry.ko
-	kernel/drivers/hid/hid-apple.ko
-	kernel/drivers/usb/host/ehci-hcd.ko
-	kernel/drivers/usb/host/ehci-pci.ko
-	kernel/drivers/usb/host/ehci-platform.ko
-	kernel/drivers/usb/host/ohci-hcd.ko
-	kernel/drivers/usb/host/ohci-pci.ko
-	kernel/drivers/usb/host/ohci-platform.ko
-	kernel/drivers/usb/host/uhci-hcd.ko
-	kernel/drivers/usb/host/xhci-hcd.ko
-	kernel/drivers/usb/host/xhci-pci.ko
-	kernel/drivers/usb/host/xhci-plat-hcd.ko
-	kernel/drivers/usb/storage/usb-storage.ko
-	kernel/fs/fat
-	kernel/fs/nls/nls_cp*ko
-	kernel/fs/nls/nls_iso8859*ko
-	kernel/fs/nls/nls_utf8*ko
-	_SCRIPT_
-EOF
-
+      add_initramfs_entry "usb" "kernel/drivers/usb/storage/uas.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/usbhid"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-generic.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-cherry.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-apple.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ehci-hcd.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ehci-pci.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ehci-platform.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ohci-hcd.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ohci-pci.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/ohci-platform.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/uhci-hcd.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/xhci-hcd.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/xhci-pci.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/host/xhci-plat-hcd.ko"
+      add_initramfs_entry "usb" "kernel/drivers/usb/storage/usb-storage.ko"
+      add_initramfs_entry "usb" "kernel/fs/fat"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_cp*ko"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_iso8859*ko"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_utf8*ko"
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-
       # RPI 2, 3, or 4
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/usb.modules
-	# Raspberry Pi machines
-	kernel/drivers/usb/storage/uas.ko
-	kernel/drivers/hid/usbhid
-	kernel/drivers/hid/hid-generic.ko
-	kernel/drivers/hid/hid-cherry.ko
-	kernel/drivers/hid/hid-apple.ko
-	kernel/fs/fat
-	kernel/fs/nls/nls_cp*ko
-	kernel/fs/nls/nls_iso8859*ko
-	kernel/fs/nls/nls_utf8*ko
-	_SCRIPT_
-EOF
+      add_initramfs_entry "usb" "kernel/drivers/usb/storage/uas.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/usbhid"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-generic.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-cherry.ko"
+      add_initramfs_entry "usb" "kernel/drivers/hid/hid-apple.ko"
+      add_initramfs_entry "usb" "kernel/fs/fat"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_cp*ko"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_iso8859*ko"
+      add_initramfs_entry "usb" "kernel/fs/nls/nls_utf8*ko"
 
     fi
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual machine
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/usb.modules
-	# This file is empty for Virtual machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "usb" "# This file is empty for Virtual machines"
 
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/usb.modules-orig \
     /etc/mkinitfs/features.d/usb.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/usb.modules-orig
 
   cp /etc/mkinitfs/features.d/virtio.modules \
     /etc/mkinitfs/features.d/virtio.modules-orig
@@ -2019,63 +1933,55 @@ EOF
 EOF
   fi
 
+  # virtio.modules
+
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Setting up features.d/virtio.modules"
+
+:> /etc/mkinitfs/features.d/virtio.modules
 EOF
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
 
     # Cloud
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/virtio.modules
-	# Cloud
-	kernel/drivers/char/virtio*
-	kernel/drivers/char/hw_random/virtio*
-	_SCRIPT_
-EOF
+    add_initramfs_entry "virtio" "kernel/drivers/char/virtio*"
+    add_initramfs_entry "virtio" "kernel/drivers/char/hw_random/virtio*"
+    add_initramfs_entry "virtio" "kernel/drivers/crypto/virtio*"
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
     # Physical
-
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/virtio.modules
-	# This file is empty for Physical machines
-	_SCRIPT_
-EOF
+    add_initramfs_entry "virtio" "# This file is empty for Physical machines"
 
   elif [ "$IMAGE_CLASS" = "vm" ]; then
 
     # Virtual machine
+    add_initramfs_entry "virtio" "kernel/drivers/block/virtio*"
+    add_initramfs_entry "virtio" "kernel/drivers/char/virtio*"
+    add_initramfs_entry "virtio" "kernel/drivers/char/hw_random/virtio*"
+    add_initramfs_entry "virtio" "kernel/drivers/virtio"
+    add_initramfs_entry "virtio" "kernel/drivers/net/virtio_net*"
 
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/virtio.modules
-	# Virtual machine
-	kernel/drivers/block/virtio*
-	kernel/drivers/char/virtio*
-	kernel/drivers/char/hw_random/virtio*
-	kernel/drivers/virtio
-	kernel/drivers/net/virtio_net*
-	_SCRIPT_
-EOF
+    if [ "$VM_TYPE" = "virtualbox" ] || \
+       [ "$VM_TYPE" = "generic" ]; then
+      # Virtualbox
+      add_initramfs_entry "virtio" "kernel/drivers/virt/vboxguest/vboxguest.ko"
+    fi
 
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/mkinitfs/features.d/virtio.modules-orig \
     /etc/mkinitfs/features.d/virtio.modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/mkinitfs/features.d/virtio.modules-orig
 }
 EOF
   fi
@@ -2218,7 +2124,9 @@ define_cloud_settings() {
       ;;
     aws )
       DATASOURCE_LIST="'Ec2'"
-      SERIAL_CONSOLE="true"
+      if [ -z "${DISABLE_SERIAL+x}" ]; then
+        SERIAL_CONSOLE="true"
+      fi
       ;;
     azure )
       DATASOURCE_LIST="'Azure'"
@@ -2252,9 +2160,11 @@ define_cloud_settings() {
       ;;
     oracle )
       DATASOURCE_LIST="'Oracle'"
-      SERIAL_CONSOLE="true"
-      SERIAL_PORT_NUMBER="0"
-      SERIAL_PORT_NAME="ttyS${SERIAL_PORT_NUMBER}"
+      if [ -n "${DISABLE_SERIAL+x}" ]; then
+        SERIAL_CONSOLE="true"
+        SERIAL_PORT_NUMBER="0"
+        SERIAL_PORT_NAME="ttyS${SERIAL_PORT_NUMBER}"
+      fi
       ;;
     rootbox )
       DATASOURCE_LIST="'RbxCloud'"
@@ -2310,6 +2220,16 @@ EOF
 
 
 #
+#
+#
+detect_host_os() {
+  os=$(grep "^ID" /etc/os-release | sed -e 's/^ID=//')
+  echo "$os"
+}
+
+
+
+#
 # Disable most of the gettys normally configured to run
 #
 disable_extra_getty() {
@@ -2341,17 +2261,37 @@ sed -i -E -e 's|^tty([${FIRST_GETTY_TO_DISABLE}-6].*)|#tty\1|g' /etc/inittab
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/inittab-orig /etc/inittab \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/inittab-orig
 }
 EOF
   fi
+
+}
+
+
+
+#
+# Disable non-server specific kernel modules
+#
+disable_kernel_modules() {
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "Disable non-server kernel modules"
+
+cat <<-_SCRIPT_ > /etc/modprobe.d/disable-basic-driver-modules.conf
+	install evdev /bin/true
+	install mousedev /bin/true
+	install psmouse /bin/true
+	_SCRIPT_
+EOF
 
 }
 
@@ -2419,12 +2359,12 @@ EOF
 
   if [ "$DEBUG" = "true" ]; then
 
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/inittab-orig /etc/inittab \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/inittab-orig
 }
@@ -2447,12 +2387,12 @@ EOF
 
     if [ "$DEBUG" = "true" ]; then
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+      cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/default/grub-orig /etc/default/grub \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/default/grub-orig
 }
@@ -2475,12 +2415,12 @@ EOF
 
     if [ "$DEBUG" = "true" ]; then
 
-      cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+      cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/update-extlinux.conf-orig
 }
@@ -2489,6 +2429,24 @@ EOF
 
   fi
 
+}
+
+
+
+#
+#
+#
+error_cleanup() {
+  write_log "An error occurred, cleaning up before aborting!"
+
+  normal_cleanup
+
+  if [ -n "${RAMDISK_DIRECTORY+x}" ] && \
+     [ "$(mount | grep "$RAMDISK_DIRECTORY")" != "" ]; then
+    write_log "Unmounting ramdisk"
+    umount "$RAMDISK_DIRECTORY" >> "$LOGFILE"
+    rmdir "$RAMDISK_DIRECTORY"
+  fi
 }
 
 
@@ -2518,6 +2476,9 @@ EOF
 install_alpine_base() {
 
   BASE_PACKAGES="alpine-base"
+  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+    BASE_PACKAGES="$BASE_PACKAGES efibootmgr efivar"
+  fi
 
   # RPI alpine-base doesn't depend on mkinitfs so add it to list.
   if [ "$IMAGE_CLASS" = "physical" ] && \
@@ -2530,7 +2491,7 @@ install_alpine_base() {
 
     BOOTLOADER_PACKAGES="grub"
     if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
-      BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES efibootmgr grub-efi"
+      BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES dosfstools grub-efi"
     else
       BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES grub-bios"
     fi
@@ -2539,6 +2500,9 @@ install_alpine_base() {
   elif [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
 
     BOOTLOADER_PACKAGES="syslinux"
+    if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+      BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES dosfstools"
+    fi
     BASE_PACKAGES="$BASE_PACKAGES $BOOTLOADER_PACKAGES"
 
   elif [ "$IMAGE_CLASS" = "physical" ] && \
@@ -2594,11 +2558,6 @@ install_grub() {
 EOF
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-  write_log "  Install GRUB bootloader"
-EOF
-
   if [ "$DEBUG" = "true" ]; then
     GRUB_OPTIONS="--verbose"
   else
@@ -2619,13 +2578,39 @@ EOF
 
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
-  grub-install \
-    $GRUB_OPTIONS \
-    --target=$GRUB_TARGET \
-    $ROOT_PART_DEVICE \
-    >> \$LOGFILE \
-    2>&1
+write_log "  Installing GRUB bootloader"
+grub-install \
+  $GRUB_OPTIONS \
+  --target=$GRUB_TARGET \
+  $LOOP_DEVICE \
+  >> \$LOGFILE \
+  2>&1
 EOF
+
+  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+mkdir -p /efi/EFI/boot
+EOF
+
+    case $IMAGE_ARCH in
+      aarch64 )
+        EFI_ARCH_FILE_INSERT="aa64"
+        ;;
+      x86_64 )
+        EFI_ARCH_FILE_INSERT="x64"
+        ;;
+    esac
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "  Creating UEFI default boot file"
+cp /efi/EFI/alpine/grub${EFI_ARCH_FILE_INSERT}.efi \
+  /efi/EFI/boot/boot${EFI_ARCH_FILE_INSERT}.efi
+EOF
+
+  fi
 
 }
 
@@ -2735,14 +2720,23 @@ install_syslinux() {
 
 # Debug
 cp /boot/extlinux.conf /boot/extlinux.conf-orig
+write_debug_log "/boot/extlinux.conf contents are start:"
+cat /boot/extlinux.conf >> \$LOGFILE
 EOF
   fi
 
   cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "Installing Syslinux"
+EOF
 
-write_log "  Installing MBR"
+  if [ "$IMAGE_BOOT_TYPE" = "bios" ]; then
+
+    # BIOS
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "  Installing BIOS MBR"
 dd \
   bs=440 \
   count=1 \
@@ -2751,27 +2745,133 @@ dd \
   of="$LOOP_DEVICE" \
   >> $LOGFILE 2>&1
 
-write_log "  Installing Syslinux files in /boot directory"                        
+write_log "  Installing Syslinux files in /boot directory"
 extlinux --install /boot/ >> $LOGFILE 2>&1
+
+write_debug_log "/boot/extlinux.conf contents after extlinux --install:"
+cat /boot/extlinux.conf >> \$LOGFILE
+EOF
+
+  else
+
+    # UEFI
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+#write_log "  Installing Syslinux files in EFI/alpine"
+#mkdir -p /boot/EFI/alpine
+#cp \
+#  /boot/initramfs-* \
+#  /boot/vmlinuz-* \
+#  /usr/share/syslinux/efi64/syslinux.efi \
+#  /usr/share/syslinux/efi64/ldlinux.e64 \
+#  /usr/share/syslinux/efi64/libcom32.c32 \
+#  /usr/share/syslinux/efi64/libutil.c32 \
+#  /usr/share/syslinux/efi64/mboot.c32 \
+#  /usr/share/syslinux/efi64/menu.c32 \
+#  /usr/share/syslinux/efi64/vesamenu.c32 \
+#  /boot/EFI/alpine/
+
+#write_log "  Installing Syslinux files in EFI/boot"
+#mkdir -p /boot/EFI/BOOT
+#cp \
+#  /usr/share/syslinux/efi64/syslinux.efi \
+#  /boot/EFI/boot/bootx64.efi
+#cp \
+#  /boot/initramfs-* \
+#  /boot/vmlinuz-* \
+#  /usr/share/syslinux/efi64/ldlinux.e64 \
+#  /boot/EFI/alpine/*.c32 \
+#  /boot/EFI/boot/
+
+write_log "  Installing Syslinux UEFI files in EFI/BOOT aka /boot"
+cp \
+  /usr/share/syslinux/efi64/syslinux.efi \
+  /boot/bootx64.efi
+rm \
+  /boot/*.c32
+cp \
+  /usr/share/syslinux/efi64/syslinux.c32 \
+  /usr/share/syslinux/efi64/ldlinux.e64 \
+  /usr/share/syslinux/efi64/libcom32.c32 \
+  /usr/share/syslinux/efi64/libutil.c32 \
+  /usr/share/syslinux/efi64/mboot.c32 \
+  /usr/share/syslinux/efi64/menu.c32 \
+  /usr/share/syslinux/efi64/vesamenu.c32 \
+  /boot/
+
+write_debug_log "  After installing Syslinux UEFI files"
+ls -ltrR /boot/ >> \$LOGFILE
+
+write_debug_log "/boot/extlinux.conf contents:"
+cat /boot/extlinux.conf >> \$LOGFILE
+EOF
+
+  fi
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_debug_log "  Before update-extlinux"
+ls -ltrR /boot/ >> \$LOGFILE
 
 write_log "  Updating extlinux.conf file"
 update-extlinux --verbose --warn-only >> $LOGFILE 2>&1
+
+write_debug_log "/boot/extlinux.conf contents after update-extlinux:"
+cat /boot/extlinux.conf >> \$LOGFILE
 
 write_log "  Fix permissions on extlinux.conf files"
 chmod g=,o= /boot/extlinux.conf*
 EOF
 
- if [ "$DEBUG" = "true" ]; then
+  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+
+    # UEFI
+
     cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
+write_debug_log "/boot/extlinux.conf contents after everything:"
+cat /boot/extlinux.conf >> \$LOGFILE
+write_debug_log "  After everything"
+ls -ltrR /boot/ >> \$LOGFILE
+EOF
+
+  fi
+
+  if [ "$DEBUG" = "true" ]; then
+
+    if [ "$IMAGE_BOOT_TYPE" = "bios" ]; then
+
+      # BIOS
+
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
 diff /boot/extlinux.conf-orig /boot/extlinux.conf \
-  >> \$LOGFILE \
+  >> "$LOGFILE" \
   || true
 rm /boot/extlinux.conf-orig
 
 write_debug_log "  extlinux.conf contents:"
-cat /boot/extlinux.conf >> \$LOGFILE
+cat /boot/extlinux.conf >> "$LOGFILE"
 EOF
+
+    else
+
+      # UEFI
+
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+diff /boot/extlinux.conf-orig /boot/extlinux.conf \
+  >> "$LOGFILE" \
+  || true
+rm /boot/extlinux.conf-orig
+
+write_debug_log "  extlinux.conf contents:"
+cat /boot/extlinux.conf >> "$LOGFILE"
+EOF
+
+    fi
+
   fi
 
 }
@@ -2799,29 +2899,17 @@ normal_cleanup() {
     umount -l -f "$CHROOT_DIRECTORY"/proc >> "$LOGFILE"
   fi
 
-  if [ "$IMAGE_ARCH" = "aarch64" ] && \
-     [ "$IMAGE_CLASS" = "cloud" ] && \
-     [ "$IMAGE_BOOT_TYPE" = "uefi" ] && \
-     mount | grep -q "$CHROOT_DIRECTORY/efi" ; then
-
-    # aarch64 cloud using UEFI
+  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
 
     # Unmount ESP partition
-    write_log "  unmounting ESP filesystem"
-    umount -l -f "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+    write_log "  Unmounting ESP filesystem"
 
-  fi
-
-  if [ "$IMAGE_ARCH" = "x86_64" ] && \
-     [ "$IMAGE_BOOT_TYPE" = "uefi" ] && \
-     mount | grep -q "$CHROOT_DIRECTORY/efi" ; then
-
-    # x86_64 cloud, physical and VMs using UEFI
-
-    # Unmount ESP partition
-    write_log "  unmounting ESP filesystem"
-    umount -l -f "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
-
+    if [ "$IMAGE_BOOTLOADER" = "grub" ]; then
+      umount -l -f "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+    else
+      umount -l -f "$CHROOT_DIRECTORY"/boot >> "$LOGFILE"
+      umount -l -f "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+    fi
   fi
 
   if [ "$IMAGE_CLASS" = "physical" ] && \
@@ -2866,31 +2954,6 @@ normal_cleanup() {
 }
 
 
-#
-#
-#
-error_cleanup() {
-  write_log "An error occurred, cleaning up before aborting!"
-
-  normal_cleanup
-
-  if [ -n "${RAMDISK_DIRECTORY+x}" ] && \
-     [ "$(mount | grep "$RAMDISK_DIRECTORY")" != "" ]; then
-    write_log "Unmounting ramdisk"
-    umount "$RAMDISK_DIRECTORY" >> "$LOGFILE"
-    rmdir "$RAMDISK_DIRECTORY"
-  fi
-}
-
-
-#
-#
-#
-detect_host_os() {
-  os=$(grep "^ID" /etc/os-release | sed -e 's/^ID=//')
-  echo "$os"
-}
-
 
 #
 # Create relevant filesystems for the disk image and mount these
@@ -2911,7 +2974,7 @@ format_and_mount_fs() {
       UEFI_PART_DEVICE="${LOOP_DEVICE}p${UEFI_PART_NUM}"
 
       write_log "  Formatting FAT32 filesystem on ESP partition"
-      mkfs.fat -F32 -n System_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
+      mkfs.fat -F32 -n SYSTEM_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
 
       if [ "$IMAGE_BOOT_REFERENCE" = "uuid" ]; then
         ESP_FS_UUID="$(blkid -s UUID "$UEFI_PART_DEVICE" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
@@ -2924,7 +2987,7 @@ format_and_mount_fs() {
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
     # Physical machine - they all have cidata and root partitions.
-    #                    RPIs also have boot partition.
+    #                    RPIs also have boot partition (for RPI bootloader).
     #                    PCs if booting via UEFI also have ESP partition.
 
     case $PHYSICAL_TYPE in
@@ -2937,7 +3000,7 @@ format_and_mount_fs() {
           UEFI_PART_DEVICE="${LOOP_DEVICE}p${UEFI_PART_NUM}"
 
           write_log "  Formatting FAT32 filesystem on ESP partition"
-          mkfs.fat -F32 -n System_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
+          mkfs.fat -F32 -n SYSTEM_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
 
           if [ "$IMAGE_BOOT_REFERENCE" = "uuid" ]; then
             ESP_FS_UUID="$(blkid -s UUID "$UEFI_PART_DEVICE" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
@@ -2954,8 +3017,7 @@ format_and_mount_fs() {
         RPI_BOOT_PART_DEVICE="${LOOP_DEVICE}p${RPI_BOOT_PART_NUM}"
 
         write_log "  Formatting FAT16 filesystem on RPI boot partition"
-        ###mkfs.fat -F32 -n boot "$RPI_BOOT_PART_DEVICE" >> "$LOGFILE" 2>&1
-        mkfs.fat -F16 -s 2 -S 512 -n boot "$RPI_BOOT_PART_DEVICE" \
+        mkfs.fat -F16 -s 2 -S 512 -n BOOT "$RPI_BOOT_PART_DEVICE" \
 				  >> "$LOGFILE" 2>&1
 
         if [ "$IMAGE_BOOT_REFERENCE" = "uuid" ]; then
@@ -2973,7 +3035,7 @@ format_and_mount_fs() {
 
     # Format (minimum sized) FAT16 filesystem for cloud-init
     write_log "  Formatting FAT16 filesystem on cidata partition"
-    mkfs.fat -F16 -s 1 -S 512 -n cidata "$CIDATA_PART_DEVICE" >> "$LOGFILE" 2>&1
+    mkfs.fat -F16 -s 1 -S 512 -n CIDATA "$CIDATA_PART_DEVICE" >> "$LOGFILE" 2>&1
 
   else
 
@@ -2986,7 +3048,7 @@ format_and_mount_fs() {
       UEFI_PART_DEVICE="${LOOP_DEVICE}p${UEFI_PART_NUM}"                        
 
       write_log "  Formatting FAT32 filesystem on ESP partition"                  
-      mkfs.fat -F32 -n System_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
+      mkfs.fat -F32 -n SYSTEM_EFI "$UEFI_PART_DEVICE" >> "$LOGFILE" 2>&1
 
       if [ "$IMAGE_BOOT_REFERENCE" = "uuid" ]; then
         ESP_FS_UUID="$(blkid -s UUID "$UEFI_PART_DEVICE" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
@@ -3032,9 +3094,31 @@ format_and_mount_fs() {
 
     # Create directory for UEFI and mount loopback
     # device ESP partition onto the directory.
-    write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
-    mkdir -p "$CHROOT_DIRECTORY"/efi
-    mount -o private "$UEFI_PART_DEVICE" "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+
+    if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+
+      # When using Syslinux with UEFI then, as the kernel and initramfs
+      # files need to be in the ESP partition it is mounted as /boot.
+
+      write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/boot"
+      mkdir -p "$CHROOT_DIRECTORY"/boot
+      mount \
+        -o private \
+        "$UEFI_PART_DEVICE" \
+        "$CHROOT_DIRECTORY"/boot \
+        >> "$LOGFILE"
+
+    else
+
+      write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
+      mkdir -p "$CHROOT_DIRECTORY"/efi
+      mount \
+        -o private \
+        "$UEFI_PART_DEVICE" \
+        "$CHROOT_DIRECTORY"/efi \
+        >> "$LOGFILE"
+
+    fi
 
   elif [ "$IMAGE_CLASS" = "physical" ]; then
 
@@ -3045,9 +3129,31 @@ format_and_mount_fs() {
 
       # Create directory for UEFI and mount loopback
       # device ESP partition onto the directory.
-      write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
-      mkdir -p "$CHROOT_DIRECTORY"/efi
-      mount -o private "$UEFI_PART_DEVICE" "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+
+      if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+
+        # When using Syslinux with UEFI then, as the kernel and initramfs
+        # files need to be in the ESP partition it is mounted as /boot.
+
+        write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/boot"
+        mkdir -p "$CHROOT_DIRECTORY"/boot
+        mount \
+          -o private \
+          "$UEFI_PART_DEVICE" \
+          "$CHROOT_DIRECTORY"/boot \
+          >> "$LOGFILE"
+
+      else
+
+        write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
+        mkdir -p "$CHROOT_DIRECTORY"/efi
+        mount \
+          -o private \
+          "$UEFI_PART_DEVICE" \
+          "$CHROOT_DIRECTORY"/efi \
+          >> "$LOGFILE"
+
+      fi
 
     elif [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
 
@@ -3055,6 +3161,7 @@ format_and_mount_fs() {
 
       # Create directory for RPI builtin bootloader's use and mount
       # loopback device RPI boot partition onto the directory.
+
       write_log "  Mounting RPI boot filesystem onto $CHROOT_DIRECTORY/boot"
       mkdir -p "$CHROOT_DIRECTORY"/boot
       mount -o private "$RPI_BOOT_PART_DEVICE" "$CHROOT_DIRECTORY"/boot >> "$LOGFILE"
@@ -3063,6 +3170,7 @@ format_and_mount_fs() {
 
     # Create directory for cloud-init YAML files and mount
     # loopback device cidata partition onto CHROOT_DIRECTORY/cidata"
+
     write_log "  Mounting cloud-init YAML filesystem onto $CHROOT_DIRECTORY/cidata"
     mkdir -p "$CHROOT_DIRECTORY"/cidata
     mount -o private "$CIDATA_PART_DEVICE" "$CHROOT_DIRECTORY"/cidata >> "$LOGFILE"
@@ -3074,9 +3182,44 @@ format_and_mount_fs() {
 
     # Create directory for UEFI and mount loopback
     # device ESP partition onto the directory.
-    write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
-    mkdir -p "$CHROOT_DIRECTORY"/efi
-    mount -o private "$UEFI_PART_DEVICE" "$CHROOT_DIRECTORY"/efi >> "$LOGFILE"
+
+    if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+
+      write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
+
+      mkdir -p "$CHROOT_DIRECTORY"/efi
+      mount \
+        -o private \
+        "$UEFI_PART_DEVICE" \
+        "$CHROOT_DIRECTORY"/efi \
+        >> "$LOGFILE"
+
+      # When using Syslinux with UEFI then, as the kernel and initramfs
+      # files need to be in the EFI/BOOT directory of the ESP partition
+      # then EFI/BOOT directory of ESP partition is bind-mounted to /boot.
+      # This ensures that the kernel, initramfs, and extlinux.conf files
+      # are in the ESP partition.
+      write_log "  Bind mounting ESP filesystem's EFI/BOOT onto $CHROOT_DIRECTORY/boot"
+      mkdir -p "$CHROOT_DIRECTORY"/efi/EFI/BOOT
+      mkdir -p "$CHROOT_DIRECTORY"/boot
+      mount \
+        -t none \
+        -o bind \
+        "$CHROOT_DIRECTORY"/efi/EFI/BOOT \
+        "$CHROOT_DIRECTORY"/boot \
+        >> "$LOGFILE"
+
+    else
+
+      write_log "  Mounting ESP filesystem onto $CHROOT_DIRECTORY/efi"
+      mkdir -p "$CHROOT_DIRECTORY"/efi
+      mount \
+        -o private \
+        "$UEFI_PART_DEVICE" \
+        "$CHROOT_DIRECTORY"/efi \
+        >> "$LOGFILE"
+
+    fi
 
   fi
 
@@ -3131,9 +3274,11 @@ parse_cli_options() {
 
   if ! CLI=$(getopt -s sh \
     -o h \
-    -l apk_static_url:,apk_static_version:,arch:,boot_by_label,bootloader:,boottype:,boot_by_uuid,chroot_directory:,cloud:,debug,help,images_directory:,ipv4only,ipv6only,keymap:,local_mirror:,local_mirror_sig_file:,locale:,mirror:,password:,physical:,ramdisk_directory:,release:,use_ramdisk,username:,virtual: \
+    -l apk_static_url:,apk_static_version:,arch:,boot_by_label,bootloader:,boottype:,chroot_directory:,disable_serial,cloud:,debug,help,image_filename:,images_directory:,ipv4only,ipv6only,keymap:,local_repo:,local_repo_sig_file:,locale:,mirror:,password:,physical:,ramdisk_directory:,release:,use_ramdisk,username:,virtual: \
     -n "$0" -- "$@"); then
+    echo
     echo "Terminating..." >&2
+    echo
     exit 2
   fi
 
@@ -3219,9 +3364,19 @@ parse_cli_options() {
         shift
         ;;
 
+      --disable_serial )
+        DISABLE_SERIAL=true
+        shift
+        ;;
+
       -h | --help )
         usage
         exit 0
+        ;;
+
+      --image_filename )
+        IMAGE_FILENAME="$2"
+        shift 2
         ;;
 
       --images_directory )
@@ -3246,12 +3401,12 @@ parse_cli_options() {
         shift 2
         ;;
 
-      --local_mirror )
+      --local_repo )
         LOCAL_ALPINE_REPOSITORY="$2"
         shift 2
         ;;
 
-      --local_mirror_sig_file )
+      --local_repo_sig_file )
         LOCAL_REPO_SIGNATURE_FILE="$2"
         shift 2
         ;;
@@ -3320,7 +3475,7 @@ parse_cli_options() {
       --virtual )
         IMAGE_CLASS="vm"
         case $2 in
-          generic | libvirtd | proxmox | qemu | virtualbox | vmware )
+          generic | hyperv | libvirtd | proxmox | qemu | virtualbox | vmware )
             VM_TYPE=$2
             ;;
           *)
@@ -3427,16 +3582,12 @@ partition_uefi() {
       mkpart primary "$(eval ${UEFI_PART_SIZE} + ${CIDATA_PART_SIZE})" 100% \
       >> "$LOGFILE" 2>&1
 
-    ##### set ${ROOT_PART_NUM} boot on
-
   else
     write_debug_log "  Creating root partition with boot on"
     parted --machine --script --align=optimal "$FULL_FILENAME" \
       unit MiB \
       mkpart primary ${UEFI_PART_SIZE} 100% \
       >> "$LOGFILE" 2>&1
-
-    ##### set ${ROOT_PART_NUM} boot on
 
   fi
 }
@@ -3528,15 +3679,16 @@ EOF
   fi
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff \
     /etc/modules-orig \
     /etc/modules \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
+  rm /etc/modules-orig
 }
 EOF
   fi
@@ -3573,12 +3725,12 @@ sed -i \
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/conf.d/sshd-orig /etc/conf.d/sshd \
-  >> \$LOGFILE \
+  >> "$LOGFILE" \
   || true
   rm /etc/conf.d/sshd-orig
 
@@ -3605,12 +3757,12 @@ sed -i \
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/ssh/sshd_config-orig
 }
@@ -3742,7 +3894,9 @@ EOF
         ;;
       qemu )
         DATASOURCE_LIST="'NoCloud'"
-        SERIAL_CONSOLE="true"
+        if [ -z "${DISABLE_SERIAL+x}" ]; then
+          SERIAL_CONSOLE="true"
+        fi
         ;;
       rhevm )
         DATASOURCE_LIST="'AltCloud'"
@@ -3792,22 +3946,32 @@ EOF
 EOF
 
   if [ "$DEBUG" = "true" ]; then                                                   
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 {
   # Debug
   diff /etc/cloud/cloud.cfg-orig \
     /etc/cloud/cloud.cfg \
-    >> \$LOGFILE \
+    >> "$LOGFILE" \
     || true
   rm /etc/cloud/cloud.cfg-orig
-
-  cp /etc/cloud/cloud.cfg.d/05_logging.cfg /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
 }
 EOF
   fi
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+  if [ "$DEBUG" = "true" ]; then  
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+
+write_log "  Enabling cloud-init debugging"
+sed -i \
+  -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
+  /etc/cloud/cloud.cfg.d/05_logging.cfg
+EOF
+
+  else
+
+    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "  Disabling cloud-init debugging"
 sed -i \
@@ -3815,18 +3979,6 @@ sed -i \
   /etc/cloud/cloud.cfg.d/05_logging.cfg
 EOF
 
-  if [ "$DEBUG" = "true" ]; then                                                   
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-
-{
-  # Debug
-  diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
-    /etc/cloud/cloud.cfg.d/05_logging.cfg \
-    >> \$LOGFILE \
-    || true
-  rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
-}
-EOF
   fi
 
   if [ "$IMAGE_CLASS" = "cloud" ]; then
@@ -3847,39 +3999,11 @@ EOF
 
     create_etc_filesystems "ISO"
 
-#    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-#
-## Busybox mount command requires the following config
-#write_log "  Setting up /etc/filesystems for ISO mount"
-#cat <<-_SCRIPT_ > /etc/filesystems
-#	#
-#	# /etc/filesystems
-#	#
-#	
-#	# Needed for cloud-init cidata ISO
-#	iso9660
-#	_SCRIPT_
-#EOF
-
   else
 
     # Physical
 
     create_etc_filesystems "VFAT"
-
-#    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
-#
-## Busybox mount command requires the following config
-#write_log "  Setting up /etc/filesystems for VFAT mount"
-#cat <<-_SCRIPT_ > /etc/filesystems
-#	#
-#	# /etc/filesystems
-#	#
-#	
-#	# Needed for cloud-init cidata VFAT
-#	vfat
-#	_SCRIPT_
-#EOF
 
   fi
 
@@ -3892,7 +4016,7 @@ EOF
 write_log "Creating cloud-init YAML files for physical machine"
 
 write_log "  Creating meta-data.yaml"
-cat <<-_SCRIPT_ > \$CIDATA_DIRECTORY/meta-data.yaml
+cat <<-_SCRIPT_ > "\$CIDATA_DIRECTORY"/meta-data.yaml
 	#
 	# \$CIDATA_DIRECTORY/meta-data.yaml
 	#
@@ -3901,7 +4025,7 @@ cat <<-_SCRIPT_ > \$CIDATA_DIRECTORY/meta-data.yaml
 	_SCRIPT_
 
 write_log "  Creating network-config-v2.yaml"
-cat <<-_SCRIPT_ > \$CIDATA_DIRECTORY/network-config-v2.yaml
+cat <<-_SCRIPT_ > "\$CIDATA_DIRECTORY"/network-config-v2.yaml
 	#
 	# \$CIDATA_DIRECTORY/network-config-v2.yaml
 	#
@@ -3914,7 +4038,7 @@ cat <<-_SCRIPT_ > \$CIDATA_DIRECTORY/network-config-v2.yaml
 	_SCRIPT_
 
 write_log "  Creating user-data.yaml"
-cat <<-_SCRIPT_ > \$CIDATA_DIRECTORY/user-data.yaml
+cat <<-_SCRIPT_ > "\$CIDATA_DIRECTORY"/user-data.yaml
 	#
 	# \$CIDATA_DIRECTORY/user-data.yaml
 	#
@@ -3939,7 +4063,7 @@ EOF
 EOF
     fi
 
-    if [ -n "$LOCAL_ALPINE_REPOSITORY" ]; then
+    if [ -n "${LOCAL_ALPINE_REPOSITORY+x}" ]; then
       cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 	  local_repo_base_url: $LOCAL_ALPINE_REPOSITORY
 EOF
@@ -3989,18 +4113,18 @@ EOF
 #
 update_upgrade_packages() {
 
-  cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+  cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 write_log "Updating package list"
-apk update >> \$LOGFILE
+apk update >> "$LOGFILE"
 
 write_log "Upgrading base packages if necessary"
 # shellcheck disable=SC2129
-apk upgrade >> \$LOGFILE
+apk upgrade >> "$LOGFILE"
 EOF
 
   if [ "$DEBUG" = "true" ]; then
-    cat <<EOF >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
+    cat <<'EOF' >> "$CHROOT_DIRECTORY"/"$PREP_SCRIPT"
 
 # Debug
 apk info | sort > base-packages.list
@@ -4012,45 +4136,103 @@ EOF
 
 
 #
-#
+# Help text
 #
 usage() {
-  echo "Usage: $0 [ -c <cloud type> | -p <physical type> | -v <vm type> ] [ other options ]"
+  echo "Usage: $0 [ options ]"
   echo
-  echo "When called with no option is equivalent to '-a x86_66 -r edge -b syslinux -v qemu'"
+  echo "When called with no option is equivalent to '--arch x86_66 --release edge --bootloader syslinux -virtual qemu'"
   echo
   echo "Options:"
   echo
+  echo "  --apk_static_url < url >"
+  echo "     Base url to download statically compiled APK tool from."
+  echo
+  echo "  --apk_static_version < version >"
+  echo
+  echo "    Version of the statically compiled APK tool to download/use."
+  echo
   echo "  --arch < aarch64 | armv7 | x86 | x86_64 >"
-  echo "     Defaults to x86_86, except when '-p rpi*' specified when it defaults to aarch64."
+  echo
+  echo "    Defaults to x86_86, except when '--physical rpi*' specified when it defaults to aarch64."
+  echo
+  echo "  --boot_by_label"
+  echo
+  echo "    Use FS Labels rather than UUIDs in /etc/fstab and bootloader to refer to filesystems."
   echo
   echo "  --bootloader < grub | syslinux >"
-  echo "     If not specified then Syslinux is assumed."
+  echo
+  echo "    Defaults to Syslinux."
+  echo
+  echo "  --boottype < bios | uefi >"
+  echo
+  echo "    Defaults to UEFI."
+  echo
+  echo "  --chroot_directory < directory >"
+  echo
+  echo "    Directory to use for building the Alpine image. Defaults to './chroot'."
   echo
   echo "  --cloud <cloud type>"
-  echo "     Valid values are:"
-  echo "       generic aliyun aws azure bigstep brightbox digitalocean e24 exoscale google hetzner hyperone ibmcloud oracle rootbox scaleway tencent upcloud vultr"
   echo
-  echo "  --keymap <keymap>"
+  echo "    Valid values are:"
+  echo "      generic aliyun aws azure bigstep brightbox digitalocean e24 exoscale"
+  echo "      google hetzner hyperone ibmcloud oracle rootbox scaleway tencent"
+  echo "      upcloud vultr"
   echo
-  echo "  --locale <locale>"
+  echo "  --image_filename < filename >"
   echo
-  echo "  --mirror <mirror url>"
-  echo "     URL of Alpine mirror site to use."
+  echo "    Filename to use for the created Alpine disk image."
+  echo
+  echo "  --images_directory < directory >"
+  echo
+  echo "    The directory to store the created disk image in."
+  echo
+  echo "  --ipv4only"
+  echo
+  echo "    Do not enable IPv6 in the created disk image."
+  echo
+  echo "  --ipv6only"
+  echo
+  echo "    Do not enable IPv4 in the created disk image."
+  echo
+  echo "  --keymap < keymap >"
+  echo
+  echo "    Defaults to 'us us'."
+  echo
+  echo "  --local_repo < url >"
+  echo
+  echo "    Local Alpine repository for *additional* packages."
+  echo
+  echo "  --local_repo_sig_file < filename >"
+  echo
+  echo "    Signature file used to sign pacakges in local Alpine repository."
+  echo
+  echo "  --locale < locale >"
+  echo
+  echo "    Defaults to 'en_US'."
+  echo
+  echo "  --mirror < mirror url >"
+  echo
+  echo "    URL of Alpine mirror site to use."
+  echo
+  echo "  --password < password >"
+  echo
+  echo "    Password for default user created upon 1st boot. Defaults to 'changeme'."
   echo
   echo "  --physical < pc | rpi2 | rpi3 | rpi4 >"
   echo
-  echo "  --release <release>"
-  echo "     Valid values are:  3.13 edge"
+  echo "  --release < release >"
   echo
-  echo "  --boottype <the 'firmware' type used for booting>"
-  echo "     Valid values are 'bios' and 'uefi'."
+  echo "    Valid values are:  3.13 3.14 edge"
   echo
-  echo "  --user <username>"
-  echo "     The name of the user account to create upon 1st boot. Defaults to 'alpine'."
+  echo "  --username <username>"
+  echo
+  echo "    Name of the default account to create upon 1st boot. Defaults to 'alpine'."
   echo
   echo "  --virtual <vm type>"
-  echo "     Valid values are:  libvirt openstack proxmox qemu virtualbox vmware"
+  echo
+  echo "    Valid values are:  generic hyperv libvirt openstack proxmox qemu"
+  echo "                       virtualbox vmware"
   echo
 }
 
@@ -4065,69 +4247,78 @@ validate_cli_options() {
     DEBUG=no
   fi
 
+  # If Alpine release not specified then assume default
+  if [ -z ${IMAGE_ALPINE_RELEASE+x} ]; then
+    IMAGE_ALPINE_RELEASE=$DEFAULT_ALPINE_RELEASE
+  fi
+
+  # If arch not specified then assume default
+  if [ -z ${IMAGE_ARCH+x} ]; then
+    IMAGE_ARCH=$DEFAULT_ARCH
+  fi
+
+  # If neither Cloud / VM / Physical specified then assume QEMU VM
+  if [ -z ${IMAGE_CLASS+x} ]; then
+    IMAGE_CLASS="vm"
+    VM_TYPE="qemu"
+  fi
+
+  if [ -z "${IMAGE_FILENAME+x}" ]; then
+    IMAGE_BASE_FILENAME="alpine-$IMAGE_ALPINE_RELEASE-$IMAGE_ARCH-$IMAGE_CLASS"
+    case $IMAGE_CLASS in
+      cloud )
+        IMAGE_FILENAME="$IMAGE_BASE_FILENAME-$CLOUD_TYPE.img"
+        ;;
+      physical )
+        IMAGE_FILENAME="$IMAGE_BASE_FILENAME-$PHYSICAL_TYPE.img"
+        ;;
+      vm )
+        IMAGE_FILENAME="$IMAGE_BASE_FILENAME-$VM_TYPE.img"
+        ;;
+    esac
+  fi
+
+  # Log filename is based on image filename
+  LOGFILE=$(echo $IMAGE_FILENAME | sed -e 's|\.img$|\.log|')
+  :> "$LOGFILE"
 
   # If version of APK-static is not specified then assume default
   if [ -z ${APK_STATIC_VERSION+x} ]; then
-    write_log "NOTE: Using default version $DEFAULT_APK_STATIC_VERSION of apk-static"
     APK_STATIC_VERSION=$DEFAULT_APK_STATIC_VERSION
   fi
 
   # If URL to download APK-static is not specified then assume default
   if [ -z ${APK_STATIC_URL+x} ]; then
-    write_log "NOTE: Using default URL $DEFAULT_APK_STATIC_URL for apk-static"
     APK_STATIC_URL=$DEFAULT_APK_STATIC_URL
   fi
 
   # If chroot directory not specified then assume default
   if [ -z ${CHROOT_DIRECTORY+x} ]; then
-    write_log "NOTE: Using default directory $DEFAULT_CHROOT_DIRECTORY for chroot"
     CHROOT_DIRECTORY=$DEFAULT_CHROOT_DIRECTORY
   fi
 
   # If images directory not specified then assume default
   if [ -z ${IMAGES_DIRECTORY+x} ]; then
-    write_log "NOTE: Using default directory $DEFAULT_IMAGES_DIRECTORY to store images"
     IMAGES_DIRECTORY=$DEFAULT_IMAGES_DIRECTORY
   fi
 
-  # If USE_RAMDISK specified then assume default
+  # If USE_RAMDISK specified then assume disabled
   if [ -n "${USE_RAMDISK+x}" ]; then
-    write_log "NOTE: Using ramdisk for temporary storage of created image for performance"
-    if [ -n "${RAMDISK_DIRECTORY+x}" ]; then
+    if [ -z "${RAMDISK_DIRECTORY+x}" ]; then
       # If ramdisk directory not specified then assume default
       RAMDISK_DIRECTORY=$DEFAULT_RAMDISK_DIRECTORY
     fi
   else
-    write_log "Not using ramdisk for temporary storage of image"
     USE_RAMDISK="false"
   fi
 
   # If Alpine repo mirror site not specified then assume default
   if [ -z ${ALPINE_MIRROR_SITE+x} ]; then
-    write_log "NOTE: Using default Alpine repo mirror site $DEFAULT_MIRROR_SITE"
     ALPINE_MIRROR_SITE=$DEFAULT_MIRROR_SITE
   fi
 
-  # If Alpine release not specified then assume default
-  if [ -z ${IMAGE_ALPINE_RELEASE+x} ]; then
-    write_log "NOTE: Using default Alpine release: $DEFAULT_ALPINE_RELEASE"
-    IMAGE_ALPINE_RELEASE=$DEFAULT_ALPINE_RELEASE
-  fi
-
   if [ -z ${IMAGE_ENCRYPTED_ROOTFS+x} ]; then
-	  IMAGE_ENCRYPTED_ROOTFS=false
-	fi
-
-  # If arch not specified then assume default
-  if [ -z ${IMAGE_ARCH+x} ]; then
-    write_log "NOTE: Using default arch $DEFAULT_ARCH"
-    IMAGE_ARCH=$DEFAULT_ARCH
-  elif [ "$IMAGE_ARCH" = "aarch64" ]; then
-    if [ "$IMAGE_CLASS" = "cloud" ] || \
-       [ "$IMAGE_CLASS" = "vm" ]; then
-      IMAGE_BOOT_TYPE="uefi"
-      IMAGE_BOOTLOADER="grub"
-    fi
+    IMAGE_ENCRYPTED_ROOTFS=false
   fi
 
   # If boot_by_label not specified then assume default
@@ -4135,57 +4326,94 @@ validate_cli_options() {
     IMAGE_BOOT_REFERENCE=$DEFAULT_BOOT_REFERENCE
   fi
 
-  # If neither Cloud / VM / Physical specified then assume QEMU VM
-  if [ -z ${IMAGE_CLASS+x} ]; then
-    write_log "NOTE: cloud, physical, nor virtual specified, assuming Qemu VM"
-    IMAGE_CLASS="vm"
-    VM_TYPE="qemu"
-  fi
-
   if [ -z ${IMAGE_DEFAULT_USERNAME+x} ]; then
-    write_log "NOTE: Using default username '$DEFAULT_USERNAME' for cloud-init"
     IMAGE_DEFAULT_USERNAME=$DEFAULT_USERNAME
-  else
-    write_log "Using '$IMAGE_DEFAULT_USERNAME' as default username for cloud-init"
   fi
 
   if [ -z ${IMAGE_DEFAULT_USER_PASSWORD+x} ]; then
-    write_log "NOTE: Using default user's password '$DEFAULT_USER_PASSWORD' for cloud-init"
     IMAGE_DEFAULT_USER_PASSWORD=$DEFAULT_USER_PASSWORD
-  else
-    write_log "Using '$IMAGE_DEFAULT_USERNAME' as default username for cloud-init"
   fi
 
   if [ -z ${IMAGE_KEYMAP+x} ]; then
-    write_log "NOTE: Using default keymap '$DEFAULT_KEYMAP'"
     IMAGE_KEYMAP=$DEFAULT_KEYMAP
-  else
-    write_log "Using '$IMAGE_KEYMAP' as keymap"
   fi
 
   if [ -z ${IMAGE_LOCALE+x} ]; then
-    write_log "NOTE: Using default locale '$DEFAULT_LOCALE.UTF-8'"
     IMAGE_LOCALE=$DEFAULT_LOCALE
-  else
-    write_log "Using '$IMAGE_LOCALE.UTF-8' as locale"
   fi
 
-  # Check for physical machines that other specified settings make sense
-  if [ "$IMAGE_CLASS" = "physical" ]; then
+  if [ "$IMAGE_CLASS" = "cloud" ]; then
+
+    # Check for cloud machines that other specified settings make sense
+
+    case $IMAGE_ARCH in
+
+      aarch64 )
+
+        if [ -n "${IMAGE_BOOTLOADER+x}" ]; then
+          if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+            echo
+            echo "aarch64 cloud machine can only use Grub bootloader!"
+            echo
+            exit 2
+          fi
+        else
+          IMAGE_BOOTLOADER="grub"
+        fi
+
+        case $CLOUD_TYPE in
+
+          aws | oracle )
+            ;;
+
+          * )
+            echo
+            echo "aarch64 cloud images cannot be created for this cloud provider!"
+            echo
+            exit 2
+            ;;
+        esac
+
+        # aarch VMs always use UEFI
+        IMAGE_BOOT_TYPE="uefi"
+
+        ;;
+
+      x86_64 )
+
+        case $CLOUD_TYPE in
+
+          oracle )
+            IMAGE_BOOT_TYPE="bios"
+            IMAGE_BOOTLOADER="syslinux"
+            ;;
+
+          * )
+            IMAGE_BOOT_TYPE="bios"
+            IMAGE_BOOTLOADER="grub"
+            ;;
+
+        esac
+
+      ;;
+
+    esac
+
+  elif [ "$IMAGE_CLASS" = "physical" ]; then
+
+    # Check for physical machines that other specified settings make sense
 
     case $PHYSICAL_TYPE in
 
       pc )
 
         if [ -n "${IMAGE_BOOTLOADER+x}" ]; then
-          write_log "Bootloader not specified, using Syslinux"
           IMAGE_BOOTLOADER="syslinux"
         fi
 
         if [ "$IMAGE_ARCH" = "x86" ]; then
           # x86
           if [ -n "${IMAGE_BOOT_TYPE+x}" ]; then
-            write_log "NOTE: Boot type not specified, assuming BIOS"
             IMAGE_BOOT_TYPE="bios"
           elif [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
             echo
@@ -4196,7 +4424,6 @@ validate_cli_options() {
         else
           # 86_64
           if [ -n "${IMAGE_BOOT_TYPE+x}" ]; then
-            write_log "NOTE: Boot type not specified, assuming UEFI"
             IMAGE_BOOT_TYPE="uefi"
           fi
         fi
@@ -4213,7 +4440,7 @@ validate_cli_options() {
             IMAGE_BOOT_TYPE="none"
           elif [ "$IMAGE_BOOT_TYPE" != "none" ]; then
             echo
-            echo "An invalid bootloader was specified! For an RPI only 'none' is valid"
+            echo "An invalid boot type was specified! For an RPI only 'none' is valid"
             echo
             exit 2
           fi
@@ -4224,29 +4451,27 @@ validate_cli_options() {
           echo
           exit 2
         fi
-
-        if [ "$IMAGE_ARCH" = "aarch64" ] && \
-           [ "$PHYSICAL_TYPE" = "rpi2" ]; then
-          write_log "NOTE: aarch64 will only work on late-model (v1.2) RPI 2B machines!"
-        fi
         ;;
 
     esac
+       
+  elif [ "$IMAGE_CLASS" = "vm" ]; then
 
-  fi
+    # Check for Virtual Machines that other specified settings make sense
 
-  # Check for Virtual Machines that other specified settings make sense          
-  if [ "$IMAGE_CLASS" = "vm" ]; then
     case $IMAGE_ARCH in
 
       armv7 )
+
         echo
         echo "armv7 virtual machines are not supported!"
         echo
         exit 2
+
         ;; 
 
       aarch64 )
+
         if [ -n "${IMAGE_BOOTLOADER+x}" ]; then
           if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
             echo
@@ -4254,57 +4479,66 @@ validate_cli_options() {
             echo
             exit 2
           fi
-          write_log "NOTE: Using UEFI boot type"
-          IMAGE_BOOT_TYPE="uefi"
         else
-          write_log "NOTE: Using Grub bootloader"
-          write_log "NOTE: Using UEFI boot type"
           IMAGE_BOOTLOADER="grub"
-          IMAGE_BOOT_TYPE="uefi"
         fi
+
+        if [ "$VM_TYPE" = "virtualbox" ]; then
+          echo
+          echo "aarch64 Virtualbox images cannont be created!"
+          echo
+          exit 2
+        fi
+
+        # aarch VMs always use UEFI
+        IMAGE_BOOT_TYPE="uefi"
+
         ;;
 
       x86 )
-        # ???????
+
+        if [ -n "${IMAGE_BOOTLOADER+x}" ]; then
+          IMAGE_BOOTLOADER="syslinux"
+        fi
+
+        if [ -n "${IMAGE_BOOT_TYPE+x}" ]; then
+          IMAGE_BOOT_TYPE="bios"
+        elif [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+          echo
+          echo "UEFI is not supported for x86!"
+          echo
+          exit 2
+        fi
+
         ;;
 
       x86_64 )
+
         if [ -z ${IMAGE_BOOTLOADER+x} ]; then
 
           if [ -z ${IMAGE_BOOT_TYPE+x} ]; then
-
-            write_log "NOTE: assuming Syslinux bootloader"
-            write_log "NOTE: assuming UEFI boot type"
-
             IMAGE_BOOTLOADER="syslinux"
             IMAGE_BOOT_TYPE="uefi"
           elif [ "$IMAGE_BOOT_TYPE" = "bios" ]; then
-
-            write_log "NOTE: assuming Syslinux bootloader"
-
             IMAGE_BOOTLOADER="syslinux"
           else
-
-            write_log "NOTE: assuming Syslinux bootloader"
-
             IMAGE_BOOTLOADER="syslinux"
           fi
 
         elif [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
 
           if [ -z ${IMAGE_BOOT_TYPE+x} ]; then
-            write_log "NOTE: assuming UEFI boot type"
             IMAGE_BOOT_TYPE="uefi"
           fi
 
         else
 
           if [ -z ${IMAGE_BOOT_TYPE+x} ]; then
-            write_log "NOTE: assuming UEFI boot type"
             IMAGE_BOOT_TYPE="uefi"
           fi
 
         fi
+
         ;;
 
     esac
@@ -4369,19 +4603,9 @@ write_log "  Alpine release: $IMAGE_ALPINE_RELEASE"
 write_log "  Boot Type: $IMAGE_BOOT_TYPE"
 write_log "  Bootloader: $IMAGE_BOOTLOADER"
 
-IMAGE_FILENAME="alpine-$IMAGE_ALPINE_RELEASE-$IMAGE_ARCH-$IMAGE_CLASS"
-case $IMAGE_CLASS in
-  cloud)
-    IMAGE_FILENAME="$IMAGE_FILENAME-$CLOUD_TYPE.img"
-    ;;
-  vm)
-    IMAGE_FILENAME="$IMAGE_FILENAME-$VM_TYPE.img"
-    ;;
-  physical)
-    IMAGE_FILENAME="$IMAGE_FILENAME-$PHYSICAL_TYPE.img"
-    ;;
-esac
+
 DEST_IMAGE_FULL_FILENAME=$IMAGES_DIRECTORY/$IMAGE_FILENAME
+
 if [ "$USE_RAMDISK" = "true" ]; then
   RAMDISK_IMAGE_FULL_FILENAME=$RAMDISK_DIRECTORY/$IMAGE_FILENAME
 fi
@@ -4478,62 +4702,6 @@ if [ -n "${LOCAL_REPO_SIGNATURE_FILE+x}" ]; then
   cp "$LOCAL_REPO_SIGNATURE_FILE" "$CHROOT_DIRECTORY"/etc/apk/keys/
 fi
 
-#BASE_PACKAGES="alpine-base"
-#
-## RPI alpine-base doesn't depend on mkinitfs so add it to list.
-#if [ "$IMAGE_CLASS" = "physical" ] && \
-#   [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-#  BASE_PACKAGES="$BASE_PACKAGES mkinitfs"
-#fi
-#
-## Define bootloader-related packages
-#if [ "$IMAGE_BOOTLOADER" = "grub" ]; then
-#
-#  BOOTLOADER_PACKAGES="grub"
-#  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
-#    BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES efibootmgr grub-efi"
-#  else
-#    BOOTLOADER_PACKAGES="$BOOTLOADER_PACKAGES grub-bios"
-#  fi
-#  BASE_PACKAGES="$BASE_PACKAGES $BOOTLOADER_PACKAGES"
-#
-#elif [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
-#
-#  BOOTLOADER_PACKAGES="syslinux"
-#  BASE_PACKAGES="$BASE_PACKAGES $BOOTLOADER_PACKAGES"
-#
-#elif [ "$IMAGE_CLASS" = "physical" ] && \
-#     [ -n "$(expr "$PHYSICAL_TYPE" : 'rpi[2-4]')" ]; then
-#
-#  BOOTLOADER_PACKAGES="raspberrypi-bootloader raspberrypi-bootloader-cutdown"
-#  BASE_PACKAGES="$BASE_PACKAGES $BOOTLOADER_PACKAGES"
-#
-#else
-#
-#  BOOTLOADER_PACKAGES="none"
-#
-#fi
-#write_log "Bootloader packages to be installed are: $BOOTLOADER_PACKAGES"
-#
-#
-## Install base Alpine inside chroot directory
-#write_log "Install base Alpine (plus bootloader packages) inside chroot"
-## shellcheck disable=SC2086
-#$TMPDIR/apk-tools-$APK_STATIC_VERSION/apk \
-#  --arch "$IMAGE_ARCH" \
-#  --initdb \
-#  --allow-untrusted \
-#  --root $CHROOT_DIRECTORY \
-#  --update-cache \
-#  add \
-#  $BASE_PACKAGES \
-#  >> "$LOGFILE" 2>&1
-#RET_CODE=$?
-#if [ $RET_CODE != 0 ]; then
-#  write_log "Failure while installing base Alpine, error code: $RET_CODE"
-#  exit 1
-#fi
-
 install_alpine_base
 
 # Delete the static apk tool
@@ -4567,7 +4735,17 @@ LANG="$IMAGE_LOCALE.UTF-8"
 
 DEBUG="$DEBUG"
 LOGFILE="/var/tmp/$PREP_SCRIPT.log"
+EOF
 
+if [ "$IMAGE_CLASS" = "physical" ]; then
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
+CIDATA_DIRECTORY="/cidata"
+EOF
+
+fi
+
+cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
 
 ############################################################################
 ##		Functions
@@ -4614,13 +4792,13 @@ cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
 write_debug_log() {
   if [ "\$DEBUG" = "true" ]; then
     time=\$(printf "[%s]" "\$(date "+%Y-%m-%d %H:%M:%S")")
-    echo "\$time $PREP_SCRIPT: \$1" >> \$LOGFILE
+    echo "\$time $PREP_SCRIPT: \$1" >> "\$LOGFILE"
   fi
 }
 
 write_log() {
   time=\$(printf "[%s]" "\$(date "+%Y-%m-%d %H:%M:%S")")
-  echo "\$time $PREP_SCRIPT: \$1" | tee -a \$LOGFILE
+  echo "\$time $PREP_SCRIPT: \$1" | tee -a "\$LOGFILE"
 }
 
 ############################################################################
@@ -4679,6 +4857,8 @@ fi
 
 add_additional_init_d
 
+disable_kernel_modules
+
 configure_mkinitfs
 
 install_kernel
@@ -4724,8 +4904,40 @@ fi
 if [ "$DEBUG" = "true" ]; then
   cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
 
+{
   # Debug
   df -k >> \$LOGFILE
+EOF
+
+  if [ "$IMAGE_BOOT_TYPE" = "uefi" ]; then
+
+    # UEFI
+
+    if [ "$IMAGE_BOOTLOADER" = "syslinux" ]; then
+
+      cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
+
+  #write_debug_log "Contents of /boot/EFI directory:"
+  #ls -lR /boot/EFI >> "\$LOGFILE"
+
+  write_debug_log "Contents of /boot/ directory:"
+  ls -lR /boot/ >> "\$LOGFILE"
+EOF
+
+    else
+
+      cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
+
+  write_debug_log "Contents of /efi directory:"
+  ls -lR /efi >> "\$LOGFILE"
+EOF
+
+    fi
+
+  fi
+
+  cat <<EOF >> "$CHROOT_DIRECTORY"/$PREP_SCRIPT
+}
 EOF
 fi
 
@@ -4744,7 +4956,6 @@ EOF
 chmod +x "$CHROOT_DIRECTORY"/$PREP_SCRIPT
 
 if [ "$DEBUG" = "true" ]; then
-  #####cat "$CHROOT_DIRECTORY"/$PREP_SCRIPT
 
   shellcheck -s ash "$CHROOT_DIRECTORY"/$PREP_SCRIPT
   RET_CODE=$?
