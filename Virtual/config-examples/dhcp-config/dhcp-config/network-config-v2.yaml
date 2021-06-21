@@ -1,0 +1,6 @@
+version: 2
+ethernets:
+  eth0:
+    dhcp4: yes
+    dhcp6: yes
+    wakeonlan: true

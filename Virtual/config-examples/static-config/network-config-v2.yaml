@@ -1,0 +1,19 @@
+version: 2
+ethernets:
+  eth0:
+    #dhcp4: yes
+    #dhcp6: yes
+    wakeonlan: true
+  #lan:
+    match:
+      macaddress: '52:54:00:12:34:56'
+      name: eth0
+    addresses:
+      - 172.19.11.5/24
+      - fd7b:dec0:d00d:11::5/64
+    gateway4: 172.19.11.1
+    gateway6: fd7b:dec0:d00d:11::1
+    ####nameservers:
+    ####  addresses: [ 172.19.11.11, 172.19.11.12 ]
+  #  mtu: 8000
+  #  set-name: lan
