@@ -1,0 +1,138 @@
+#cloud-config
+
+apk_repos:
+  preserve_repositories: false
+  alpine_repo:
+    base_url: 'http://phonebook/alpine'
+    community_enabled: true
+    testing_enabled: true
+    version: 'edge'
+  local_repo_base_url: 'https://phonebook/local-alpine'
+
+debug:
+  verbose: true
+
+disable_ec2_metadata: true
+
+growpart:
+  mode: auto
+  ignore_growroot_disabled: true
+
+ssh_fp_console_blacklist: [ "ssh-ed25519" ]
+ssh_key_console_blacklist: [ "ssh-ed25519" ]
+
+locale: en_GB
+locale_configfile: /etc/profile.d/locale.sh
+
+ntp:
+  enabled: true
+  servers:
+    - 127.0.0.1
+
+package_reboot_if_required: false
+package_update: false
+package_upgrade: false
+#packages:
+#  - abcd
+#  - defrtg
+
+resize_rootfs: true
+
+manage_resolv_conf: true
+resolv_conf:
+  domain: home.arpa
+  nameservers: ['1.2.3.4', '5.6.7.8']
+  #options:
+  #  rotate: true
+  #  timeout: 1
+
+#rsyslog:
+#  config_dir: /etc/rsyslog.d
+#  config_filename: 20-cloud-config.conf
+#  configs:
+#    - "*.* @@192.158.1.1"
+#    - content: "*.*   @@192.0.2.1:10514"
+#      filename: 01-example.conf
+#    - content: |
+#        *.*   @@syslogd.example.com
+#  remotes:
+#    central-syslog: "@172.19.29.5"
+#  service_reload_command: [service, rsyslog, restart]
+
+#runcmd:
+#  - rm -f /etc/runlevels/boot/cloud-init-local
+#  - rm -f /etc/runlevels/default/cloud-config
+#  - rm -f /etc/runlevels/default/cloud-init
+#  - rm -f /etc/runlevels/default/cloud-final
+
+#random_seed:
+#  file: /dev/urandom
+#  command: ["pollinate", "--server=https://1.2.3.4"]
+#  command_required: true
+
+#chpasswd:
+#  list: |
+#    root:RANDOM
+password: test
+
+ssh_pwauth: false
+
+#ssh_authorized_keys:
+#    - ssh-rsa SSH-paste-the-rest-of-the-public-key-here-assumes-you-have-the-private-key
+
+ssh_deletekeys: false
+ssh_genkeytypes: [ "ed25519" ]
+
+disable_root: true
+
+###authkey_hash: md5
+no_ssh_fingerprints: true
+
+timezone: Europe/London
+
+manage_etc_hosts: true
+
+fqdn: super-minimal.home.arpa
+preserve_hostname: false
+
+groups:
+  - super-admin:
+    - root
+  - admin
+  #- extraadmin
+  #- minions
+  #- moreadmin
+  - sudo
+
+users:
+  - default
+  - name: bigboss
+    gecos: Big Boss
+    groups: admin
+    passwd: $6$j212wezy$7H/1LT4
+    #ssh_authorized_keys:
+    #  - ssh-rsa AA..vz user@domain.com
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+  - name: minion
+    gecos: Minion
+    groups: admin,moreadmin,extraadmin
+    lock_passwd: false
+    # passwd: $6$j212wezy$7H/1LT4f9/N3wpgNunhsIqtMj62OKiS3nyNwuizouQc3u7MbYCarYeAHWYPYb2FT.lbioDm2RrkJPb9BZMN1O/
+    primary_group: minions
+    sudo: false
+    #ssh_authorized_keys:
+      #- ssh-rsa BGTHHYNYNXBFDSFSFREFGF$ minion@domain.com
+
+#
+# Disable cloud init network changes
+#
+write_files:
+  #- content: |
+  #      #
+  #      # Prevent cloud-init changing network setting in future.
+  #      #
+  #      network: { config: disabled }
+  #  append: false
+  #  owner: root:root
+  #  path: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+  #  permissions: '0666'

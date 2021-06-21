@@ -28,13 +28,13 @@ VBoxManage convertfromraw alpine-3.14.img alpine-3.14.vdi --format VDI
 - create a new VM in Virtualbox
 
 ```
-Select "Add".
+Select the "New" icon.
 
 In the "Hard Disk" section select "Do not add a virtual hard disk", then
 click on "Create" button.
 
 Now on the main screen select the Alpine virtual machine and click on
-"Settings" icon. Click on the "Storage" icon. Right-click on the "Controler:
+"Settings" icon. Click on the "Storage" icon. Right-click on the "Controller:
 IDE" entry and select "Remove Controller". Next click on the 1st icon at
 bottom to add a new storage controller, and select "virtio-scsi". Next with
 "Controller: VirtIO" highlighted click on the 2nd icon next to it ("Adds
