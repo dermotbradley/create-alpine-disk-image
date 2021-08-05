@@ -7,7 +7,8 @@ Work-in-progress
 ## Creating a disk image
 
 ```
-create-alpine-disk-image --cloud azure
+create-alpine-disk-image --cloud azure --script-filename create.sh
+sudo ./create.sh
 ```
 
 ## Linux tools for Azure

@@ -19,31 +19,36 @@ For aarch64 boot type of UEFI and Grub bootloader is assumed. For x86 boot type 
 For aarch64 UEFI VMs:
 
 ```
-create-alpine-disk-image --arch aarch64
+create-alpine-disk-image --arch aarch64 --script-filename create.sh
+sudo ./create.sh
 ```
 
 For x86_64 BIOS-based VMs using Grub:
 
 ```
-create-alpine-disk-image --bootloader grub --boottype bios
+create-alpine-disk-image --bootloader grub --boottype bios --script-filename create.sh
+sudo ./create.sh
 ```
 
 For x86_64 BIOS-based VMs using Syslinux:
 
 ```
-create-alpine-disk-image --boottype bios
+create-alpine-disk-image --boottype bios --script-filename create.sh
+sudo ./create.sh
 ```
 
 For x86_64 UEFI-based VMs using Grub:
 
 ```
-create-alpine-disk-image --bootloader grub
+create-alpine-disk-image --bootloader grub --script-filename create.sh
+sudo ./create.sh
 ```
 
 For x86_64 UEFI-based VMs using Syslinux:
 
 ```
-create-alpine-disk-image
+create-alpine-disk-image --script-filename create.sh
+sudo ./create.sh
 ```
 
 ## Using a disk image

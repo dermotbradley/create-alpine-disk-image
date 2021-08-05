@@ -2,6 +2,17 @@
 
 ## Status
 
+## Status
+
+| Arch     | Boot type | Bootloader | Status     |
+|:--------:|:---------:|:----------:|:----------:|
+| x86      | BIOS      | Grub       | Working    |
+| x86      | BIOS      | Syslinux   | Working    |
+| x86_64   | BIOS      | Grub       | Working    |
+| x86_64   | BIOS      | Syslinux   | Working    |
+| x86_64   | UEFI      | Grub       | Working    |
+| x86_64   | UEFI      | Syslinux   | Working    |
+
 Work-in-progress
 
 ## Creating a disk image
@@ -9,13 +20,17 @@ Work-in-progress
 For x86_64 BIOS VMs:
 
 ```
-create-alpine-disk-image --boottype bios --virtual virtualbox
+create-alpine-disk-image \
+  --boottype bios --virtual virtualbox --script-filename create.sh
+sudo ./create.sh
 ```
 
 For x86_64 UEFI VMs:
 
 ```
-create-alpine-disk-image --virtual virtualbox
+create-alpine-disk-image \
+  --virtual virtualbox --script-filename create.sh
+sudo ./create.sh
 ```
 
 ## Importing a disk image

@@ -9,13 +9,15 @@ Work-in-progress
 For x86_64 VMs:
 
 ```
-create-alpine-disk-image --cloud oracle
+create-alpine-disk-image --cloud oracle --script-filename create.sh
+sudo ./create.sh
 ```
 
 For Arm VMs:
 
 ```
-create-alpine-disk-image --arch aarch64 --cloud oracle
+create-alpine-disk-image --arch aarch64 --cloud oracle --script-filename create.sh
+sudo ./create.sh
 ```
 
 ## Importing a disk image
