@@ -9,13 +9,15 @@ Work-in-progress
 For x86_64 VMs:
 
 ```
-create-alpine-disk-image --cloud aws
+create-alpine-disk-image --cloud aws --script-filename create.sh
+sudo ./create.sh
 ```
 
 For Arm VMs:
 
 ```
-create-alpine-disk-image --arch aarch64 --cloud aws
+create-alpine-disk-image --arch aarch64 --cloud aws --script-filename create.sh
+sudo ./create.sh
 ```
 
 ## Importing a disk image as an AMI
