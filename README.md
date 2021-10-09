@@ -19,6 +19,7 @@ physical PCs, and Raspberry Pis.
 
 Features:
 
+- runs in "Sys" mode, i.e. runs-from-disk rather than runs-from-RAM.
 - creates "raw" disk images inside a chroot environment.
 - supports aarch64, armv7, x86, and x86_64 architectures. Uses ```binfmt``` and
 ```qemu-user``` to create images for architectures other than that of the machine running the script.
@@ -30,6 +31,8 @@ that Cloud (although they can be).
 - cloud-init is used for system configuration (for physical machines YAML files
 are stored in a small FAT partition).
 - resultant disk images are intended for server, rather than desktop, use.
+
+More information regarding specific features can be found here: (Features/)
 
 
 ## Host packages required

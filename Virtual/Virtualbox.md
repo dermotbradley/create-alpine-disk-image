@@ -13,8 +13,6 @@
 | x86_64   | UEFI      | Grub       | Working    |
 | x86_64   | UEFI      | Syslinux   | Working    |
 
-Work-in-progress
-
 ## Creating a disk image
 
 For x86_64 BIOS VMs:
