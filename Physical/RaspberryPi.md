@@ -2,14 +2,14 @@
 
 ## Status
 
-| Board Type | Arch     | Status     |
-|:----------:|:--------:|:----------:|
-| RPI 2      | aarch86  | Not tested |
-| RPI 2      | armv7    | Not tested |
-| RPI 3      | aarch86  | Not tested |
-| RPI 3      | armv7    | Not tested |
-| RPI 4      | aarch86  | Not tested |
-| RPI 4      | armv7    | Not tested |
+| Board Type          | Arch     | Status     |
+|:-------------------:|:--------:|:----------:|
+| RPI 2B version 1.2+ | aarch64  | Not tested |
+| RPI 2B              | armv7    | Not tested |
+| RPI 3B & 3B+        | aarch64  | Working    |
+| RPI 3B & 3B+        | armv7    | Not tested |
+| RPI 4B              | aarch64  | Not tested |
+| RPI 4B              | armv7    | Not tested |
 
 ## Creating a disk image
 
@@ -31,12 +31,10 @@ sudo ./create.sh
 
 ## Using a disk image
 
-- boot the PC using an existing Linux boot media (i.e. USB stick, CDROM etc)
-
 - using a PC (with either a SDcard socket or with a USB-to-SDcard adaptor)
   copy the disk image onto a SDcard using 'dd'. When using a USB adaptor the
   SDcard device may be something like /dev/sdb or /dev/sdc whereas with a
-  built-in SDcard read it may be /dev/mmc????. For example:
+  built-in SDcard reader it may be /dev/mmcblk0. For example:
 
 ```
 dd if=alpine-disk-image.img of=/dev/sdb bs=1M
