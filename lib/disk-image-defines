@@ -1,0 +1,85 @@
+#!/bin/sh -u
+
+#############################################################################
+##
+##  image-defines
+##
+##  Copyright 2021 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+# Defaults
+readonly CONSTANT_DEFAULT_ADMIN_USERNAME="alpine"
+readonly CONSTANT_DEFAULT_AUTH_CONTROL="doas"
+readonly CONSTANT_DEFAULT_BOOT_REFERENCE="uuid"
+readonly CONSTANT_DEFAULT_DHCP_CLIENT="dhcpcd"
+readonly CONSTANT_DEFAULT_FIREWALL="iptables"
+readonly CONSTANT_DEFAULT_FS_TYPE="ext4"
+readonly CONSTANT_DEFAULT_LUKS_CIPHER="aes-xts-plain64"
+readonly CONSTANT_DEFAULT_LUKS_PASSPHRASE="InsecureDefault"
+readonly CONSTANT_DEFAULT_SSH_KEYTYPES="ed25519"
+readonly CONSTANT_DEFAULT_SSH_SERVER="openssh"
+readonly CONSTANT_DEFAULT_SYSLOG_SERVER="rsyslog"
+
+
+# Filesystem labels and LVM device names
+readonly CONSTANT_BOOTFS_LABEL="boot"
+readonly CONSTANT_CIDATA_LABEL="CIDATA"
+readonly CONSTANT_LOGSFS_LABEL="logs"
+readonly CONSTANT_ROOTFS_LABEL="alpine-root"
+readonly CONSTANT_RPIBOOT_LABEL="RPIBOOT"
+readonly CONSTANT_ESP_FS_LABEL="SYSTEM_EFI"
+readonly CONSTANT_LUKS_DEVICE_NAME="cryptroot"
+readonly CONSTANT_LUKS_LABEL="luks"
+readonly CONSTANT_LVM_BOOT_LV_NAME="boot"
+readonly CONSTANT_LVM_LOGS_LV_NAME="logs"
+readonly CONSTANT_LVM_ROOT_LV_NAME="root"
+readonly CONSTANT_LVM_VG_NAME="vg0"
+
+# Filesystem reserved space in %
+readonly CONSTANT_EXT4_RESERVED_PERCENT="5"
+readonly CONSTANT_F2FS_RESERVED_PERCENT="40"
+
+# Storage overhead for LUKS and LVM in %
+readonly CONSTANT_LUKS_OVERHEAD_PERCENT="3"
+readonly CONSTANT_LVM_OVERHEAD_PERCENT="7"
+
+###########################################################################
+#        Partition / filesystem sizes (in MiB)
+###########################################################################
+
+readonly CONSTANT_CIDATA_PART_SIZE=1
+readonly CONSTANT_LVM_LOGS_LV_SIZE=4
+
+# Cloud
+########
+readonly CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE=1
+# Takes into account size of kernel & initramfs
+readonly CONSTANT_CLOUD_BOOT_PART_SIZE=32
+readonly CONSTANT_CLOUD_ROOT_PART_SIZE=325
+readonly CONSTANT_CLOUD_ESP_TYPE="fat12"
+
+# Physical
+###########
+readonly CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE=16
+# Takes into account size of firmware, kernel and initramfs
+readonly CONSTANT_PHYSICAL_BOOT_PART_SIZE=64
+readonly CONSTANT_PHYSICAL_ROOT_PART_SIZE=450
+readonly CONSTANT_PHYSICAL_ESP_TYPE="fat16"
+
+# RPI
+######
+readonly CONSTANT_RPI_AARCH64_BOOT_PART_SIZE=64
+readonly CONSTANT_RPI_AARCH64_ROOT_PART_SIZE=256
+readonly CONSTANT_RPI_ARMV7_BOOT_PART_SIZE=48
+readonly CONSTANT_RPI_ARMV7_ROOT_PART_SIZE=224
+
+# Virtual
+##########
+readonly CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE=1
+# Takes into account size of kernel & initramfs
+readonly CONSTANT_VIRTUAL_BOOT_PART_SIZE=32
+readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=240
+readonly CONSTANT_VIRTUAL_ESP_TYPE="fat12"
