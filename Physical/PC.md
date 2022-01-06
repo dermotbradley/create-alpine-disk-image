@@ -2,14 +2,20 @@
 
 ## Status
 
-| Arch     | Boot type | Bootloader | Status     |
-|:--------:|:---------:|:----------:|:----------:|
-| x86      | BIOS      | Grub       | Not tested |
-| x86      | BIOS      | Syslinux   | Not tested |
-| x86_64   | BIOS      | Grub       | Working    |
-| x86_64   | BIOS      | Syslinux   | Working    |
-| x86_64   | UEFI      | Grub       | Working    |
-| x86_64   | UEFI      | Syslinux   | Working    |
+| Arch     | Drive | Boot type | Bootloader | Status       |
+|:--------:|:-----:|:---------:|:----------:|:------------:|
+| x86      | SATA  | BIOS      | Grub       | Not tested   |
+| x86      | NVME  | BIOS      | Grub       | Not tested   |
+| x86      | SATA  | BIOS      | Syslinux   | Not tested   |
+| x86      | NVME  | BIOS      | Syslinux   | Not tested   |
+| x86_64   | SATA  | BIOS      | Grub       | Working      |
+| x86_64   | NVME  | BIOS      | Grub       | Not tested   |
+| x86_64   | SATA  | BIOS      | Syslinux   | Working      |
+| x86_64   | NVME  | BIOS      | Syslinux   | Not tested   |
+| x86_64   | SATA  | UEFI      | Grub       | Working      |
+| x86_64   | NVME  | UEFI      | Grub       | Not tested   |
+| x86_64   | SATA  | UEFI      | Syslinux   | Experimental |
+| x86_64   | NVME  | UEFI      | Syslinux   | Experimental |
 
 ## Creating a disk image
 
@@ -37,14 +43,6 @@ For x86_64 UEFI-based PC using Grub:
 ```
 create-alpine-disk-image \
   [ --arch x86_64 ] [ --bootloader grub ] [ --boottype uefi ] --physical --script-filename create.sh
-sudo ./create.sh
-```
-
-For x86_64 UEFI-based PC using Syslinux:
-
-```
-create-alpine-disk-image \
-  [ --boottype uefi ] --bootloader syslinux --physical --script-filename create.sh
 sudo ./create.sh
 ```
 

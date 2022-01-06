@@ -1,0 +1,31 @@
+#!/bin/sh -u
+
+#############################################################################
+##
+##  common-defines
+##
+##  Copyright 2021 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+readonly CONSTANT_APK_STATIC_VERSION="2.10.4"
+readonly CONSTANT_APK_STATIC_URL="https://github.com/alpinelinux/apk-tools/releases/download/v${CONSTANT_APK_STATIC_VERSION}"
+readonly CONSTANT_RAMDISK_SIZE=3G
+
+# Defaults
+readonly CONSTANT_DEFAULT_ALPINE_RELEASE="edge"
+readonly CONSTANT_DEFAULT_ARCH="x86_64"
+readonly CONSTANT_DEFAULT_CHROOT_DIRECTORY="./chroot"
+readonly CONSTANT_DEFAULT_CONSOLE_NAME="tty0"
+readonly CONSTANT_DEFAULT_IMAGES_DIRECTORY="./alpine-images"
+readonly CONSTANT_DEFAULT_KEYMAP="us us"
+readonly CONSTANT_DEFAULT_LOCALE="en_US"
+readonly CONSTANT_DEFAULT_MDEV=false
+readonly CONSTANT_DEFAULT_MIRROR_SITE="https://alpine.global.ssl.fastly.net/alpine"
+readonly CONSTANT_DEFAULT_RAMDISK_DIRECTORY="./ramdisk"
+readonly CONSTANT_DEFAULT_SERIAL_PORT_NUMBER="0"
+readonly CONSTANT_DEFAULT_SERIAL_PORT_NAME="ttyS${CONSTANT_DEFAULT_SERIAL_PORT_NUMBER}"
+readonly CONSTANT_DEFAULT_SERIAL_PORT_SPEED="115200"
+readonly CONSTANT_DEFAULT_TIMEZONE="America/New_York"

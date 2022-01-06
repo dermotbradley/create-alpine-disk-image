@@ -1,0 +1,6063 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  image-functions
+##
+##  Copyright 2021 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Enable some additional server-related init.d services
+#
+add_additional_init_d() {
+  cat <<'EOF' >> "$run_script"
+
+{
+  write_log "Adding additional init.d scripts"
+  {
+EOF
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    add_init_d_service "lvm" "boot"
+  fi
+
+  add_init_d_service "rngd" "boot"
+
+  case $image_syslog_server in
+    busybox )
+      add_init_d_service "syslog" "boot" ;;
+    rsyslog )
+      add_init_d_service "rsyslog" "boot" ;;
+  esac
+
+  add_init_d_service "chronyd" "default"
+
+  case $image_ssh_server in
+    dropbear )
+      add_init_d_service "dropbear" "default" ;;
+    openssh )
+      add_init_d_service "sshd" "default" ;;
+    tinyssh )
+      add_init_d_service "tinysshd" "default" ;;
+  esac
+
+  if [ -n "${image_enable_utmp+x}" ]; then
+    add_init_d_service "utmp-init" "boot"
+    add_init_d_service "utmpd" "boot"
+    add_init_d_service "wtmpd" "boot"
+  fi
+
+  if [ "$image_class" = "virtual" ]; then
+    case $image_vm_type in
+      libvirtd | lxd | proxmox | qemu )
+        add_init_d_service "qemu-guest-agent" "default" ;;
+      virtualbox )
+        add_init_d_service "virtualbox-guest-additions" "default" ;;
+      vmware )
+        add_init_d_service "open-vm-tools" "default" ;;
+    esac
+  fi
+
+  # No acpid running on Cloud or Virtual machines as tiny-power-button
+  # or QEMU/VMware agents which do not require it.
+  if [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    # acpid is not run on Raspberry PIs
+    add_init_d_service "acpid" "default"
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+}
+EOF
+}
+
+
+#
+# Additional OS configuration
+#
+additional_os_configuration() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Doing additional OS configuration"
+
+# FIXUP: stop update-ca-certificates displaying a warning
+sed -i \
+  -e 's|/etc/ssl/certs|/etc/ssl/certs 2>/dev/null|' \
+  /etc/ca-certificates/update.d/certhash
+EOF
+
+  if [ "$image_syslog_server" = "rsyslog" ]; then
+    cat <<'EOF' >> "$run_script"
+
+# Create empty file as rsyslog's logrotate config expects it
+:> /var/log/mail.log
+EOF
+  fi
+
+  if [ "$image_auth_control" = "doas" ] || \
+     [ "$image_auth_control" = "both" ]; then
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Adding doas configuration for wheel group"
+cat <<-_SCRIPT_ > /etc/doas.d/00-configure-wheel-group.conf
+	#
+	# Allow members of group wheel to become root
+	#
+	permit persist :wheel
+	_SCRIPT_
+EOF
+  fi
+
+  tighten_sshd_configuration
+  set_firewall_rules
+}
+
+
+#
+# Basic OS configuration
+#
+basic_os_configuration() {
+  local _color_prompt_file _login_banner
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Doing basic OS configuration"
+
+write_log "  Setting the login message to be 'vague'"
+printf '\nWelcome\n\n' > /etc/issue
+EOF
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    _login_banner="Alpine $image_arch $image_cloud_type Cloud server"
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual machine
+    _login_banner="Alpine $image_arch $image_vm_type VM server"
+  else
+    # Physical machine
+    if [ "$image_physical_type" = "pc" ]; then
+      _login_banner="Alpine $image_arch PC server"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      _login_banner="Alpine $image_arch Raspberry Pi server"
+    fi
+  fi
+
+  cat <<EOF >> "$run_script"
+printf '\n\n$_login_banner\n\n' > /etc/motd
+EOF
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Setting the keymap to '\$keymap'"
+setup-keymap \$keymap >> "/chroot.log" 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/profile.d/locale.sh /etc/profile.d/locale.sh-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Setting locale to \$locale.UTF-8"
+sed -i -E -e "s/^(export LANG=)C.UTF-8/\1\$locale.UTF-8/" \
+  /etc/profile.d/locale.sh
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/profile.d/locale.sh-orig /etc/profile.d/locale.sh \
+    >> /chroot.log || true
+  rm /etc/profile.d/locale.sh-orig
+
+  cp /etc/rc.conf /etc/rc.conf-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Set OpenRC to log init.d start/stop sequences"
+sed -i -e 's|[#]rc_logger=.*|rc_logger="YES"|g' /etc/rc.conf
+
+write_log "  Fixup rc.conf so that keyboards and screens use Unicode"
+sed -i -e 's/^#unicode="NO"/unicode="YES"/' /etc/rc.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/rc.conf-orig /etc/rc.conf >> /chroot.log || true
+  rm /etc/rc.conf-orig
+}
+EOF
+  fi
+
+  if [ "$image_alpine_release" = "v3.13" ]; then
+    _color_prompt_file="color_prompt"
+  else
+    _color_prompt_file="color_prompt.sh.disabled"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Enable colour shell prompt"
+cp /etc/profile.d/${_color_prompt_file} /etc/profile.d/color_prompt.sh
+
+rmdir /media/floppy
+EOF
+}
+
+
+#
+# Disable a set of specified kernel modules
+#
+blacklist_list_of_kernel_modules() {
+  local _modules_section=$1
+  local _modules_blacklist="$2"
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Blacklisting ${_modules_section} kernel modules"
+cat <<-_SCRIPT_ > /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
+EOF
+
+  for MODULE_NAME in $_modules_blacklist; do
+    cat <<EOF >> "$run_script"
+	blacklist ${MODULE_NAME}
+EOF
+  done
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+sort -u -o /etc/modprobe.d/blacklist-${_modules_section}-modules.conf \\
+  /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "    Contents of blacklist-${_modules_section}-modules.conf:"
+  cat /etc/modprobe.d/blacklist-${_modules_section}-modules.conf >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Calculate size of the boot partition if it is required.
+#
+calculate_boot_part_size() {
+  local _size _fs_total_size
+
+  if [ -n "${needs_boot_partition+x}" ]; then
+    _fs_total_size=$((general_boot_part_size))
+    if [ "$image_fs_type" = "ext4" ]; then
+      # Allow for Ext4 FS reserved percentage
+      _size=$((_fs_total_size + (_fs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100 + 1)))
+    elif [ "$image_fs_type" = "f2fs" ]; then
+      # Allow for F2FS overprovision percentage
+      _size=$((_fs_total_size + (_fs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100 + 1)))
+    else
+      _size=$_fs_total_size
+    fi
+  fi
+
+  echo "${_size:-0}"
+}
+
+
+#
+# Calculate size of the resultant disk image taking into account
+# whether bootloader, boot and cloud-init partitions are needed.
+#
+calculate_image_size() {
+  local _image_total_size
+
+  if [ -n "${image_encrypted+x}" ]; then
+	  # LUKS (including LVM-on-LUKS)
+    _image_total_size=$(($(calculate_luks_part_size)))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, initial image size for LUKS is $_image_total_size MiB" >> debug
+  	fi
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+	  # LVM
+    _image_total_size=$(($(calculate_lvm_vg_size) + 4))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, initial image size for LVM (including 4MiB rounding) is $_image_total_size MiB" >> debug
+  	fi
+  else
+    _image_total_size=$(calculate_root_part_size)
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, initial image size is $_image_total_size MiB" >> debug
+  	fi
+  fi
+
+  if [ "$image_class" = "physical" ] && \
+	   [ -z "${image_without_cloud_init+x}" ]; then
+    _image_total_size="$((_image_total_size + CONSTANT_CIDATA_PART_SIZE))"
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, adding on CIDATA partition, giving $_image_total_size MiB" >> debug
+  	fi
+  fi
+
+  if [ -n "${needs_boot_partition+x}" ]; then
+    _image_total_size="$((_image_total_size + $(calculate_boot_part_size)))"
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, adding on Boot partition, giving $_image_total_size MiB" >> debug
+  	fi
+  fi
+
+  if [ "$image_boot_type" = "bios" ]; then
+	  # Allow for 1MiB boot sector
+    _image_total_size="$((_image_total_size + 1))"
+
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, added on 1MiB for boot sector, giving $_image_total_size MiB" >> debug
+		fi
+  elif [ "$image_boot_type" = "uefi" ]; then
+    _image_total_size="$((_image_total_size + $(calculate_uefi_part_size)))"
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_image_size, adding on ESP partition, giving $_image_total_size MiB" >> debug
+  	fi
+  fi
+
+  echo "$_image_total_size"
+}
+
+
+#
+# Calculate size of the LUKS partition taking into account whether
+# separate boot partition is not needed (so boot files add to size).
+#
+calculate_luks_part_size() {
+  local _luks_total_size _size
+
+  _luks_total_size=$general_root_part_size
+	if [ -n "${debug_enabled+x}" ]; then
+		echo "calculate_luks_part_size, initial LUKS partition is $_luks_total_size MiB" >> debug
+  fi
+
+  if [ -z "${needs_boot_partition+x}" ]; then
+    _luks_total_size=$((_luks_total_size + general_boot_part_size))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_luks_part_size, no boot partition so adding boot files, size is $_luks_total_size MiB" >> debug
+    fi
+  fi
+
+  if [ "$image_fs_type" = "ext4" ]; then
+    # Allow for Ext4 FS reserved percentage
+    _size=$((_luks_total_size + (_luks_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_luks_part_size, allowing for Ext4 reserved space, size is $_size MiB" >> debug
+    fi
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    # Allow for F2FS overprovision percentage
+    _size=$((_luks_total_size + (_luks_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_luks_part_size, allowing for F2FS overprovisioning percentage, size is $_size MiB" >> debug
+    fi
+  else
+    _size=$_luks_total_size
+		if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_luks_part_size, size is $_size MiB" >> debug
+    fi
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM-on-LUKS
+    _size=$((_size + (_size * CONSTANT_LVM_OVERHEAD_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_luks_part_size, allowing for LVM overhead, size is $_size MiB" >> debug
+    fi
+  fi
+
+  # add LUKS overhead
+  _size=$((_size + (_size * CONSTANT_LUKS_OVERHEAD_PERCENT / 100)))
+  if [ -n "${debug_enabled+x}" ]; then
+	  echo "calculate_luks_part_size, allowing for LUKS overhead, size is $_size MiB" >> debug
+  fi
+
+  echo "$_size"
+}
+
+
+#
+# Calculate size of the LVM boot LV.
+#
+calculate_lvm_boot_lv_size() {
+  local _boot_total_size _lv_total_size
+
+  _boot_total_size=$general_boot_part_size
+	if [ -n "${debug_enabled+x}" ]; then
+		echo "calculate_lvm_boot_lv_size, initial Boot LV size is $_boot_total_size MiB" >> debug
+  fi
+
+  if [ "$image_fs_type" = "ext4" ]; then
+    # Allow for Ext4 FS reserved percentage
+    _boot_total_size=$((_boot_total_size + (_boot_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_boot_lv_size, allowing for Ext4 reserved space, size is $_boot_total_size MiB" >> debug
+    fi
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    # Allow for F2FS overprovision percentage
+    _boot_total_size=$((_boot_total_size + (_boot_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_boot_lv_size, allowing for F2FS overprovisioning percentage, size is $_boot_total_size MiB" >> debug
+    fi
+  fi
+
+  # Round up to next extent
+  _lv_total_size=$(lvm_round_extents $_boot_total_size)
+  if [ -n "${debug_enabled+x}" ]; then
+	  echo "calculate_lvm_boot_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
+  fi
+  echo "$_lv_total_size"
+}
+
+
+#
+# Calculate size of the LVM logs LV.
+#
+calculate_lvm_logs_lv_size() {
+  local _logs_total_size _lv_total_size
+
+  _logs_total_size=$CONSTANT_LVM_LOGS_LV_SIZE
+	if [ -n "${debug_enabled+x}" ]; then
+		echo "calculate_lvm_logs_lv_size, initial Logs LV size is $_logs_total_size MiB" >> debug
+  fi
+
+  if [ "$image_fs_type" = "ext4" ]; then
+    # Allow for Ext4 FS reserved percentage
+    _logs_total_size=$((_logs_total_size + (_logs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_logs_lv_size, allowing for Ext4 reserved space, size is $_logs_total_size MiB" >> debug
+    fi
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    # Allow for F2FS overprovision percentage
+    _logs_total_size=$((_logs_total_size + (_logs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_logs_lv_size, allowing for F2FS overprovisioning percentage, size is $_logs_total_size MiB" >> debug
+    fi
+  fi
+
+  # Round up to next extent
+  _lv_total_size=$(lvm_round_extents $_logs_total_size)
+  if [ -n "${debug_enabled+x}" ]; then
+	  echo "calculate_lvm_logs_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
+  fi
+  echo "$_lv_total_size"
+}
+
+
+#
+# Calculate size of the LVM root LV.
+#
+calculate_lvm_root_lv_size() {
+  local _root_total_size _lv_total_size
+
+  _root_total_size=$general_root_part_size
+	if [ -n "${debug_enabled+x}" ]; then
+		echo "calculate_lvm_root_lv_size, initial Root LV size is $_root_total_size MiB" >> debug
+  fi
+
+  if [ "$image_fs_type" = "ext4" ]; then
+    # Allow for Ext4 FS reserved percentage
+    _root_total_size=$((_root_total_size + (_root_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_root_lv_size, allowing for Ext4 reserved space, size is $_root_total_size MiB" >> debug
+    fi
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    # Allow for F2FS overprovision percentage
+    _root_total_size=$((_root_total_size + (_root_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
+  	if [ -n "${debug_enabled+x}" ]; then
+	  	echo "calculate_lvm_root_lv_size, allowing for F2FS overprovisioning percentage, size is $_root_total_size MiB" >> debug
+    fi
+  fi
+
+  # Round up to next extent
+  _lv_total_size=$(lvm_round_extents $_root_total_size)
+  if [ -n "${debug_enabled+x}" ]; then
+	  echo "calculate_lvm_root_lv_size, rounding up to next extend, size is $_lv_total_size MiB" >> debug
+  fi
+  echo "$_lv_total_size"
+}
+
+
+#
+# Calculate size of the LVM partition taking into account whether
+# separate boot partition is not needed (so boot files add to size).
+#
+calculate_lvm_vg_size() {
+  local _boot_total_size _root_total_size _logs_total_size _vg_total_size
+
+  if [ -z "${needs_boot_partition+x}" ]; then
+    _boot_total_size=$(calculate_lvm_boot_lv_size)
+		if [ -n "${debug_enabled+x}" ]; then
+		  echo "calculate_lvm_vg_size, Boot LV size is $_boot_total_size MiB" >> debug
+    fi
+  fi
+  _root_total_size=$(calculate_lvm_root_lv_size)
+  _logs_total_size=$(calculate_lvm_logs_lv_size)
+	if [ -n "${debug_enabled+x}" ]; then
+		echo "calculate_lvm_vg_size, Root LV size is $_root_total_size MiB" >> debug
+		echo "calculate_lvm_vg_size, Logs LV size is $_logs_total_size MiB" >> debug
+  fi
+
+  if [ -n "${needs_boot_partition+x}" ]; then
+    _vg_total_size=$((_root_total_size + _logs_total_size))
+		if [ -n "${debug_enabled+x}" ]; then
+		  echo "calculate_lvm_vg_size, adding Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
+    fi
+  else
+    _vg_total_size=$((_boot_total_size + _root_total_size + _logs_total_size))
+		if [ -n "${debug_enabled+x}" ]; then
+		  echo "calculate_lvm_vg_size, adding Boot+Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
+    fi
+  fi
+  echo "$_vg_total_size"
+}
+
+
+#
+# Calculate size of the root partition taking into account whether
+# separate boot partition is not needed (so boot files add to size of root).
+#
+calculate_root_part_size() {
+  local _fs_total_size
+
+  _fs_total_size=$general_root_part_size
+  if [ -z "${needs_boot_partition+x}" ]; then
+    _fs_total_size=$((_fs_total_size + general_boot_part_size))
+  fi
+  if [ "$image_fs_type" = "ext4" ]; then
+    # Allow for Ext4 FS reserved percentage
+    _fs_total_size=$((_fs_total_size + (_fs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100 + 1)))
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    # Allow for F2FS overprovision percentage
+    _fs_total_size=$((_fs_total_size + (_fs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100 + 1)))
+  fi
+
+  echo "$_fs_total_size"
+}
+
+
+#
+# Calculate size of the UEFI ESP partition taking into account if it will
+# also contain boot files.
+#
+calculate_uefi_part_size() {
+  local _fs_total_size
+
+  _fs_total_size=$((general_uefi_part_size))
+
+  if [ "$image_bootloader" = "syslinux" ]; then
+    # There is size of boot files to account for when
+    # using Syslinux as then EFI partition is also /boot.
+    _fs_total_size="$((_fs_total_size + general_boot_part_size))"
+  fi
+
+  echo "$_fs_total_size"
+}
+
+
+#
+# Configure Grub
+#
+configure_bootloader_grub() {
+  local _cmdline _modules
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring Grub"
+mkdir -p /boot/grub
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  write_debug_log "  Root fs partition device is $root_part_device"
+  write_debug_log "  Loopback device is $loop_device"
+}
+EOF
+  fi
+
+  # Busybox's losetup is not suitable when installing Grub on a loopback
+  # device as it may truncate the name of the underlying filename.
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Installing util-linux package for losetup"
+apk add --quiet util-linux
+EOF
+
+  if [ "$image_boot_reference" = "label" ]; then
+    patch_grub_for_label
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Contents of /etc/grub.d/10_linux:"
+  cat /etc/grub.d/10_linux >> /chroot.log
+  cp /etc/default/grub /etc/default/grub-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Updating /etc/default/grub"
+sed -i \
+  -e 's|^GRUB_DISABLE_RECOVERY=.*$|GRUB_DISABLE_RECOVERY=false|g' \
+  -e 's|^GRUB_TIMEOUT=.*$|GRUB_TIMEOUT=5|g' \
+  -e '/^GRUB_CMDLINE_LINUX_DEFAULT=.*$/d' \
+  /etc/default/grub
+EOF
+
+  _cmdline="rootfstype=$image_fs_type"
+  # Add modules list
+  _modules="$(define_cmdline_for_modules)"
+  if [ -n "${_modules}" ]; then
+    _cmdline="$_cmdline modules=$_modules"
+  fi
+  if [ "$image_console_type" = "serial" ] || \
+     [ "$image_console_type" = "both" ]; then
+    # Serial console
+    _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
+  fi
+  if [ "$image_console_type" = "normal" ] || \
+     [ "$image_console_type" = "both" ]; then
+    # Normal console
+    _cmdline="$_cmdline console=$image_console_name"
+  fi
+  if [ "$image_boot_type" = "bios" ] && \
+     [ -z "${debug_enabled+x}" ]; then
+    # With BIOS can disable graphics as "standard" VGA provides text output
+    _cmdline="$_cmdline nomodeset"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+    _cmdline="$_cmdline ipv6.disable=1"
+  fi
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Using tiny-power-button for Cloud/VMs but Busybox init doesn't
+    # handle the usual signal this sends, so specify USR2 which Busybox
+    # accepts for "poweroff" situations.
+    _cmdline="$_cmdline tiny_power_button.power_signal=12"
+  fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart"
+  fi
+  ###if [ -n "${image_harden+x}" ]; then
+  ###  _cmdline="$_cmdline lockdown=integrity"
+  ###fi
+  if [ -z "${debug_enabled+x}" ]; then
+    _cmdline="$_cmdline quiet"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Add other LUKS-related cmdline entries
+    if [ -z "${image_lvm_rootfs+x}" ]; then
+      _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
+    fi
+    _cmdline="$_cmdline \$(define_cmdline_for_encryption)"
+
+    if [ "$image_bootloader" = "grub" ] && \
+       { [ -z "${image_experimental+x}" ] || \
+         [ -z "${remote_unlock_enabled+x}" ]; } && \
+       [ -z "${image_no_grub_encryption+x}" ]; then
+      # Cryptkey is used for unlock rootfs without 2nd password prompt.
+      #   It apply only when bootloader is Grub
+      # AND
+      #   when remote unlock is not enabled as then /boot is encrypted
+      # AND
+      #   when GRUB encryption is not disabled.
+      _cmdline="$_cmdline cryptkey"
+    fi
+###  elif [ -n "${image_lvm_rootfs+x}" ]; then
+###    # Add LVM-specific cmdline entry
+###    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  fi
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+cmdline="$_cmdline"
+{
+  echo "GRUB_CMDLINE_LINUX_DEFAULT=\"\\\$cmdline\""
+EOF
+
+  if [ "$image_boot_reference" = "label" ]; then
+    cat <<'EOF' >> "$run_script"
+	echo 'GRUB_ENABLE_LINUX_LABEL=true'
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+  echo 'GRUB_ENABLE_LINUX_LABEL=false'
+EOF
+  fi
+
+  if [ "$image_boot_type" = "bios" ]; then
+    cat <<'EOF' >> "$run_script"
+  echo 'GRUB_GFXPAYLOAD_LINUX=text'
+EOF
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+  echo 'GRUB_DISABLE_LINUX_UUID=true'
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+  echo 'GRUB_DISABLE_LINUX_UUID=false'
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  echo 'GRUB_DISABLE_OS_PROBER=true'
+  echo 'GRUB_RECORDFAIL_TIMEOUT=20'
+} >> /etc/default/grub
+EOF
+
+  if [ "$image_boot_type" = "bios" ]; then
+    cat <<'EOF' >> "$run_script"
+if ! grep -q "^GRUB_TERMINAL=" /etc/default/grub; then
+  echo 'GRUB_TERMINAL=console' >> /etc/default/grub
+fi
+EOF
+  fi
+
+  if [ -n "${image_encrypted+x}" ] && \
+     [ -z "${remote_unlock_enabled+x}" ] && \
+     [ -z "${image_no_grub_encryption+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+echo 'GRUB_ENABLE_CRYPTODISK=n' >> /etc/default/grub
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+###chmod g=,o= /etc/default/grub
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
+  rm /etc/default/grub-orig
+
+  # Fudge to see what is going on inside grub-mkconfig
+  sed -i -e 's|^set -e$|set -ex|' /usr/sbin/grub-mkconfig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Generating GRUB config"
+grub-mkconfig -o /boot/grub/grub.cfg >> /chroot.log 2>&1
+
+write_log "  Checking GRUB config"
+grub-script-check /boot/grub/grub.cfg >> /chroot.log
+
+chmod g=,o= /boot/grub/grub.cfg
+EOF
+}
+
+
+#
+# Setup the config files used by Raspberry Pi bootloader
+#
+configure_bootloader_rpi() {
+  local _cmdline _extra_modules _modules
+
+  ###_modules="sd-mod,usb-storage"
+  _modules=""
+  _extra_modules="$(define_cmdline_for_modules)"
+  if [ -n "${_extra_modules}" ]; then
+    if [ -z "${_modules}" ]; then
+      _modules="$_extra_modules"
+    else
+      _modules="$_modules,$_extra_modules"
+    fi
+  fi
+  _cmdline="rootfstype=$image_fs_type ro"
+  if [ -n "${_modules}" ]; then
+    _cmdline="$_cmdline modules=$_modules"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME} \\\$(define_cmdline_for_encryption)"
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  else
+    _cmdline="$_cmdline root=/dev/mmcblk0p${root_part_num}"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+	  _cmdline="$_cmdline ipv6.disable=1"
+	fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart"
+  fi
+  ###if [ -n "${image_harden+x}" ]; then
+  ###  _cmdline="$_cmdline lockdown=integrity"
+  ###fi
+  _cmdline="$_cmdline console=${image_console_name} quiet"
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "Create RPI bootloader configuration"
+
+write_log "  Creating /boot/cmdline.txt"
+cat <<-_SCRIPT_ > /boot/cmdline.txt
+	$_cmdline
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  /boot/cmdline.txt contents:"
+  cat /boot/cmdline.txt >> /chroot.log
+}
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Creating /boot/config.txt"
+cat <<-_SCRIPT_ > /boot/config.txt
+EOF
+
+  if [ "$image_physical_type" = "rpi2" ] || \
+     [ "$image_physical_type" = "all-rpi" ]; then
+	  # RPI 2
+	  cat <<'EOF' >> "$run_script"
+	[pi2]
+	kernel=vmlinuz-rpi
+	initramfs initramfs-rpi
+EOF
+  fi
+
+  if [ "$image_physical_type" = "rpi3" ] || \
+     [ "$image_physical_type" = "all-rpi" ]; then
+	  # RPI 3
+	  cat <<'EOF' >> "$run_script"
+	[pi3]
+	kernel=vmlinuz-rpi
+	initramfs initramfs-rpi
+	[pi3+]
+	kernel=vmlinuz-rpi
+	initramfs initramfs-rpi
+EOF
+  fi
+
+  if [ "$image_physical_type" = "rpi4" ] || \
+     [ "$image_physical_type" = "all-rpi" ]; then
+	  # RPI 4
+	  cat <<'EOF' >> "$run_script"
+	[pi4]
+	enable_gic=1
+	kernel=vmlinuz-rpi4
+	initramfs initramfs-rpi4
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	[all]
+EOF
+
+  if [ "$image_arch" = "aarch64" ]; then
+	  cat <<'EOF' >> "$run_script"
+	arm_64bit=1
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	# Set GPU memory to 16MB when using cutdown bootloader
+	gpu_mem=16
+	include usercfg.txt
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  /boot/config.txt contents:"
+  cat /boot/config.txt >> /chroot.log
+}
+EOF
+  fi
+
+  if [ "$image_physical_type" != "all-rpi" ]; then
+    if [ "$image_physical_type" != "rpi4" ]; then
+	    # RPI 2 or RPI 3
+      FIXUP_FILE="fixup_cd.dat"
+      START_FILE="start_cd.elf"
+    else
+	    # RPI 4
+      FIXUP_FILE="fixup4cd.dat"
+      START_FILE="start4cd.elf"
+  	fi
+    cat <<EOF >> "$run_script"
+
+write_log "  Creating /boot/usercfg.txt"
+cat <<-_SCRIPT_ > /boot/usercfg.txt
+	fixup_file=$FIXUP_FILE
+	start_file=$START_FILE
+	
+	# Default is 1
+	boot_delay=1
+	
+	# Do not display rainbow screen.
+	disable_splash=1
+	
+	# Prevent GPU ever going into turbo mode
+	disable_auto_turbo=1
+	
+	# Rotate HDMI output 90 degrees clockwise
+	###display_hdmi_rotate=1
+	
+	# Don't send CEC message during boot
+	hdmi_ignore_cec_init=1
+	
+	# Enable I2C
+	dtparam=i2c_arm=on
+	
+	# Disable Bluetooth
+	dtoverlay=disable-bt
+	# Disable Wifi
+	dtoverlay=disable-wifi
+
+	# Disable audio
+	dtparam=audio=off
+	
+	# Disable I2S
+	dtparam=i2s=off
+	
+	# Disable SPI
+	dtparam=spi=off
+	
+	# Disable UART
+	enable_uart=0	
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${rpi_use_rtc+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+write_log "  Adding RTC configuration to /boot/usercfg.txt"
+cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	
+	# Enable hardware I2C-based RTC
+	dtoverlay=i2c-rtc,ds1307
+	_SCRIPT_
+EOF
+  fi
+
+  if [  -n "${rpi_use_poe_hat+x}" ]; then
+    cat <<EOF >> "$run_script"
+	
+write_log "  Adding PoE HAT configuration to /boot/usercfg.txt"
+cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	# PoE Hat Fan Speeds - start at 50, full speed by 80
+	dtparam=poe_fan_temp0=50000
+	dtparam=poe_fan_temp1=60000
+	dtparam=poe_fan_temp2=70000
+	dtparam=poe_fan_temp3=80000
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  /boot/usercfg.txt contents:"
+  cat /boot/usercfg.txt >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Configure Syslinux
+#
+configure_bootloader_syslinux() {
+  local _cmdline _extra_modules _modules_list
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring Syslinux"
+mkdir -p /boot
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/update-extlinux.conf /etc/update-extlinux.conf-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Updating update-extlinux.conf"
+EOF
+
+  _cmdline="rootfstype=$image_fs_type"
+  if [ "$image_console_type" = "serial" ] || \
+     [ "$image_console_type" = "both" ]; then
+    _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
+  fi
+  if [ "$image_console_type" = "normal" ] || \
+     [ "$image_console_type" = "both" ]; then
+    _cmdline="$_cmdline console=${image_console_name}"
+  fi
+  if [ "$image_boot_type" = "bios" ]; then
+    _cmdline="$_cmdline nomodeset"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+    _cmdline="$_cmdline ipv6.disable=1"
+  fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart"
+  fi
+  ###if [ -n "${image_harden+x}" ]; then
+  ###  _cmdline="$_cmdline lockdown=integrity"
+  ###fi
+  _cmdline="$_cmdline quiet"
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    _cmdline="$_cmdline $(define_cmdline_for_encryption)"
+  fi
+
+  cat <<EOF >> "$run_script"
+kernel_opts="$_cmdline"
+EOF
+
+  _modules_list="$image_fs_type"
+  _extra_modules="$(define_cmdline_for_modules)"
+  if [ -n "${_extra_modules}" ]; then
+    _modules_list="$_modules_list,$_extra_modules"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    cat <<EOF >> "$run_script"
+fs_reference="/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
+EOF
+  elif [ "$image_boot_reference" = "label" ]; then
+    # Use LABELs to refer to filesystems
+    if [ "$image_boot_type" = "uefi" ]; then
+      cat <<EOF >> "$run_script"
+###fs_reference="LABEL=SYSTEM_EFI"
+fs_reference="LABEL=$CONSTANT_ROOTFS_LABEL"
+EOF
+    else
+      cat <<EOF >> "$run_script"
+fs_reference="LABEL=$CONSTANT_ROOTFS_LABEL"
+EOF
+    fi
+  else
+    # Use UUIDs to refer to filesystems
+    if [ "$image_boot_type" = "uefi" ]; then
+      cat <<'EOF' >> "$run_script"
+###fs_reference="UUID=$esp_fs_uuid"
+fs_reference="UUID=$root_fs_uuid"
+EOF
+    else
+      cat <<'EOF' >> "$run_script"
+fs_reference="UUID=$root_fs_uuid"
+EOF
+    fi
+  fi
+
+  cat <<EOF >> "$run_script"
+modules="$_modules_list"
+EOF
+
+  cat <<'EOF' >> "$run_script"
+sed -i \
+  -e 's|^overwrite=(.*)$|overwrite=1|g' \
+  -e 's|^hidden=.*$|hidden=0|g' \
+  -e 's|^timeout=.*$|timeout=3|g' \
+  -e "s|^default_kernel_opts=.*$|default_kernel_opts=\"\$kernel_opts\"|g" \
+  -e "s|^root=.*$|root=\$fs_reference|g" \
+  /etc/update-extlinux.conf
+if [ -n "\${modules+x}" ]; then
+  sed -i -e "s|^modules=.*$|modules=\$modules|g" /etc/update-extlinux.conf
+fi
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  diff update-extlinux.conf"
+  diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \\
+    >> /chroot.log || true
+  rm /etc/update-extlinux.conf-orig
+  write_debug_log "  update-extlinux.conf contents:"
+  cat /etc/update-extlinux.conf >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Configure chrony
+#
+configure_chrony() {
+  cat <<'EOF' >> "$run_script"
+
+{
+  write_log "Configuring chrony:"
+
+  # Need to set up PHC if required
+  #????
+}
+EOF
+}
+
+
+#
+# Configure cloud-init
+#
+configure_cloud_init() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring cloud-init"
+
+write_log "  Running setup-cloud-init"
+setup-cloud-init >> /chroot.log 2>&1
+
+write_log "  Precompiling cloud-init python files"
+_PYTHON_DIR=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
+python3 -OO -m compileall -q /usr/lib/\${_PYTHON_DIR}/site-packages/cloudinit \
+  >> /chroot.log 2>&1
+EOF
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    define_cloud_settings
+  elif [ "$image_class" = "physical" ]; then
+    # Physical
+    datasource_list="'NoCloud'"
+  else
+    # VM
+    define_virtual_settings
+  fi
+  if [ -z "${datasource_list+x}" ]; then
+    datasource_list="'None'"
+  else
+    datasource_list="$datasource_list,'None'"
+  fi
+
+  # Need to sort out serial console settings at this stage, after specific
+  # clouds/VM types may/may not have overriden the defaults.
+  if [ "$image_console_type" = "serial" ] || \
+     [ "$image_console_type" = "both" ]; then
+    if [ -z "${serial_port_number+x}" ]; then
+      serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
+      serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
+    fi
+    if [ -z "${serial_port_speed+x}" ]; then
+      serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
+    fi
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg
+	# Tailored config file
+	
+	users:
+	   - default
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Unlocking the root account"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	   - name: root
+	     lock_passwd: False
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Locking the root account"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	   - name: root
+	     lock_passwd: True
+EOF
+  fi
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+write_log "  Setting the default user's password"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	
+	# The password for the default user account, changing it is forced on login.
+	password: $default_user_password
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	mount_default_fields: [~, ~, 'auto', 'defaults,nofail', '0', '2']
+	resize_rootfs_tmp: /dev
+	
+	preserve_hostname: False
+	
+	# Modules that run in 'init' stage
+	cloud_init_modules:
+	  - migrator
+	  - seed_random
+	  - bootcmd
+	  - write-files
+	  - growpart
+	  - resizefs
+	  - disk_setup
+	  - mounts
+	  - set_hostname
+	  - update_hostname
+	  - update_etc_hosts
+	  - resolv_conf
+	  - ca-certs
+	  - rsyslog
+	  - users-groups
+	  - ssh
+
+	# Modules that run in 'config' stage
+	cloud_config_modules:
+	  - locale
+	  - set-passwords
+	  - apk-configure
+	  - ntp
+	  - timezone
+	  - disable-ec2-metadata
+	  - runcmd
+	
+	# Modules that run in 'final' stage
+	cloud_final_modules:
+	  - package-update-upgrade-install
+	  - write-files-deferred
+	  - scripts-vendor
+	  - scripts-per-once
+	  - scripts-per-boot
+	  - scripts-per-instance
+	  - scripts-user
+	  - ssh-authkey-fingerprints
+	  - keys-to-console
+	  - install-hotplug
+	  - phone-home
+	  - final-message
+	  - power-state-change
+
+	system_info:
+	  distro: alpine
+	  default_user:
+EOF
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+write_log "  Setting the default username to '$image_admin_username'"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    name: $image_admin_username
+EOF
+
+  if [ "$image_auth_control" = "doas" ] || \
+     [ "$image_auth_control" = "both" ]; then
+  cat <<EOF >> "$run_script"
+	    doas: ["permit nopass $image_admin_username"]
+EOF
+  fi
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+write_log "  Ensure default user's account is not locked as password is set"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    lock_passwd: False
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+write_log "  Ensure default user's account is locked (for password access)"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    lock_passwd: True
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	    gecos: Default cloud-init user
+EOF
+
+  if [ "$image_auth_control" = "sudo" ] || \
+     [ "$image_auth_control" = "both" ]; then
+  cat <<'EOF' >> "$run_script"
+	    groups: [adm, sudo, wheel]
+	    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+EOF
+  else
+  cat <<'EOF' >> "$run_script"
+	    groups: [adm, wheel]
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	    shell: /bin/ash
+	  paths:
+	    cloud_dir: /var/lib/cloud/
+	    templates_dir: /etc/cloud/templates/
+EOF
+
+  if [ "$image_ssh_server" = "openssh" ]; then
+  cat <<'EOF' >> "$run_script"
+	  ssh_svcname: sshd
+EOF
+  elif [ "$image_ssh_server" = "tinyssh" ]; then
+  cat <<'EOF' >> "$run_script"
+	  ssh_svcname: tinysshd
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+write_log "  Setting up DataSources list"
+cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	
+	datasource_list: [$datasource_list]
+EOF
+
+  if [ -n "${datasource_settings+x}" ]; then
+    cat <<EOF >> "$run_script"
+	datasource:
+$datasource_settings
+EOF
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    case $image_cloud_type in
+      # Enable network interface hotplug for supported DataSources
+      aws )
+        cat <<'EOF' >> "$run_script"
+	
+	updates:
+	  network:
+	    when: ["boot","hotplug"]
+EOF
+        ;;
+    esac
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    cat <<'EOF' >> "$run_script"
+	
+	###################################################################
+	#                     NTP settings
+	###################################################################
+	
+EOF
+
+	  if [ "$image_cloud_type" = "aws" ]; then
+      cat <<'EOF' >> "$run_script"
+	ntp:
+	  enabled: True
+	  servers:
+	  - 169.254.169.123
+EOF
+	  elif [ "$image_cloud_type" = "azure" ]; then
+      cat <<'EOF' >> "$run_script"
+	ntp:
+	  enabled: True
+	  hypervisor_clock: True
+EOF
+    fi
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual
+    cat <<'EOF' >> "$run_script"
+	
+	###################################################################
+	#                     NTP settings
+	###################################################################
+	
+EOF
+
+	  case $image_vm_type in
+			libvirtd | lxd | proxmox | qemu )
+        cat <<'EOF' >> "$run_script"
+	ntp:
+	  enabled: True
+	  hypervisor_clock: True
+EOF
+        ;;
+    esac
+	fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	###################################################################
+	#                     SSH settings
+	###################################################################
+	
+	# Prevent SSH access to root user
+	disable_root: True
+	
+	# Delete any pre-existing SSH hosts keys
+	ssh_deletekeys: True
+EOF
+
+  if [ "$image_ssh_keytypes" = "ed25519" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Only create ED25519 SSH host key
+	ssh_genkeytypes: ["ed25519"]
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	
+	# Only create ED25519 and RSA SSH host keys
+	ssh_genkeytypes: ["ed25519","rsa"]
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	# Disable SSH password authentication
+	ssh_pwauth: False
+	
+	# SSH host key settings
+	#-----------------------
+	ssh:
+	  # Show SSH host keys and their fingerprints on console
+	  emit_keys_to_console: True
+	#
+	# Don't show these SSH host key types on console (DSA is never shown)
+	ssh_key_console_blacklist: ["ssh-ecdsa","ssh-ed25519","ssh-rsa"]
+	#
+	# Don't display SSH host keygen output including VisualArt
+	ssh_quiet_keygen: True
+	
+	# Don't display users' SSH key fingerprints on console.
+	no_ssh_fingerprints: True
+	
+	###################################################################
+	
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/cloud/templates/hosts.alpine.tmpl \
+    /etc/cloud/templates/hosts.alpine.tmpl-orig
+}
+EOF
+  fi
+
+  if [ -n "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+sed -i \
+  -e '/^# The following lines are desirable for IPv4.*$/d' \
+  -e '/^127\.0.*$/d' \
+  /etc/cloud/templates/hosts.alpine.tmpl
+EOF
+  elif [ -n "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+sed -i \
+  -e '/^# The following lines are desirable for IPv6.*$/d' \
+  -e '/^::1.*$/d' \
+  -e '/^ff02::.*$/d' \
+  /etc/cloud/templates/hosts.alpine.tmpl
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/cloud/cloud.cfg-orig /etc/cloud/cloud.cfg >> /chroot.log || true
+  rm /etc/cloud/cloud.cfg-orig
+
+  diff etc/cloud/templates/hosts.alpine.tmpl-orig \
+    etc/cloud/templates/hosts.alpine.tmpl \
+    >> /chroot.log || true
+  rm etc/cloud/templates/hosts.alpine.tmpl-orig
+
+  cp /etc/cloud/cloud.cfg.d/05_logging.cfg \
+    /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+}
+
+write_log "  Enabling cloud-init debugging"
+sed -i \
+  -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
+  /etc/cloud/cloud.cfg.d/05_logging.cfg
+
+{
+  # Debug
+  diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
+    /etc/cloud/cloud.cfg.d/05_logging.cfg \
+    >> /chroot.log || true
+  rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+}
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Disabling cloud-init debugging"
+sed -i \
+  -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=DEBUG/\1level=INFO/g ;P;D' \
+  /etc/cloud/cloud.cfg.d/05_logging.cfg
+EOF
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    case $image_cloud_type in
+      azure )
+        create_etc_filesystems "ISO" ;;
+    esac
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual machine
+    create_etc_filesystems "ISO"
+  else
+    # Physical
+    create_etc_filesystems "VFAT"
+  fi
+
+  if [ "$image_class" = "physical" ]; then
+    # Physical
+    create_cloud_init_yaml_files
+  fi
+}
+
+
+#
+# Place entries in /etc/fstab for various filesystems
+#
+configure_fstab() {
+  local _boot_mount_options _logs_mount_options _mountpoint
+  local _root_mount_options
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Add /etc/fstab entries"
+EOF
+
+  # Root filesystem
+  _root_mount_options="rw,relatime"
+  if [ "$image_fs_type" = "ext4" ] && \
+     [ -n "${image_for_ssd+x}" ]; then
+    # Sync every 5 minutes, rather than the default of every 5 seconds,
+    # to reduce writes to flash storage.
+    _root_mount_options="$_root_mount_options,commit=300"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<EOF >> "$run_script"
+add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+    else
+      cat <<EOF >> "$run_script"
+add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+    fi
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<EOF >> "$run_script"
+add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+  else
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+      cat <<EOF >> "$run_script"
+add_fstab_entry LABEL "$CONSTANT_ROOTFS_LABEL" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+    else
+      # Non-RPI
+      case $image_boot_reference in
+        label )
+          cat <<EOF >> "$run_script"
+add_fstab_entry LABEL "$CONSTANT_ROOTFS_LABEL" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+          ;;
+        * )
+          cat <<EOF >> "$run_script"
+add_fstab_entry UUID "\$root_fs_uuid" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
+EOF
+          ;;
+      esac
+    fi
+  fi
+
+  # UEFI ESP
+	if [ "$image_boot_type" = "uefi" ]; then
+    _mountpoint="/efi"
+
+    case $image_boot_reference in
+      label )
+        cat <<EOF >> "$run_script"
+add_fstab_entry LABEL "SYSTEM_EFI" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
+EOF
+        ;;
+		  *)
+        cat <<EOF >> "$run_script"
+add_fstab_entry UUID "\$esp_fs_uuid" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
+EOF
+        ;;
+		esac
+
+    if [ "$image_bootloader" = "syslinux" ]; then
+      cat <<'EOF' >> "$run_script"
+add_fstab_entry BIND "/efi/EFI/BOOT" "/boot" "none" "rw,relatime" "/boot ESP bind-mount"
+EOF
+    fi
+	fi
+
+  # /boot
+  if [ -n "${needs_boot_partition+x}" ]; then
+    _boot_mount_options="rw,relatime"
+
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI 2, 3, or 4
+      cat <<EOF >> "$run_script"
+mkdir /media/sdcard
+add_fstab_entry LABEL "RPIBOOT" "/media/sdcard" "vfat" "$_boot_mount_options" "/media/sdcard"
+add_fstab_entry BIND "/media/sdcard" "/boot" "none" "$_boot_mount_options" "/boot bind-mount"
+EOF
+    else
+      # Not RPI 2, 3, or 4
+      if [ "$image_fs_type" = "ext4" ] && \
+         [ -n "${image_for_ssd+x}" ]; then
+        # Sync every 5 minutes, rather than the default of every 5 seconds,
+        # to reduce writes to flash storage.
+        _boot_mount_options="$_boot_mount_options,commit=300"
+      fi
+      if [ "$image_boot_reference" = "label" ]; then
+        cat <<EOF >> "$run_script"
+add_fstab_entry LABEL "$CONSTANT_BOOTFS_LABEL" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
+EOF
+      else
+        cat <<EOF >> "$run_script"
+add_fstab_entry UUID "\$boot_fs_uuid" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
+EOF
+      fi
+    fi
+
+  elif [ -n "${image_lvm_rootfs+x}" ] && \
+       [ -z "${needs_boot_partition+x}" ]; then
+    _boot_mount_options="rw,relatime"
+
+    if [ "$image_fs_type" = "ext4" ] && \
+       [ -n "${image_for_ssd+x}" ]; then
+      # Sync every 5 minutes, rather than the default of every 5 seconds,
+      # to reduce writes to flash storage.
+      _boot_mount_options="$_boot_mount_options,commit=300"
+    fi
+
+    cat <<EOF >> "$run_script"
+add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
+EOF
+  fi
+
+  # logs filesystem
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _logs_mount_options="rw,relatime"
+    if [ "$image_fs_type" = "ext4" ] && \
+       [ -n "${image_for_ssd+x}" ]; then
+      # Sync every 5 minutes, rather than the default of every 5 seconds,
+      # to reduce writes to flash storage.
+      _logs_mount_options="$_logs_mount_options,commit=300"
+    fi
+
+    cat <<EOF >> "$run_script"
+add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}" "/var/log" "$image_fs_type" "$_logs_mount_options" "logsfs"
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Resultant /etc/fstab contents:"
+  cat /etc/fstab >> "/chroot.log"
+}
+EOF
+  fi
+}
+
+
+#
+# Configure mkinitfs so that only the modules necessary for the relevant
+# image type are placed in the initramfs file.
+#
+configure_mkinitfs() {
+  local _features_list _optimise
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring mkinitfs"
+write_log "  Setting up mkinitfs.conf"
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/mkinitfs/mkinitfs.conf /etc/mkinitfs/mkinitfs.conf-orig
+}
+EOF
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    _optimise="optimise-"
+  fi
+
+  _features_list="${_optimise:-}base keymap ${_optimise:-}network"
+  if [ "$image_class" != "physical" ] || \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    # For all except RPIs
+    _features_list="$_features_list ${_optimise:-}kms"
+  fi
+
+  _features_list="$_features_list ${image_fs_type}"
+
+  if [ -n "${image_experimental+x}" ] && \
+	   [ -n "${image_bootchart+x}" ]; then
+    _features_list="$_features_list ${_optimise:-}bootchart"
+  fi
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _features_list="$_features_list ${_optimise:-}lvm"
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    _features_list="$_features_list ${_optimise:-}usb ${_optimise:-}virtio"
+
+    if [ "$image_cloud_type" = "aws" ] || \
+       [ "$image_cloud_type" = "generic" ]; then
+      # AWS
+      _features_list="$_features_list ${_optimise:-}ena ${_optimise:-}nvme"
+    fi
+
+  elif [ "$image_class" = "physical" ]; then
+    # Physical machine
+    if [ "$image_physical_type" = "pc" ]; then
+      _features_list="$_features_list ${_optimise:-}ata ${_optimise:-}nvme ${_optimise:-}scsi ${_optimise:-}usb"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # Raspberry Pi
+      _features_list="$_features_list mmc ${_optimise:-}usb"
+    fi
+
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual Machine
+    _features_list="$_features_list ${_optimise:-}scsi ${_optimise:-}usb ${_optimise:-}virtio"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    if [ "$image_bootloader" = "grub" ] && \
+       [ -z "${remote_unlock_enabled+x}" ] && \
+       [ -z "${image_no_grub_encryption+x}" ]; then
+      # cryptkey is only needed when using GRUB encrypted /boot
+      # to avoid being prompted both by GRUB and by initramfs for
+      # the passphrase twice.
+      _features_list="$_features_list cryptkey"
+    fi
+    # cryptsetup is required in all rootfs encryption situations
+    _features_list="$_features_list ${_optimise:-}cryptsetup"
+    if [ -n "${image_experimental+x}" ] && \
+		   [ -n "${remote_unlock_enabled+x}" ]; then
+      # enable SSH remote unlock functionality and also dhcp which it uses
+      _features_list="$_features_list ${_optimise:-}dhcp ${_optimise:-}remote_unlock_luks"
+    fi
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  mkinitfs features list is: $_features_list"
+}
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+sed -i \\
+  -e "s|^features=\".*\"|features=\"$_features_list\"|" \\
+  /etc/mkinitfs/mkinitfs.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/mkinitfs/mkinitfs.conf-orig /etc/mkinitfs/mkinitfs.conf \
+    >> /chroot.log || true
+  rm /etc/mkinitfs/mkinitfs.conf-orig
+}
+EOF
+  fi
+
+  if [ -n "${image_optimise+x}" ] && \
+     [ "$image_class" = "physical" ] && \
+		 [ "$image_physical_type" = "pc" ]; then
+    # ata.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-ata.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-ata"
+    initramfs_entry_add "kernel/drivers/ata/ahci.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ahci_platform.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ata_generic.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ata_piix.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libahci.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libahci_platform.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libata.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-ata.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-ata.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    # base.files
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-base.files"
+{
+  echo "/bin/busybox"
+  echo "/bin/sh"
+  echo "/sbin/modprobe"
+  echo "/lib/mdev"
+  echo "/sbin/apk"
+  echo "/etc/modprobe.d/*.conf"
+  echo "/etc/mdev.conf"
+  echo "/sbin/nlplug-findfs"
+} >> /etc/mkinitfs/features.d/optimise-base.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-base.files contents:"
+  cat /etc/mkinitfs/features.d/optimise-base.files >> /chroot.log
+}
+EOF
+    fi
+
+    # base.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-base.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-base"
+    initramfs_entry_add "kernel/drivers/gpu/drm/tiny/simpledrm.ko*"
+
+    if [ "$image_arch" != "aarch86" ] || \
+       [ "$image_class" != "virtual" ]; then
+      # jitterentropy_rng is a module for all machines except for
+      # aarch64 VMs where it is compiled into the linux-virt kernel.
+      ###initramfs_entry_add "base" "kernel/crypto/jitterentropy_rng.ko*"
+      initramfs_entry_add "# No jitterentropy_rng for now."
+    fi
+
+    if [ "$image_arch" = "aarch64" ]; then
+      if [ "$image_class" = "cloud" ] || \
+         [ "$image_class" = "virtual" ]; then
+        # aarch64 Cloud and Virtual machines use minimal button module
+        initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+      fi
+    fi
+
+    if [ "$image_arch" = "x86" ] || \
+       [ "$image_arch" = "x86_64" ]; then
+      if [ "$image_class" = "cloud" ] || \
+         [ "$image_class" = "virtual" ]; then
+        # x86 and x86_64 Cloud and Virtual machines use minimal button module
+        initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+      else
+        # x86 and x86_64 Physical machines use the normal button module
+        initramfs_entry_add "kernel/drivers/acpi/button.ko*"
+      fi
+    fi
+
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-base.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-base.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_encrypted+x}" ] && \
+     [ "$image_bootloader" = "grub" ] && \
+     { [ -z "${image_experimental+x}" ] || \
+       [ -z "${remote_unlock_enabled+x}" ]; } && \
+     [ -z "${image_no_grub_encryption+x}" ]; then
+    # cryptkey.files
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/mkinitfs/features.d/cryptkey.files \
+    /etc/mkinitfs/features.d/cryptkey.files-orig
+}
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/cryptkey.files"
+echo "/etc/crypttab" >> /etc/mkinitfs/features.d/cryptkey.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/mkinitfs/features.d/cryptkey.files-orig \
+    /etc/mkinitfs/features.d/cryptkey.files \
+    >> /chroot.log || true
+  rm /etc/mkinitfs/features.d/cryptkey.files-orig
+}
+EOF
+    fi
+
+  fi
+
+  if [ -n "${image_encrypted+x}" ] && \
+     [ -n "${image_optimise+x}" ]; then
+    # cryptsetup.files
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-cryptsetup.files"
+{
+  echo "/sbin/cryptsetup"
+} >> /etc/mkinitfs/features.d/optimise-cryptsetup.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-cryptsetup.files contents:"
+  cat /etc/mkinitfs/features.d/optimise-cryptsetup.files >> /chroot.log
+}
+EOF
+    fi
+
+    # cryptsetup.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-cryptsetup.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-cryptsetup"
+    case $image_arch in
+      aarch64 )
+        initramfs_entry_add "kernel/arch/arm64/crypto/aes-arm64.ko*"
+        if [ "$image_class" = "cloud" ]; then
+          # Add Arm Crypto Extension modules for ARM64 servers
+          initramfs_entry_add "kernel/arch/arm64/crypto/*-ce*.ko*"
+        fi
+
+        ;;
+      x86 | x86_64 )
+        if [ -z ${image_cpu_vendor+X} ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
+          initramfs_entry_add "kernel/arch/x86/crypto/aesni-intel.ko*"
+        fi
+        ;;
+    esac
+    initramfs_entry_add "kernel/drivers/md/dm-crypt.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-cryptsetup.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-cryptsetup.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    # kms.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-kms.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-kms"
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+
+      if [ "$image_cloud_type" = "azure" ] || \
+         [ "$image_cloud_type" = "generic" ]; then
+        # Azure
+        initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*"
+      fi
+    elif [ "$image_class" = "physical" ]; then
+      # Physical machine
+      if [ "$image_physical_type" = "pc" ]; then
+        initramfs_entry_add "kernel/drivers/char/agp/agpgart.ko*"
+        if [ -z ${image_graphics_vendor+x} ] || \
+           [ "$image_graphics_vendor" = "amd" ]; then
+          initramfs_entry_add "kernel/drivers/char/agp/amd64-agp.ko*"
+          if [ -z ${image_graphics_vendor_driver+x} ] || \
+             [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/amd"
+          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+               [ "$image_graphics_vendor_driver" = "radeon" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/radeon"
+            initramfs_entry_add "kernel/drivers/video/fbdev/aty/radeonfb.ko*"
+          else
+            initramfs_entry_add "kernel/drivers/gpu/drm/amd"
+            initramfs_entry_add "kernel/drivers/gpu/drm/radeon"
+            initramfs_entry_add "kernel/drivers/video/fbdev/aty/radeonfb.ko*"
+          fi
+        fi
+        if [ -z ${image_graphics_vendor+x} ] || \
+           [ "$image_graphics_vendor" = "intel" ]; then
+          initramfs_entry_add "kernel/drivers/char/agp/intel-agp.ko*"
+          initramfs_entry_add "kernel/drivers/char/agp/intel-gtt.ko*"
+          if [ -z ${image_graphics_vendor_driver+x} ] || \
+             [ "$image_graphics_vendor_driver" = "gma500" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/gma500"
+          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+               [ "$image_graphics_vendor_driver" = "i915" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/i915"
+          else
+            initramfs_entry_add "kernel/drivers/gpu/drm/gma500"
+            initramfs_entry_add "kernel/drivers/gpu/drm/i915"
+          fi
+          initramfs_entry_add "kernel/drivers/video/fbdev/intelfb"
+        fi
+        if [ -z ${image_graphics_vendor+x} ] || \
+           [ "$image_graphics_vendor" = "nvidia" ]; then
+          initramfs_entry_add "kernel/drivers/gpu/drm/nouveau"
+          initramfs_entry_add "kernel/drivers/video/fbdev/nvidia"
+        fi
+        initramfs_entry_add "kernel/drivers/gpu/drm/i2c"
+        initramfs_entry_add "kernel/drivers/gpu/drm/scheduler"
+        ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-amd*.ko*"
+        ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-piix4.ko*"
+        initramfs_entry_add "kernel/drivers/video/fbdev/uvesafb.ko*"
+        initramfs_entry_add "kernel/drivers/video/fbdev/vga16fb.ko*"
+      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        initramfs_entry_add "# This file is empty for RPI machines"
+        ###initramfs_entry_add "kernel/drivers/gpu/drm/vc4/vc4.ko*"
+        ###initramfs_entry_add "kernel/drivers/i2c"
+        ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-bcm2708.ko*"
+      fi
+    elif [ "$image_class" = "virtual" ]; then
+      # Virtual Machine
+      if [ "$image_vm_type" = "hyperv" ] || \
+         [ "$image_vm_type" = "generic" ]; then
+        # Hyper-V
+        initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*"
+      fi
+
+      case $image_vm_type in
+        libvirtd | lxd | proxmox | qemu | generic )
+          initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
+          initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+          ;;
+      esac 
+
+      if [ "$image_vm_type" = "virtualbox" ] || \
+         [ "$image_vm_type" = "generic" ]; then
+        # Virtualbox
+        initramfs_entry_add "kernel/drivers/gpu/drm/vboxvideo/vboxvideo.ko*"
+      fi
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-kms.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-kms.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ] && \
+     [ -n "${image_optimise+x}" ]; then
+    # lvm.files
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-lvm.files"
+{
+  echo "/sbin/lvm"
+} >> /etc/mkinitfs/features.d/optimise-lvm.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-lvm.files contents:"
+  cat /etc/mkinitfs/features.d/optimise-lvm.files >> /chroot.log
+}
+EOF
+    fi
+
+    # lvm.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-lvm.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-lvm"
+    initramfs_entry_add "kernel/drivers/md/dm-mod.ko*"
+    initramfs_entry_add "kernel/drivers/md/dm-snapshot.ko*"
+    initramfs_entry_add "kernel/drivers/md/dm-thin-pool.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-lvm.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-lvm.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+###  if [ -n "${image_optimise+x}" ]; then
+###    # network.files
+###    cat <<'EOF' >> "$run_script"
+###
+###write_log "  Setting up features.d/optimise-network.files"
+###echo "# This file is empty for cloud/physical/virtual machines" \
+###  > /etc/mkinitfs/features.d/optimise-network.files
+###EOF
+###
+###    if [ -n "${debug_enabled+x}" ]; then
+###      cat <<'EOF' >> "$run_script"
+###
+###{
+###  # Debug
+###  write_debug_log "  optimise-network.files contents:"
+###  cat /etc/mkinitfs/features.d/optimise-network.files >> /chroot.log
+###}
+###EOF
+###    fi
+###  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    # network.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-network.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-network"
+
+    if [ -z "${image_disable_ipv6+x}" ]; then
+      initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
+    fi
+
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+
+      if [ "$image_cloud_type" = "aws" ] || \
+         [ "$image_cloud_type" = "generic" ]; then
+        # AWS
+        initramfs_entry_add "kernel/drivers/net/ethernet/amazon/ena"
+      fi
+
+      if [ "$image_cloud_type" = "azure" ] || \
+         [ "$image_cloud_type" = "generic" ]; then
+        # Azure
+        initramfs_entry_add "kernel/drivers/net/hyperv"
+      fi
+    elif [ "$image_class" = "physical" ]; then
+      # Physical machine
+      if [ "$image_physical_type" = "pc" ]; then
+        if [ -n "${image_ethernet_module+x}" ]; then
+          initramfs_entry_add "kernel/drivers/net/ethernet/${image_ethernet_module}.ko*"
+          if [ "$image_ethernet_module" = "realtek/r8169" ]; then
+            initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*"
+          fi
+        else
+          initramfs_entry_add "kernel/drivers/net/ethernet/atheros/alx"
+          initramfs_entry_add "kernel/drivers/net/ethernet/broadcom/tg3.ko*"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/e1000"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/e1000e"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/i40e"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ice"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igb"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igbvf"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igc"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgb"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgbe"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgbevf"
+          initramfs_entry_add "kernel/drivers/net/ethernet/nvidia"
+          initramfs_entry_add "kernel/drivers/net/ethernet/realtek/r8169.ko*"
+          initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*"
+        fi
+        initramfs_entry_add "kernel/drivers/net/mii.ko*"
+      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        initramfs_entry_add "# No additions for Raspberry Pi machines"
+      fi
+    elif [ "$image_class" = "virtual" ]; then
+      # Virtual machine
+      case $image_vm_type in
+        libvirtd | lxd | proxmox | qemu | virtualbox | generic )
+          initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+          ;;
+      esac
+
+      if [ "$image_vm_type" = "hyperv" ] || \
+         [ "$image_vm_type" = "generic" ]; then
+        # Hyper-V
+        initramfs_entry_add "kernel/drivers/net/hyperv"
+      fi
+
+      if [ "$image_vm_type" = "vmware" ] || \
+         [ "$image_vm_type" = "generic" ]; then
+        # VMware
+        initramfs_entry_add "kernel/drivers/net/vmxnet3"
+      fi
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-network.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-network.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ] && \
+     { { [ "$image_class" = "cloud" ] && \
+         { [ "$image_cloud_type" = "aws" ] || \
+           [ "$image_cloud_type" = "generic" ]; }; } || \
+       { [ "$image_class" = "physical" ] && \
+         [ "$image_physical_type" = "pc" ]; }; }; then
+    # nvme.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-nvme.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-nvme"
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      if [ "$image_cloud_type" = "aws" ] || \
+         [ "$image_cloud_type" = "generic" ]; then
+        # AWS
+        initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+      fi
+    elif [ "$image_class" = "physical" ]; then
+      # Physical
+      if [ "$image_physical_type" = "pc" ]; then
+        initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+      fi
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-nvme.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-nvme.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ] && \
+     { [ "$image_class" = "cloud" ] || \
+       { [ "$image_class" = "physical" ] && \
+         [ "$image_physical_type" = "pc" ]; } || \
+			 [ "$image_class" = "virtual" ]; }; then
+    # scsi.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-scsi.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-scsi"
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      ###initramfs_entry_add "kernel/drivers/scsi/scsi_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+    elif [ "$image_class" = "physical" ]; then
+      # Physical
+      if [ "$image_physical_type" = "pc" ]; then
+        ###initramfs_entry_add "kernel/drivers/scsi/scsi_mod.ko*"
+        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+        initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
+        initramfs_entry_add "kernel/drivers/scsi/sg.ko*"
+        #######initramfs_entry_add "kernel/drivers/scsi/sr_mod.ko*"
+      ###elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      ###  initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
+      fi
+    elif [ "$image_class" = "virtual" ]; then
+      # Virtual machine
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-scsi.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-scsi.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    # usb.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-usb.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-usb"
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      initramfs_entry_add "kernel/drivers/hid/usbhid"
+      initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+      if [ -z "${image_optimise+x}" ] || \
+         [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" != "intel" ]; then
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+      fi
+      if [ -z "${image_optimise+x}" ] || \
+         [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "intel" ]; then
+        initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+      fi
+      initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+    elif [ "$image_class" = "physical" ]; then
+      # Physical
+      if [ "$image_physical_type" = "pc" ]; then
+        ###initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
+        initramfs_entry_add "kernel/drivers/hid/usbhid"
+        initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+        if [ -z "${image_optimise+x}" ] || \
+           [ -z "${image_cpu_vendor+x}" ] || \
+           [ "$image_cpu_vendor" != "intel" ]; then
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+        fi
+        if [ -z "${image_optimise+x}" ] || \
+           [ -z "${image_cpu_vendor+x}" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
+          initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+        fi
+        initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+        initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
+        initramfs_entry_add "kernel/fs/fat"
+      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
+        initramfs_entry_add "kernel/drivers/hid/usbhid"
+        initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
+        initramfs_entry_add "kernel/fs/fat"
+      fi
+    elif [ "$image_class" = "virtual" ]; then
+      # Virtual
+      if [ "$image_vm_type" != "virtualbox" ]; then
+        initramfs_entry_add "kernel/drivers/hid/usbhid"
+        initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+        if [ -z "${image_optimise+x}" ] || \
+           [ -z "${image_cpu_vendor+x}" ] || \
+           [ "$image_cpu_vendor" != "intel" ]; then
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+          initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+        fi
+        if [ -z "${image_optimise+x}" ] || \
+           [ -z "${image_cpu_vendor+x}" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
+          initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+        fi
+        initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+      else
+        initramfs_entry_add "# Virtualbox does not require USB for keyboard."
+      fi
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-usb.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-usb.modules >> /chroot.log
+}
+EOF
+    fi
+  fi
+
+  if [ -n "${image_optimise+x}" ] && \
+     { [ "$image_class" = "cloud" ] || \
+       [ "$image_class" = "virtual" ]; }; then
+    # virtio.modules
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Setting up features.d/optimise-virtio.modules"
+EOF
+
+    initramfs_entry_initialise "optimise-virtio"
+    if [ "$image_class" = "cloud" ]; then
+      # Cloud
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+      if [ "$image_console_type" = "normal" ] || \
+         [ "$image_console_type" = "both" ]; then
+        initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+      fi
+      initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+      initramfs_entry_add "kernel/drivers/crypto/virtio*"
+      initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    elif [ "$image_class" = "virtual" ]; then
+      # Virtual machine
+      initramfs_entry_add "kernel/drivers/crypto/virtio*"
+      initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+      case $image_vm_type in
+        libvirtd | lxd | proxmox | qemu | generic )
+          initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+          if [ "$image_console_type" = "normal" ] || \
+             [ "$image_console_type" = "both" ]; then
+            initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+          fi
+          initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+          initramfs_entry_add "kernel/drivers/virtio"
+          ;;
+      esac
+
+      if [ "$image_vm_type" = "virtualbox" ] || \
+         [ "$image_vm_type" = "generic" ]; then
+        # Virtualbox
+        initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
+        initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
+        initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
+      fi
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  optimise-virtio.modules contents:"
+  cat /etc/mkinitfs/features.d/optimise-virtio.modules >> /chroot.log
+}
+EOF
+    fi
+	fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Fudge
+  sed -i -e 's|^set -e$|set -ex|' /sbin/mkinitfs
+}
+EOF
+  fi
+}
+
+
+#
+# Configure /etc/network/interfaces
+#
+configure_network_interfaces() {
+  cat <<'EOF' >> "$run_script"
+
+{
+  write_log "Creating /etc/network/interfaces"
+
+  cat <<-_SCRIPT_ >> /etc/network/interfaces
+	# /etc/network/interfaces
+	
+	auto lo
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface lo inet loopback
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface lo inet6 loopback
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	auto eth0
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface eth0 inet dhcp
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# control-alias eth0
+	iface eth0 inet6 dhcp
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	_SCRIPT_
+}
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Contents of /etc/network/interfaces:"
+  cat /etc/network/interfaces >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create default user account
+#
+create_default_user() {
+
+  cat <<EOF >> "$run_script"
+
+{
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+  {
+    # Debug
+    cp /etc/passwd /etc/passwd-orig
+    cp /etc/shadow /etc/shadow-orig
+    cp /etc/group /etc/group-orig
+  }
+
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+  write_log "Setting up default user '${image_admin_username}'"
+
+  write_log "  Creating user account"
+  adduser -D -g "Default user" ${image_admin_username}
+
+  write_log "  Adding user to group 'wheel'"
+  addgroup ${image_admin_username} wheel
+EOF
+
+  if [ -n "${ssh_public_key+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  write_log "  Adding SSH public key to user's authorized_keys file"
+  mkdir /home/${image_admin_username}/.ssh
+  chown ${image_admin_username}:${image_admin_username} /home/${image_admin_username}/.ssh
+  chmod 700 /home/${image_admin_username}/.ssh
+  echo "${ssh_public_key}" \\
+    > /home/${image_admin_username}/.ssh/authorized_keys
+  chown ${image_admin_username}:${image_admin_username} /home/${image_admin_username}/.ssh/authorized_keys
+  chmod 600 /home/${image_admin_username}/.ssh/authorized_keys
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  {
+    # Debug
+
+    write_debug_log "  /etc/passwd changes:"
+	  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+  	rm /etc/passwd-orig
+
+    write_debug_log "  /etc/shadow changes:"
+	  diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+  	rm /etc/shadow-orig
+
+    write_debug_log "  /etc/group changes:"
+	  diff /etc/group-orig /etc/group >> /chroot.log || true
+  	rm /etc/group-orig
+
+    write_debug_log "  Contents of /home/${image_admin_username}:"
+    ls -laR /home/${image_admin_username} >> /chroot.log
+  }
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Copy LUKS keyfile into place
+#
+copy_luks_keyfile_into_place() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Moving LUKS keyfile into chroot directory"
+mv crypto_keyfile.bin "$chroot_dir"/
+chmod 400 "$chroot_dir"/crypto_keyfile.bin
+EOF
+}
+
+
+#
+# For physical machines create the cloud-init YAML config files
+#
+create_cloud_init_yaml_files() {
+  local _grow_device _grow_part_num _part_grow_size _resize_command
+  local _resize_logs_fs_part _resize_logs_lv _resize_luks_device
+  local _resize_pv_device _resize_pv_part _resize_root_fs_part
+  local _resize_root_lv _resize_vg
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Creating cloud-init YAML files for physical machine"
+
+write_log "  Create example YAML files"
+mkdir /cidata/examples
+
+cat <<-_SCRIPT_ > /cidata/examples/meta-data
+	instance-id: iid-local0
+	_SCRIPT_
+
+cat <<-_SCRIPT_ > /cidata/examples/network-dhcp
+	version: 2
+	ethernets:
+	  eth0:
+	    dhcpv4: yes
+	    dhcpv6: yes
+	_SCRIPT_
+
+cat <<-_SCRIPT_ > /cidata/examples/network-static
+	version: 2
+	ethernets:
+	  eth0:
+	    addresses:
+	      - 192.168.0.2/24
+	    gateway4: 192.168.0.1
+	_SCRIPT_
+
+cat <<-_SCRIPT_ > /cidata/examples/user-data
+	#cloud-config
+	
+	apk_repos:
+	  preserve_repositories: False
+	  alpine_repo:
+EOF
+
+  cat <<EOF >> "$run_script"
+	    version: '$image_alpine_release'
+	    base_url: $alpine_mirror_site
+	    community_enabled: True
+EOF
+
+  if [ "$image_alpine_release" = "edge" ]; then
+    cat <<'EOF' >> "$run_script"
+	    testing_enabled: True
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	    testing_enabled: False
+EOF
+  fi
+
+  if [ -n "${local_alpine_repository+x}" ]; then
+    cat <<EOF >> "$run_script"
+	  local_repo_base_url: $local_alpine_repository
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	package_reboot_if_required: False
+	package_update: False
+	package_upgrade: False
+	
+	debug:
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	  verbose: True
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	  verbose: False
+EOF
+  fi
+
+  if [ -n "${image_full_hostname+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Hostname including domain
+	fqdn: $full_hostname
+EOF
+  elif [ -n "${image_short_hostname+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Hostname without domain
+	hostname: \$short_hostname
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	locale: \$locale
+	timezone: \$timezone
+	
+	ntp:
+	  enabled: True
+	  servers:
+	    - pool.ntp.org
+EOF
+
+  if [ -n "${image_for_ssd+x}" ] || \
+     [ -n "${image_encrypted+x}" ] || \
+     [ -n "${image_lvm_rootfs+x}" ]; then
+
+    # Cannot use cloud-init's growpart and resize_rootfs
+    cat <<EOF >> "$run_script"
+	
+	# Growpart & resize does not work for LUKS or LVM currently
+	# so this will be handled via runcmd instead.
+	growpart:
+	  mode: False
+	resize_rootfs: False
+EOF
+
+    if [ -n "${image_for_ssd+x}" ]; then
+      # Do not use 10% of the flash disk size, leave for "overprovisioning"
+      _part_grow_size="90%"
+    else
+      _part_grow_size="100%"
+    fi
+
+    if [ -n "${image_encrypted+x}" ]; then
+      # LUKS or LVM-on-LUKS
+      _grow_part_num="$luks_part_num"
+      _resize_luks_device="$CONSTANT_LUKS_DEVICE_NAME"
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        _grow_device="/dev/mmcblk0"
+      else
+        _grow_device="/dev/sda"
+      fi
+      _resize_root_fs_part="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+
+      cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the LUKS partition
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+	  # Grow LUKS to fill the partition
+	  - cryptsetup resize ${_resize_luks_device}
+EOF
+
+      if [ -n "${image_lvm_rootfs+x}" ]; then
+        # LVM-on-LUKS
+        _resize_pv_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+        _resize_vg="$CONSTANT_LVM_VG_NAME"
+        _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+        _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+        _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+        _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+        cat <<EOF >> "$run_script"
+	  # Grow the LVM PV to fill the LUKS partition
+	  - pvresize resize ${_resize_pv_device}
+	  # Don't resize the root LV at all
+	  #
+	  # Grow the logs LV by 10M
+	  - lvextend -L +10m $_resize_logs_lv
+EOF
+      fi
+
+    elif [ -n "${image_lvm_rootfs+x}" ]; then
+      # LVM
+      _grow_part_num="$lvm_part_num"
+      _resize_vg="$CONSTANT_LVM_VG_NAME"
+      _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+      _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+      _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+      _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        _grow_device="/dev/mmcblk0"
+        _resize_pv_part="/dev/mmcblk0p${lvm_part_num}"
+      else
+        _grow_device="/dev/sda"
+        _resize_pv_part="/dev/sda${lvm_part_num}"
+      fi
+
+      cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the LVM partition
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+	  # Grow the LVM PV to fill the partition
+	  - pvresize $_resize_pv_part
+	  # Don't resize the root LV at all
+	  #
+	  # Grow the logs LV by 10M
+	  - lvextend -L +10m $_resize_logs_lv
+EOF
+    else
+      # Neither LUKS nor LVM
+      _grow_part_num="$root_part_num"
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        _grow_device="/dev/mmcblk0"
+        _resize_root_fs_part="${_grow_device}p${root_part_num}"
+      else
+        _grow_device="/dev/sda"
+        _resize_root_fs_part="${_grow_device}${root_part_num}"
+      fi
+
+      if [ -n "${image_for_ssd+x}" ]; then
+        cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the partition to fill most, but not all, of the disk
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+EOF
+      fi
+    fi
+
+    cat <<EOF >> "$run_script"
+	  # Resize the underlying root filesystem
+EOF
+    case $image_fs_type in
+      btrfs )
+        _resize_command="btrfs filesystem resize max $_resize_root_fs_part" ;;
+      ext4 )
+        _resize_command="resize2fs $_resize_root_fs_part" ;;
+      f2fs )
+        _resize_command="resize.f2fs $_resize_root_fs_part" ;;
+      xfs )
+        _resize_command="xfs_growfs $_resize_root_fs_part" ;;
+    esac
+    cat <<EOF >> "$run_script"
+	  - $_resize_command
+EOF
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      cat <<EOF >> "$run_script"
+	  # Resize the underlying logs filesystem
+EOF
+      case $image_fs_type in
+        btrfs )
+          _resize_command="btrfs filesystem resize max $_resize_logs_fs_part" ;;
+        ext4 )
+          _resize_command="resize2fs $_resize_logs_fs_part" ;;
+        f2fs )
+          _resize_command="resize.f2fs $_resize_logs_fs_part" ;;
+        xfs )
+          _resize_command="xfs_growfs $_resize_logs_fs_part" ;;
+      esac
+      cat <<EOF >> "$run_script"
+	  - $_resize_command
+EOF
+    fi
+  else
+    cat <<'EOF' >> "$run_script"
+	
+	# Grow the root partition and resize rootfs to fill it
+	growpart:
+	  mode: auto
+	resize_rootfs: True
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	ssh:
+	  # Whether to show either host keys or their fingerprints on console
+	  emit_keys_to_console: False
+EOF
+
+  if [ -n "${ssh_public_key+x}" ]; then
+    cat <<EOF >> "$run_script"
+	
+	users:
+	  - default
+	  - name: $image_admin_username
+	    ssh_authorized_keys:
+EOF
+    # shellcheck disable=SC2028
+    echo "\t      - '$ssh_public_key'" >> "$run_script"
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	_SCRIPT_
+
+write_log "  Creating meta-data"
+cp /cidata/examples/meta-data /cidata/meta-data
+
+write_log "  Creating network-config"
+cp /cidata/examples/network-dhcp /cidata/network-config
+
+write_log "  Creating user-data"
+cp /cidata/examples/user-data /cidata/user-data
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+
+  write_debug_log "  meta-data contents:"
+  cat /cidata/meta-data >> /chroot.log
+
+  write_debug_log "  network-config contents:"
+  cat /cidata/network-config >> /chroot.log
+
+  write_debug_log "  user-data contents:"
+  cat /cidata/user-data >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create /etc/filesystems for Busybox mount
+#
+create_etc_filesystems() {
+  local _config_fs_type=$1
+
+  # Busybox mount command requires the following config
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Setting up /etc/filesystems for $_config_fs_type mount"
+cat <<-_SCRIPT_ > /etc/filesystems
+	#
+	# /etc/filesystems
+	#
+	
+	# Needed for cloud-init cidata $_config_fs_type
+EOF
+
+  if [ "$_config_fs_type" = "ISO" ]; then
+    cat <<'EOF' >> "$run_script"
+	iso9660
+	_SCRIPT_
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	vfat
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "    /etc/filesystems content:"
+  cat /etc/filesystems >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create an init.d script for preventing the loading of kernel modules
+#
+create_module_blocking_initd() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Creating init.d script for disabling kernel module loading"
+cat <<-_SCRIPT_ > /etc/init.d/block-modules-loading
+	#!/sbin/openrc-run
+	
+	description="Disable loading of kernel modules"
+	
+	depend() {
+		after *
+		keyword -openvz -prefix -uml -vserver -xenu -lxc
+	}
+	
+	start() {
+		ebegin "Disabling loading of kernel modules"
+		sysctl -q -w kernel.modules_disabled=1
+		eend $?
+	}
+	_SCRIPT_
+chmod a+x /etc/init.d/block-modules-loading
+{
+EOF
+  add_init_d_service "block-modules-loading" "default"
+
+  cat <<'EOF' >> "$run_script"
+} >> /chroot.log 2>&1
+EOF
+}
+
+
+#
+# Define list of packages in addition to base Alpine
+#
+define_additional_packages() {
+  local _initial_pkgs
+
+  _initial_pkgs="ca-certificates chrony kbd-bkeymaps"
+  _initial_pkgs="$_initial_pkgs logrotate musl-locales"
+  _initial_pkgs="$_initial_pkgs rng-tools"
+	if [ -z "${image_without_cloud_init+x}" ]; then
+    _initial_pkgs="$_initial_pkgs cloud-init"
+	else
+    ###_initial_pkgs="$_initial_pkgs blkid cloud-utils-growpart eudev"
+    #_initial_pkgs="$_initial_pkgs ethtool"
+    _initial_pkgs="$_initial_pkgs ifupdown-ng-iproute2 iproute2-minimal tzdata"
+    if [ "${image_mdev}" = false ]; then
+      _initial_pkgs="$_initial_pkgs eudev"
+    fi
+  fi
+
+  if [ -n "${image_bootchart+x}" ]; then
+    _initial_pkgs="$_initial_pkgs acct"
+  fi
+
+  case $image_auth_control in
+    doas )
+      _initial_pkgs="$_initial_pkgs doas"
+      ;;
+    sudo )
+      _initial_pkgs="$_initial_pkgs sudo"
+      ;;
+    both )
+      _initial_pkgs="$_initial_pkgs doas sudo"
+      ;;
+  esac
+
+  case $image_dhcp_client in
+    dhclient )
+      _initial_pkgs="$_initial_pkgs dhclient"
+      ;;
+    dhcpcd )
+      _initial_pkgs="$_initial_pkgs dhcpcd"
+      ;;
+  esac
+
+  if [ -n "${image_enable_utmp+x}" ]; then
+    _initial_pkgs="$_initial_pkgs utmps"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    _initial_pkgs="$_initial_pkgs cryptsetup"
+    if [ -n "${remote_unlock_enabled+x}" ]; then
+      _initial_pkgs="$_initial_pkgs dropbear-convert dropbear-unlockdisk"
+    fi
+  fi
+
+  case $image_firewall in
+    awall )
+      _initial_pkgs="$_initial_pkgs awall awall-masquerade awall-policies"
+      ;;
+    iptables )
+      _initial_pkgs="$_initial_pkgs iptables"
+      if [ -z "${image_disable_ipv6+x}" ]; then
+        _initial_pkgs="$_initial_pkgs ip6tables"
+      fi
+      ;;
+    nftables )
+      _initial_pkgs="$_initial_pkgs nftables"
+      ;;
+  esac
+
+  if [ -n "${image_for_ssd+x}" ]; then
+    # For fstrim command, should create util-linux subpackage for this
+    _initial_pkgs="$_initial_pkgs util-linux-misc"
+  fi
+
+  if [ "${image_fs_type}" = "btrfs" ]; then
+    _initial_pkgs="$_initial_pkgs btrfs-progs btrfs-progs-extra"
+  elif [ "${image_fs_type}" = "ext4" ]; then
+    _initial_pkgs="$_initial_pkgs e2fsprogs-extra"
+  elif [ "${image_fs_type}" = "f2fs" ]; then
+    _initial_pkgs="$_initial_pkgs f2fs-tools"
+  elif [ "${image_fs_type}" = "xfs" ]; then
+    _initial_pkgs="$_initial_pkgs xfsprogs xfsprogs-extra"
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _initial_pkgs="$_initial_pkgs lvm2"
+    ###_initial_pkgs="$_initial_pkgs lvm2-dmeventd"
+  fi
+
+  case $image_ssh_server in
+    dropbear )
+      _initial_pkgs="$_initial_pkgs dropbear" ;;
+    openssh )
+      _initial_pkgs="$_initial_pkgs openssh-server-pam" ;;
+    tinyssh )
+      _initial_pkgs="$_initial_pkgs tinyssh openssh-sftp-server" ;;
+  esac
+
+  case $image_syslog_server in
+    rsyslog )
+      _initial_pkgs="$_initial_pkgs rsyslog" ;;
+  esac
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud Providers
+    case $image_cloud_type in
+      aws )
+        _initial_pkgs="${_initial_pkgs} aws-cli nvme-cli" ;;
+      digitalocean )
+         if [ "$image_alpine_release" != "3.13" ] && \
+            [ "$image_alpine_release" != "3.14" ] && \
+            [ "$image_alpine_release" != "3.15" ]; then
+          _initial_pkgs="${_initial_pkgs} doctl"
+         fi
+         ;;
+      hetzner )
+        _initial_pkgs="${_initial_pkgs} hcloud" ;;
+      ###vultr )
+      ###  _initial_pkgs="${_initial_pkgs} vultr-cli" ;;
+    esac
+  elif [ "$image_class" = "physical" ]; then
+    # Physical machine
+    if [ "$image_physical_type" = "pc" ]; then
+      _initial_pkgs="${_initial_pkgs} irqbalance nvme-cli"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+	  	_initial_pkgs="${_initial_pkgs} irqbalance raspberrypi"
+      if [ "$image_alpine_release" != "v3.13" ] && \
+         [ "$image_alpine_release" != "v3.14" ]; then
+  	  	_initial_pkgs="${_initial_pkgs} mmc-utils"
+      fi
+    fi
+    # Packages for all types of physical machines
+    _initial_pkgs="${_initial_pkgs} lm-sensors lm-sensors-sensord"
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual Machine
+    case $image_vm_type in
+      libvirtd | lxd | proxmox | qemu )
+        _initial_pkgs="${_initial_pkgs} qemu-guest-agent" ;;
+    esac
+
+    if [ "$image_vm_type" = "virtualbox" ]; then
+      _initial_pkgs="${_initial_pkgs} virtualbox-guest-additions"
+    fi
+
+    if [ "$image_vm_type" = "vmware" ]; then
+      _initial_pkgs="${_initial_pkgs} open-vm-tools open-vm-tools-guestinfo open-vm-tools-timesync open-vm-tools-vix"
+    fi
+  fi
+
+  if [ -n "${add_packages_list+x}" ]; then
+    _initial_pkgs="${_initial_pkgs} ${add_packages_list}"
+  fi
+
+  echo "$_initial_pkgs"
+}
+
+
+#
+# Define the cloud-init DataSource(s) to enable for the relevant Cloud type
+#
+define_cloud_settings() {
+  case $image_cloud_type in
+    generic )
+      datasource_list="'AliYun','Azure','BigStep','ConfigDrive','DigitalOcean','E24Cloud','Ec2','Exoscale','GCE','Hetzner','IBMCloud','Oracle','RbxCloud','Scaleway','UpCloud','Vultr'" ;;
+    aliyun )
+      datasource_list="'AliYun'" ;;
+    aws )
+      datasource_list="'Ec2'"
+      if [ "$image_arch" = "aarch64" ]; then
+        image_console_name="ttyAMA1"
+      fi
+      image_console_type="both"
+      if [ "$image_console_type" = "serial" ] || \
+         [ "$image_console_type" = "both" ]; then
+        serial_port_number="0"
+        if [ "$image_arch" = "aarch64" ]; then
+          serial_port_name="ttyAMA${serial_port_number}"
+        else
+          serial_port_name="ttyS${serial_port_number}"
+        fi
+      fi
+      ;;
+    azure )
+      datasource_list="'Azure'" ;;
+    bigstep )
+      datasource_list="'Bigstep'" ;;
+    brightbox )
+      datasource_list="'Ec2'" ;;
+    digitalocean )
+      datasource_list="'DigitalOcean'"
+      image_console_type="both"
+      serial_port_number="0"
+      serial_port_name="ttyS${serial_port_number}"
+      ;;
+    e24 )
+      datasource_list="'E24Cloud'" ;;
+    exoscale )
+      datasource_list="'Exoscale'" ;;
+    google )
+      datasource_list="'GCE'" ;;
+    hetzner )
+      datasource_list="'Ec2'" ;;
+    hyperone )
+      datasource_list="'RbxCloud'" ;;
+    ibmcloud )
+      datasource_list="'IBMCloud'" ;;
+    oracle )
+      datasource_list="'Oracle'"
+      if [ "$image_arch" = "aarch64" ]; then
+        image_console_name="ttyAMA1"
+      fi
+      image_console_type="both"
+      if [ "$image_console_type" = "serial" ] || \
+         [ "$image_console_type" = "both" ]; then
+        serial_port_number="0"
+        if [ "$image_arch" = "aarch64" ]; then
+          serial_port_name="ttyAMA${serial_port_number}"
+        else
+          serial_port_name="ttyS${serial_port_number}"
+        fi
+      fi
+      ;;
+    rootbox )
+      datasource_list="'RbxCloud'" ;;
+    scaleway )
+      datasource_list="'Scaleway'" ;;
+    tencent )
+      datasource_list="'ConfigDrive'" ;;
+    upcloud )
+      datasource_list="'UpCloud'" ;;
+    vultr )
+      datasource_list="'Vultr'"
+      image_console_type="normal"
+      ;;
+  esac
+}
+
+
+#
+# Define entries for kernel command line modules list
+#
+define_cmdline_for_modules() {
+  local _list_of_modules
+
+  ###_list_of_modules="jitterentropy_rng"
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Add modules entry for dm-crypt
+    if [ -n "${_list_of_modules+x}" ]; then
+      _list_of_modules="$_list_of_modules,dm-crypt"
+    else
+      _list_of_modules="dm-crypt"
+    fi
+
+    if [ -n "${remote_unlock_enabled+x}" ]; then
+      # Add network module(s) need for remote encryption unlock
+      case $image_class in
+        cloud | virtual )
+          if [ "$image_class" = "virtual" ] && \
+             [ "$image_vm_type" = "vmware" ]; then
+            _list_of_modules="$_list_of_modules,vmxnet3"
+          else
+            # virtio_pci is *needed* even though its not a dep of virtio_net
+            _list_of_modules="$_list_of_modules,virtio_net,virtio_pci"
+          fi
+          ;;
+        physical )
+          if [ "$image_physical_type" = "pc" ] && \
+             [ -n "${remote_unlock_network_module}" ]; then
+            _list_of_modules="$_list_of_modules,$remote_unlock_network_module"
+          else
+            _list_of_modules="$_list_of_modules,e1000"
+          fi
+          ;;
+      esac
+      if [ -z "${image_disable_ipv6+x}" ]; then
+        _list_of_modules="$_list_of_modules,ipv6"
+      fi
+    fi
+  fi
+
+  echo "${_list_of_modules:-}"
+}
+
+
+#
+# Define the cloud-init DataSource(s) to enable for the relevant VM type
+#
+define_virtual_settings() {
+  case $image_vm_type in
+    generic )
+      datasource_list="'AltCloud','ConfigDrive','Opennebula','Openstack','NoCloud','OVF'" ;;
+    opennebula )
+      datasource_list="'Opennebula'" ;;
+    openstack )
+      datasource_list="'Openstack'" ;;
+    libvirtd | lxd | proxmox | qemu )
+      datasource_list="'NoCloud'"
+      if { [ "$image_console_type" = "serial" ] || \
+           [ "$image_console_type" = "both" ]; } && \
+         { [ "$image_arch" = "armv7" ] || \
+           [ "$image_arch" = "aarch64" ]; }; then
+        serial_port_number="0"
+        serial_port_name="ttyAMA${serial_port_number}"
+      fi
+      ;;
+    rhevm )
+      datasource_list="'AltCloud'" ;;
+    virtualbox )
+      datasource_list="'NoCloud'" ;;
+    vmware )
+      datasource_list="'OVF'" ;;
+    vsphere )
+      datasource_list="'AltCloud'" ;;
+  esac
+  if [ "$datasource_list" = "'NoCloud'" ] && \
+     [ -n "${cloud_seed_url+x}" ]; then
+    datasource_settings="$(printf \\t%s\\n "  NoCloud:" "    seedfrom: $cloud_seed_url")"
+  fi
+}
+
+
+#
+# Delete unnecessary users & groups
+#
+delete_users_groups() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/group /etc/group-orig
+  cp /etc/passwd /etc/passwd-orig
+EOF
+
+    if [ "$image_mdev" = false ]; then
+      cat <<'EOF' >> "$run_script"
+
+  cp /lib/udev/rules.d/50-udev-default.rules \
+    /lib/udev/rules.d/50-udev-default.rules-orig
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Delete unnecessary users"
+for _unrequired_user in cyrus ftp games guest halt lp man news ntp operator \
+                        postmaster shutdown smmsp squid sync vpopmail xfs
+do
+  write_debug_log "  Delete user '\$_unrequired_user'"
+  deluser \$_unrequired_user 2> /dev/null
+done
+
+write_log "Delete unnecessary groups"
+for _unrequired_group in abuild audio cdrw floppy kvm tape video
+do
+  write_debug_log "  Delete group '\$_unrequired_group'"
+  delgroup \$_unrequired_group
+done
+EOF
+
+  if [ "$image_mdev" = false ]; then
+    cat <<'EOF' >> "$run_script"
+
+write_log "Remove references to deleted groups from udev rules"
+write_debug_log "  Rewrite any wrapped lines into single lines"
+sed -i -e ':x;/\\$/{N;s/\\\n//g;bx;}' -e 's/ [ ]*/ /g' \
+  /lib/udev/rules.d/50-udev-default.rules
+for _unrequired_group in audio lp tape video
+do
+  write_debug_log "  Remove group \$_unrequired_group references"
+  sed -i -e "/^.*GROUP=\"\$_unrequired_group\".*$/d" \
+    /lib/udev/rules.d/50-udev-default.rules
+done
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  write_debug_log "  Users differences:"
+  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+
+  write_debug_log "  Groups differences:"
+  diff /etc/group-orig /etc/group >> /chroot.log || true
+
+  rm /etc/group-orig /etc/passwd-orig
+EOF
+
+    if [ "$image_mdev" = false ]; then
+      cat <<'EOF' >> "$run_script"
+
+  write_debug_log "  50-udev-default.rules differences:"
+  diff /lib/udev/rules.d/50-udev-default.rules-orig \
+    /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
+EOF
+    fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+  fi
+}
+
+
+#
+# Disable most of the gettys normally configured to run
+#
+disable_extra_getty() {
+  local _first_getty_to_disable
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Disabling extra getty processes"
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/inittab /etc/inittab-orig
+}
+EOF
+  fi
+
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Only have 1 getty for cloud/virtual machines
+    _first_getty_to_disable="2"
+  else
+    # Keep 2 gettys for physical machines
+    _first_getty_to_disable="3"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
+  rm /etc/inittab-orig
+}
+EOF
+  fi
+}
+
+
+#
+# Disable non-server specific kernel modules
+#
+disable_kernel_modules() {
+  local _module_list
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Disable non-server kernel modules"
+EOF
+
+  # Drivers
+  #---------
+
+  _module_list="evdev mousedev psmouse usbmouse"
+  if [ "$image_class" != "physical" ] || \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    _module_list="$_module_list xen-scsiback xen-scsifront"
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    if [ "$image_cloud_type" != "azure" ] && \
+		   [ "$image_cloud_type" != "google" ] && \
+       [ "$image_cloud_type" != "generic" ]; then
+      _module_list="$_module_list ptp ptp_kvm"
+    fi
+    _module_list="$_module_list ptp_vmw"
+  elif [ "$image_class" = "physical" ]; then
+    # Physical
+    if [ "$(expr "$image_physical_type" : '.*rpi.*')" -ne 0 ]; then
+      # RPI has no ACPI so neither 'button' nor 'tiny-power-button' are used
+      _module_list="$_module_list button tiny-power-button"
+      # RPI as server does not need multimedia-related modules
+      _module_list="$_module_list bcm2835_codec bcm2835_isp bcm2835_mmal_vchiq bcm2835_v4l2"
+      _module_list="$_module_list backlight cec drm drm_kms_helper drm_panel_orientiation_quirks"
+      _module_list="$_module_list fb_sys_fops i2c-bcm2708 input_leds mc"
+      _module_list="$_module_list snd snd-pcm snd-pcm-dmaengine snd-soc-core snd-timer"
+      _module_list="$_module_list syscopyarea sysfillrect sysimgblt"
+      _module_list="$_module_list uio uio_pdrv_genirq"
+      _module_list="$_module_list vc_sm_cma vc4"
+      _module_list="$_module_list videobuf2_common videobuf2_dma_contig videobuf2_memops"
+      _module_list="$_module_list videobuf2_vmalloc videobuf2_v4l2 videodev v4l2_mem2mem"
+    fi
+    # 'button' is used on Physical machines
+    _module_list="$_module_list tiny-power-button"
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual
+    if [ "$image_vm_type" != "hyperv" ] && \
+       [ "$image_vm_type" != "generic" ]; then
+      _module_list="$_module_list hid-hyperv hv_netvsc hv_vmbus hyperv-keyboard hyperv_fb"
+      _module_list="$_module_list pci-hyperv pci-hyperv-intf"
+    fi
+    if [ "$image_vm_type" != "libvirtd" ] && \
+       [ "$image_vm_type" != "lxd" ] && \
+       [ "$image_vm_type" != "proxmox" ] && \
+       [ "$image_vm_type" != "qemu" ] &&
+       [ "$image_vm_type" != "generic" ]; then
+      _module_list="$_module_list ptp_kvm"
+			if [ "$image_vm_type" != "vmware" ] && \
+			   [ "$image_vm_type" != "generic" ]; then
+        _module_list="$_module_list ptp"
+			fi
+    fi
+    if [ "$image_vm_type" != "virtualbox" ] && \
+       [ "$image_vm_type" != "vmware" ] && \
+       [ "$image_vm_type" != "generic" ]; then
+      _module_list="$_module_list vmwgfx"
+    fi
+    if [ "$image_vm_type" != "vmware" ] && \
+       [ "$image_vm_type" != "generic" ]; then
+      _module_list="$_module_list ptp_vmw"
+			if [ "$image_vm_type" != "libvirtd" ] && \
+         [ "$image_vm_type" != "lxd" ] && \
+         [ "$image_vm_type" != "proxmox" ] && \
+         [ "$image_vm_type" != "qemu" ] &&
+			   [ "$image_vm_type" != "generic" ]; then
+        _module_list="$_module_list ptp"
+			fi
+      _module_list="$_module_list vmw_balloon vmw_vmci vmw_vsock_virtio_transport"
+      _module_list="$_module_list vmw_vsock_virtio_transport_common vmw_vsock_vmci_transport"
+      _module_list="$_module_list vmxnet3 vsock vsock_diag vsock_loopback"
+    fi
+    if [ "$image_vm_type" = "virtualbox" ]; then
+      _module_list="$_module_list virtio_rng"
+    fi
+  fi
+
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Cloud or Virtual
+    _module_list="$_module_list ac battery"
+    # 'tiny-power-button' is used on Cloud and VM images
+    _module_list="$_module_list button"
+    _module_list="$_module_list hid i2c-piix4 ehci_hcd ehci_pci ehci_platform ohci_hcd"
+    _module_list="$_module_list ohci_pci ohci_platform uhci_pci usb_common usb_storage"
+    _module_list="$_module_list usbcore usbmon xhci_hcd xhci_pci"
+  fi
+
+  blacklist_list_of_kernel_modules "drivers" "$_module_list"
+  disable_list_of_kernel_modules "drivers" "$_module_list"
+
+
+  # Net
+  #-----
+
+  # General
+  _module_list="ah4 ah6 esp4 esp6 fou fou6 ife ila ip_gre ip_vti ip6_gre ip6_vti"
+  _module_list="$_module_list ipcomp ipcomp6 libceph llc llc2 mip6 nsh pktgen"
+  # DCCP
+  _module_list="$_module_list dccp dccp_diag dccp_ipv4 dccp_ipv6"
+  # IP Tunnels
+  _module_list="$_module_list ip_tunnel ip6_tunnel ip6_udp_tunnel ipip tunnel4 udp_tunnel"
+  # IP VS
+  _module_list="$_module_list ip_vs ip_vs_dh ip_vs_fo ip_vs_ftp ip_vs_lblc ip_vs_lblcr"
+  _module_list="$_module_list ip_vs_lc ip_vs_nq ip_vs_ovf ip_vs_pe_sip ip_vs_rr ip_vs_sed"
+  _module_list="$_module_list ip_vs_sh ip_vs_wlc ip_vs_wrr"
+  # L2TP
+  _module_list="$_module_list l2tp_core l2tp_eth l2tp_ip l2tp_ip6 l2tp_netlink l2tp_ppp"
+  # MPLS
+  _module_list="$_module_list mpls_gso mpls_iptunnel mpls_router"
+  # OpenVswitch
+  _module_list="$_module_list openvswitch vport-geneve vport-gre vport-vxlan"
+  # SCTP
+  _module_list="$_module_list sctp sctp_diag"
+
+  if [ "$image_class" = "virtual" ]; then
+    # Virtual
+    if [ "$image_vm_type" != "vmware" ] && \
+       [ "$image_vm_type" != "generic" ]; then
+      _module_list="$_module_list vmw_vsock_virtio_transport"
+      _module_list="$_module_list vmw_vsock_virtio_transport_common vmw_vsock_vmci_transport"
+      _module_list="$_module_list vsock vsock_diag vsock_loopback"
+    fi
+  fi
+
+  blacklist_list_of_kernel_modules "net" "$_module_list"
+  disable_list_of_kernel_modules "net" "$_module_list"
+
+}
+
+
+#
+# Disable a set of specified kernel modules
+#
+disable_list_of_kernel_modules() {
+  local _modules_section=$1
+  local _disable_list="$2"
+
+  local _module_name
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Disabling ${_modules_section} kernel modules"
+cat <<-_SCRIPT_ > /etc/modprobe.d/disable-${_modules_section}-modules.conf
+EOF
+
+  for _module_name in $_disable_list; do
+    cat <<EOF >> "$run_script"
+	install ${_module_name} /bin/true
+EOF
+  done
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+sort -u -o /etc/modprobe.d/disable-${_modules_section}-modules.conf \\
+  /etc/modprobe.d/disable-${_modules_section}-modules.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "    Contents of disable-${_modules_section}-modules.conf:"
+  cat /etc/modprobe.d/disable-${_modules_section}-modules.conf >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create relevant filesystems for the disk image and mount these
+# inside the chroot directory.
+#
+format_and_mount_fs() {
+  local _boot_on _logs_on _root_on
+
+	cat <<'EOF' >> "$run_script"
+
+write_log "Formatting and mounting filesystems"
+EOF
+
+  # Format UEFI ESP filesystem if needed
+  if [ "$image_boot_type" = "uefi" ]; then
+    cat <<EOF >> "$run_script"
+
+uefi_part_device="\${loop_device}p${uefi_part_num}"
+
+EOF
+    format_esp_fs
+    if [ "$image_boot_reference" = "uuid" ]; then
+      cat <<'EOF' >> "$run_script"
+esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
+EOF
+    fi
+  fi
+
+  # Format boot filesystem if needed
+  if [ -n "${needs_boot_partition+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+boot_part_device="\${loop_device}p${boot_part_num}"
+EOF
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+      #
+      # Ensure that RPI boot filesystem label is *not* called "boot" due to
+      # https://github.com/raspberrypi/firmware/issues/1529
+      format_fat_fs "\$boot_part_device" "RPI boot" "fat32" \
+        "$CONSTANT_RPIBOOT_LABEL" "partition"
+    else
+      if [ "$image_fs_type" = "btrfs" ]; then
+        format_btrfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+          "partition"
+      elif [ "$image_fs_type" = "ext4" ]; then
+        format_ext4_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+          "partition"
+      elif [ "$image_fs_type" = "f2fs" ]; then
+        format_f2fs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+          "partition"
+      elif [ "$image_fs_type" = "xfs" ]; then
+        format_xfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+          "partition"
+      fi
+      if [ "$image_boot_reference" = "uuid" ]; then
+        cat <<'EOF' >> "$run_script"
+boot_fs_uuid="$(get_uuid_from_device "$boot_part_device")"
+EOF
+      fi
+    fi
+  fi
+
+  # Format CIDATA filesystem if needed
+  if [ "$image_class" = "physical" ] && \
+     [ -z "${image_without_cloud_init+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+cidata_part_device="\${loop_device}p${cidata_part_num}"
+EOF
+    format_fat_fs "\$cidata_part_device" "CIDATA" "fat12" \
+      "$CONSTANT_CIDATA_LABEL" "partition"
+  fi
+
+  # Set fs device variables
+  if [ -n "${image_encrypted+x}" ]; then
+    # LUKS
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      _logs_on="LVM-on-LUKS device"
+      _root_on="LVM-on-LUKS device"
+      cat <<EOF >> "$run_script"
+
+root_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+logs_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}"
+EOF
+      if [ "$image_class" != "physical" ] || \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+        # Not RPI (which has a separate non-LVM boto partition)
+      _boot_on="LVM-on-LUKS device"
+      cat <<EOF >> "$run_script"
+boot_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}"
+EOF
+      fi
+    else
+      _root_on="LUKS device"
+      cat <<EOF >> "$run_script"
+
+root_part_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+EOF
+    fi
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM
+    _root_on="LVM logical volume"
+    cat <<EOF >> "$run_script"
+
+root_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+EOF
+    if [ "$image_bootloader" = "grub" ]; then
+      _boot_on="LVM logical volume"
+      cat <<EOF >> "$run_script"
+boot_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}"
+EOF
+    fi
+    _logs_on="LVM logical volume"
+    cat <<EOF >> "$run_script"
+logs_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}"
+EOF
+  else
+    # neither LUKS nor LVM
+    _root_on="partition"
+    cat <<EOF >> "$run_script"
+
+root_part_device="\${loop_device}p${root_part_num}"
+EOF
+  fi
+
+  # Format root filesystem (and boot & logs LVs if needed)
+  if [ "$image_fs_type" = "btrfs" ]; then
+    format_btrfs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
+      "$_root_on"
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      # boot & logs LVs
+      format_btrfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+        "$_boot_on"
+      format_btrfs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
+        "$_logs_on"
+    fi
+  elif [ "$image_fs_type" = "ext4" ]; then
+    format_ext4_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
+      "$_root_on"
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      if [ "$image_bootloader" = "grub" ]; then
+        # boot LV
+        format_ext4_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+          "$_boot_on"
+      fi
+      # logs LV
+      format_ext4_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
+        "$_logs_on"
+    fi
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    format_f2fs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
+      "$_root_on"
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      # boot and logs LVs
+      format_f2fs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+        "$_boot_on"
+      format_f2fs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
+        "$_logs_on"
+    fi
+  elif [ "$image_fs_type" = "xfs" ]; then
+    format_xfs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
+      "$_root_on"
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      # boot and logs LVs
+      format_xfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
+        "$_boot_on"
+      format_xfs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
+        "$_logs_on"
+    fi
+  fi
+
+  if [ "$image_boot_reference" = "uuid" ] && \
+     { [ "$image_class" != "physical" ] || \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; } && \
+     [ -z "${image_encrypted+x}" ] && \
+     { [ -z "${image_lvm_rootfs+x}" ] || \
+       [ "$image_bootloader" = "syslinux" ]; }; then
+    cat <<'EOF' >> "$run_script"
+root_fs_uuid="$(get_uuid_from_device "$root_part_device")"
+EOF
+  fi
+
+  # Mount root filesystem
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Mounting root filesystem onto $chroot_dir"
+mkdir -p "$chroot_dir"
+mount -o private "$root_part_device" "$chroot_dir" >> "$logfile" 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Size of root filesystem:"
+  df -BM "\$chroot_dir" >> "\$logfile"
+}
+EOF
+	fi
+
+  # Mount UEFI ESP filesustem if necessary
+  if [ "$image_boot_type" = "uefi" ]; then
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Mounting ESP filesystem onto $chroot_dir/efi"
+mkdir -p "$chroot_dir"/efi
+mount -o private "$uefi_part_device" "$chroot_dir"/efi >> "$logfile" 2>&1
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Size of ESP filesystem:"
+  df -BM "\$chroot_dir"/efi >> "\$logfile"
+}
+EOF
+  	fi
+  fi
+
+  # Mount boot filesystem if necessary
+  if [ -n "${needs_boot_partition+x}" ] || \
+     { [ -n "${image_lvm_rootfs+x}" ] && \
+       { [ "$image_boot_type" != "uefi" ] || \
+         [ "$image_bootloader" != "syslinux" ]; }; }; then
+    # Needs a boot partition or else is LVM but not Syslinux-based UEFI
+    # (where boot is part of ESP partition)
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Mounting boot filesystem onto $chroot_dir/boot"
+mkdir -p "$chroot_dir"/boot
+mount -o private "$boot_part_device" "$chroot_dir"/boot >> "$logfile" 2>&1
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Size of boot filesystem:"
+  df -BM "\$chroot_dir"/boot >> "\$logfile"
+}
+EOF
+  	fi
+  elif [ "$image_boot_type" = "uefi" ] && \
+       [ "$image_bootloader" = "syslinux" ]; then
+    # When using Syslinux with UEFI then, as kernel & initramfs files need
+    # to be in EFI/BOOT directory of ESP partition, EFI/BOOT directory of
+    # ESP partition is bind-mounted to /boot. This ensures that kernel,
+    # initramfs, and extlinux.conf files are in ESP partition.
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Bind mounting ESP filesystem's EFI/BOOT onto $chroot_dir/boot"
+mkdir -p "$chroot_dir"/efi/EFI/BOOT
+mkdir -p "$chroot_dir"/boot
+mount -t none -o bind "$chroot_dir"/efi/EFI/BOOT "$chroot_dir"/boot \
+  >> "$logfile" 2>&1
+EOF
+  fi
+
+  # Mount logs filesystem if necessary
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Mounting logs filesystem onto $chroot_dir/var/logs"
+mkdir -p "$chroot_dir"/var/log
+mount -o private "$logs_part_device" "$chroot_dir"/var/log >> "$logfile" 2>&1
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Size of logs filesystem:"
+  df -BM "\$chroot_dir"/var/log >> "\$logfile"
+}
+EOF
+  	fi
+  fi
+
+  # Mount CIDATA filesystem if necessary
+  if [ "$image_class" = "physical" ] && \
+     [ -z "${image_without_cloud_init+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Mounting cloud-init YAML filesystem onto $chroot_dir/cidata"
+mkdir -p "$chroot_dir"/cidata
+mount -o private "$cidata_part_device" "$chroot_dir"/cidata >> "$logfile"
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<EOF >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Size of cloud-init YAML filesystem:"
+  df -BM "\$chroot_dir"/cidata >> "\$logfile"
+}
+EOF
+  	fi
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Filesystems' UUIDs"
+  lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
+  write_debug_log "  Blkid output:"
+  lsblk \
+    --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTTYPENAME,PARTLABEL \
+    "$loop_device" >> "$logfile" 2>&1
+}
+EOF
+  fi
+}
+
+
+#
+# Create a BTRFS filesystem
+#
+format_btrfs_fs() {
+  local device=$1
+  local fs_use="$2"
+  local label=$3
+  local formatting_where="$4"
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting Btrfs $fs_use filesystem on $formatting_where"
+mkfs.btrfs -q -L $label "$device" >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Create a F2FS filesystem
+#
+format_f2fs_fs() {
+  local device=$1
+  local fs_use="$2"
+  local label=$3
+  local formatting_where="$4"
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting F2FS $fs_use filesystem on $formatting_where"
+mkfs.f2fs -q -l $label "$device" >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Create a FAT filesystem
+#
+format_fat_fs() {
+  local device=$1
+  local fs_use="$2"
+  local fat_type=$3
+  local fat_label=$4
+  local formatting_where="$5"
+
+  case $fat_type in
+    fat12 )
+      fat_info_type="12"
+      fat_mkfs_option="-F12 -s 1 -S 512"
+      ;;
+    fat16 )
+      fat_info_type="16"
+      fat_mkfs_option="-F16 -s 1 -S 512"
+      ;;
+    fat32 )
+      fat_info_type="32"
+      fat_mkfs_option="-F32"
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting FAT${fat_info_type} $fs_use filesystem on $formatting_where"
+mkfs.fat $fat_mkfs_option -n $fat_label "$device" >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Create an XFS filesystem
+#
+format_xfs_fs() {
+  local device=$1
+  local fs_use="$2"
+  local label=$3
+  local formatting_where="$4"
+
+  # Force attr2 to avoid dmesg warning
+  fs_options="-i attr2"
+  # Ensure XFS avoids Year 2038 problem.
+  fs_options="$fs_options -m bigtime=1"
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting XFS $fs_use filesystem on $formatting_where"
+mkfs.xfs -q -L $label $fs_options "$device" >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Harden the default OpenSSH server config to be more restrictive/secure
+#
+harden_sshd_configuration() {
+
+  if [ "$image_ssh_server" = "openssh" ]; then
+    # OpenSSH
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "    Harden the OpenSSH server configuration"
+EOF
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "      Only generate ED25519 host key"
+sed -i \
+  -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+  /etc/conf.d/sshd
+EOF
+
+    cat <<'EOF' >> "$run_script"
+
+# Harden sshd to:
+EOF
+
+    cat <<'EOF' >> "$run_script"
+#   - only use ED25519 host key
+EOF
+
+    cat <<'EOF' >> "$run_script"
+#   - limit Ciphers to single strong one
+#   - limit KexAlgorithms to curve 25519
+#   - limit MAC to single Encrypt-then-MAC version
+#   - only accept the use of ED25519 public keys
+{
+  printf 'CASignatureAlgorithms  ssh-ed25519\n'
+  printf 'Ciphers chacha20-poly1305@openssh.com\n'
+  printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+  printf 'MACS hmac-sha2-512-etm@openssh.com\n'
+  printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
+  printf '\n'
+} >> /etc/ssh/sshd_config
+EOF
+
+    # Disable RSA key use
+    cat <<'EOF' >> "$run_script"
+sed -i \
+  -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey /etc/ssh/ssh_host_rsa_key|' \
+  /etc/ssh/sshd_config
+EOF
+  fi
+}
+
+
+#
+# Insert function define_cmdline_for_encryption into created script
+#
+insert_chroot_function_define_cmdline_for_encryption() {
+  local _cmdline_list
+
+  cat <<'EOF' >> "$run_script"
+
+define_cmdline_for_encryption() {
+EOF
+
+  _cmdline_list="cryptroot=UUID=\${luks_part_uuid} cryptdm=$CONSTANT_LUKS_DEVICE_NAME"
+
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    if [ -n "${remote_unlock_static_ip+x}" ]; then
+      # Indicate the IP address to use by initramfs for configuring
+      # the ethernet interface for Dropbear to listen on.
+      _cmdline_list="$_cmdline_list ip=${remote_unlock_static_ip}::${remote_unlock_static_gateway:-}:${remote_unlock_static_netmask:-}::${remote_unlock_static_interface:-}:none:"
+    else
+      # Indicate that DHCP should be used by initramfs' init.
+      _cmdline_list="$_cmdline_list ip=dhcp"
+    fi
+
+    # Indicate that Dropbear should be run by initramfs' init.
+    _cmdline_list="$_cmdline_list remote_unlock_luks"
+
+    if [ -n "${remote_unlock_ssh_port+x}" ]; then
+      # Indicate the port that Dropbear should listen on
+      _cmdline_list="$_cmdline_list remote_unlock_luks_ssh_port=$remote_unlock_ssh_port"
+    fi
+  fi
+
+  cat <<EOF >> "$run_script"
+  echo "$_cmdline_list"
+}
+EOF
+}
+
+
+#
+# Install base Alpine system
+#
+install_alpine_base() {
+  local _base_packages _bootloader_packages
+
+  _base_packages="alpine-base"
+  if [ "$image_boot_type" = "uefi" ]; then
+    _base_packages="$_base_packages efivar"
+  fi
+
+  # RPI alpine-base doesn't depend on mkinitfs so add it to list.
+  if [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    _base_packages="$_base_packages mkinitfs"
+  fi
+
+  # Define bootloader-related packages
+  if [ "$image_bootloader" = "grub" ]; then
+    _bootloader_packages="grub"
+    if [ "$image_boot_type" = "uefi" ]; then
+      _bootloader_packages="$_bootloader_packages dosfstools grub-efi"
+    else
+      _bootloader_packages="$_bootloader_packages grub-bios"
+    fi
+    _base_packages="$_base_packages $_bootloader_packages"
+  elif [ "$image_bootloader" = "syslinux" ]; then
+    _bootloader_packages="syslinux"
+    if [ "$image_boot_type" = "uefi" ]; then
+      _bootloader_packages="$_bootloader_packages dosfstools"
+    fi
+    _base_packages="$_base_packages $_bootloader_packages"
+  elif [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    _bootloader_packages="dosfstools raspberrypi-bootloader raspberrypi-bootloader-cutdown"
+    _base_packages="$_base_packages $_bootloader_packages"
+  else
+    _bootloader_packages="none"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "Bootloader packages to be installed are: $_bootloader_packages"
+
+write_log "Install base Alpine (plus bootloader packages) inside chroot"
+# shellcheck disable=SC2086
+\$TMPDIR/apk-tools-${apk_static_version}/apk \\
+  --arch "${image_arch}" --initdb --allow-untrusted --root \$chroot_dir \\
+  --update-cache \\
+  add ${_base_packages} \\
+  >> "\$logfile" 2>&1
+_rc=\$?
+if [ \$_rc != 0 ]; then
+  write_log "Failure while installing base Alpine, error code: \$_rc"
+  exit 1
+fi
+EOF
+}
+
+
+#
+# Insert function get_kernel_package_version into created script
+#
+insert_chroot_function_get_kernel_package_version() {
+  local _kernel_package
+
+  cat <<'EOF' >> "$run_script"
+
+get_kernel_package_version() {
+EOF
+
+  case $image_class in
+    cloud | virtual )
+      if [ "$image_kernel_type" = "edge" ]; then
+        _kernel_package="edge4virt"
+      else
+        _kernel_package="virt"
+      fi
+      ;;
+    physical )
+      case $image_physical_type in
+        pc )
+          if [ "$image_kernel_type" = "edge" ]; then
+            _kernel_package="edge"
+          else
+            _kernel_package="lts"
+          fi
+          ;;
+        rpi2 | rpi3 )
+          if [ "$image_arch" = "armv7" ]; then
+            _kernel_package="rpi2"
+          else
+            _kernel_package="rpi"
+          fi
+          ;;
+        rpi4 )
+          _kernel_package="rpi4" ;;
+      esac
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+  echo "\\\$(apk info linux-$_kernel_package | head -n 1 | sed -e "s/^linux-$_kernel_package-//" \\
+    -e 's/ .*//')"
+}
+EOF
+}
+
+
+#
+# Insert functions into created script
+#
+insert_chroot_functions() {
+  cat <<'EOF' >> "$run_script"
+
+############################################################################
+##		Chroot Functions
+############################################################################
+EOF
+
+  insert_chroot_function_add_fstab_entry
+  if [ -n "${image_encrypted+x}" ]; then
+    insert_chroot_function_define_cmdline_for_encryption
+  fi
+  insert_chroot_function_get_kernel_package_version
+  insert_chroot_function_get_kernel_version
+  insert_chroot_function_write_debug_log
+  insert_chroot_function_write_log
+}
+
+
+#
+# Install relevant firmware packages
+#
+install_firmware() {
+  local _firmware_pkgs
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Selecting firmware packages to install"
+EOF
+
+  if [ "$image_class" = "physical" ]; then
+    # Physical machine
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+      if [ -n "${image_optimise+x}" ] && \
+         [ -n "${image_graphics_vendor+x}" ] && \
+         [ "$image_graphics_vendor" = "amd" ]; then
+        cat <<'EOF' >> "$run_script"
+write_log "  Selecting AMD graphics firmware"
+EOF
+        if [ -n "${image_graphics_vendor_driver+x}" ] && \
+           [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
+          _firmware_pkgs="linux-firmware-amdgpu"
+        elif [ -n "${image_graphics_vendor_driver+x}" ] && \
+             [ "$image_graphics_vendor_driver" = "radeon" ]; then
+          _firmware_pkgs="linux-firmware-radeon"
+        else
+          _firmware_pkgs="linux-firmware-amdgpu linux-firmware-radeon"
+        fi
+      elif [ -n "${image_optimise+x}" ] && \
+           [ -n "${image_graphics_vendor+x}" ] && \
+           [ "$image_graphics_vendor" = "intel" ]; then
+        cat <<'EOF' >> "$run_script"
+write_log "  Selecting Intel graphics firmware"
+EOF
+        _firmware_pkgs="linux-firmware-i915"
+      else
+        cat <<'EOF' >> "$run_script"
+write_log "  Selecting AMD and Intel graphics firmware"
+EOF
+        _firmware_pkgs="linux-firmware-amdgpu linux-firmware-radeon linux-firmware-i915"
+      fi
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # No RPI firmware used currently
+      :
+    fi
+  fi
+
+  if [ -z "${_firmware_pkgs+x}" ]; then
+    cat <<EOF >> "$run_script"
+write_log "  No firmware required"
+EOF
+  else
+    cat <<EOF >> "$run_script"
+write_log "  Installing firmware"
+apk add $_firmware_pkgs >> /chroot.log 2>&1
+EOF
+  fi
+}
+
+
+#
+# Install GRUB onto disk
+#
+install_grub() {
+  local _grub_options _grub_efi_options _grub_modules_list _grub_target
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "grub.cfg contents:"
+  cat /boot/grub/grub.cfg >> /chroot.log || true
+}
+EOF
+  fi
+
+  ###_grub_efi_options="--bootloader-id=alpine --efi-directory=/efi --no-nvram"
+  _grub_efi_options="--removable --efi-directory=/efi --no-nvram"
+
+  if [ -n "${image_optimise+x}" ]; then
+    _grub_modules_list="acpi disk echo elf gzio linux loadenv minicmd normal probe search test video_colors video_fb"
+    if [ "$image_fs_type" = "ext4" ]; then
+      _grub_modules_list="$_grub_modules_list ext2"
+    else
+      _grub_modules_list="$_grub_modules_list $image_fs_type"
+    fi
+    if [ -n "${image_encrypted+x}" ] && \
+       [ -z "${remote_unlock_enabled+x}" ] && \
+       [ -z "${image_no_grub_encryption+x}" ]; then
+      _grub_modules_list="$_grub_modules_list gcry_rijndael gcry_sha256"
+      if [ "$image_luks_version" = 1 ]; then
+        _grub_modules_list="$_grub_modules_list luks"
+      else
+        _grub_modules_list="$_grub_modules_list luks2"
+      fi
+    fi
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      _grub_modules_list="$_grub_modules_list lvm"
+    fi
+    if [ -n "${image_bootloader_password+x}" ]; then
+      _grub_modules_list="$_grub_modules_list password_pbkdf2"
+    fi
+    if [ "$image_console_type" = "serial" ] || \
+       [ "$image_console_type" = "both" ]; then
+      _grub_modules_list="$_grub_modules_list serial"
+    fi
+
+    if [ "$image_class" = "physical" ] && \
+       [ "$image_physical_type" = "pc" ]; then
+      _grub_modules_list="$_grub_modules_list ahci at_keyboard scsi usb usb_keyboard"
+      if [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "amd" ]; then
+        _grub_modules_list="$_grub_modules_list ohci"
+      fi
+      if [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "intel" ]; then
+        _grub_modules_list="$_grub_modules_list uhci"
+      fi
+    fi
+  fi
+
+  if [ "$image_arch" = "aarch64" ] && [ "$image_boot_type" = "uefi" ]; then
+    _grub_options="--target=arm64-efi $_grub_efi_options"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+    fi
+  elif [ "$image_arch" = "x86" ]; then
+    _grub_target="i386-pc"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+      case $image_vm_type in
+        libvirtd | lxd | proxmox | qemu | generic )
+          _grub_modules_list="$_grub_modules_list video_bochs"
+          ;;
+      esac
+    fi
+  elif [ "$image_arch" = "x86_64" ] && [ "$image_boot_type" = "bios" ]; then
+    _grub_options="--target=i386-pc"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+      if [ "$image_class" = "cloud" ] || \
+         { [ "$image_class" = "virtual" ] && \
+           { [ "$image_vm_type" = "libvirtd" ] || \
+             [ "$image_vm_type" = "lxd" ] || \
+             [ "$image_vm_type" = "proxmox" ] || \
+             [ "$image_vm_type" = "qemu" ] || \
+             [ "$image_vm_type" = "generic" ]; }; }; then
+        _grub_modules_list="$_grub_modules_list video_bochs"
+      fi
+    fi
+  else
+    _grub_options="--target=x86_64-efi $_grub_efi_options"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+    fi
+  fi
+
+  if [ "$image_boot_type" = "uefi" ]; then
+    cat <<'EOF' >> "$run_script"
+
+mkdir -p /efi/EFI
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    _grub_options="${_grub_options} --verbose"
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    _grub_options=$(printf '%s \\\n  %s' "$_grub_options" \
+      "--install-modules=\"$_grub_modules_list\"")
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+EOF
+
+###  if [ "$image_mdev" = true ]; then
+###    cat <<'EOF' >> "$run_script"
+###  write_debug_log "Create device.map for $loop_device"
+###  echo "(hd0) $loop_device" > /boot/grub/device.map
+###
+###EOF
+###  fi
+
+  cat <<'EOF' >> "$run_script"
+  write_debug_log "probe / device:"
+  _rdev=\$(grub-probe --verbose '--target=device' /)
+  write_debug_log "probe \${_rdev} fs uuid:"
+  grub-probe --verbose --device \${_rdev} '--target=fs_uuid' || true
+  write_debug_log "probe \${_rdev} part uuid:"
+  grub-probe --verbose --device \${_rdev} '--target=partuuid' || true
+  write_debug_log "probe /boot device:"
+  _bdev=\$(grub-probe --verbose '--target=device' /boot)
+  write_debug_log "probe \${_bdev} fs uuid:"
+  grub-probe --verbose --device \${_bdev} '--target=fs_uuid' || true
+  write_debug_log "probe \${_bdev} fs:"
+  grub-probe --verbose --device \${_bdev} '--target=fs' || true
+} >> /chroot.log 2>&1
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Installing GRUB bootloader"
+grub-install $_grub_options \\
+  \$loop_device >> /chroot.log 2>&1
+EOF
+
+  if [ "$image_mdev" = true ]; then
+    # Remove the eudev package that was temporarily installed
+    # so that grub-probe could use udevadm.
+    cat <<EOF >> "$run_script"
+
+write_log "  Remove eudev package that was temporarily installed"
+apk del eudev >> /chroot.log 2>&1
+EOF
+  fi
+}
+
+
+#
+# Install relevant kernel package
+#
+install_kernel() {
+  local _firmware_pkg _kernel_pkg _kernel_config_file
+
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Cloud or Virtual machine
+    if [ "$image_kernel_type" = "edge" ]; then
+      _kernel_pkg="linux-edge4virt"
+      _kernel_config_file="config-edge4virt"
+    else
+      _kernel_pkg="linux-virt"
+      _kernel_config_file="config-virt"
+    fi
+  else
+    # Physical machine
+    _firmware_pkg="linux-firmware-none"
+
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+      if [ "$image_kernel_type" = "edge" ]; then
+        _kernel_pkg="linux-edge"
+        _kernel_config_file="config-edge"
+      else
+        _kernel_pkg="linux-lts"
+        _kernel_config_file="config-lts"
+      fi
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # Raspberry Pi
+      case $image_physical_type in
+        rpi2 | rpi3 )
+          if [ "$image_arch" = "armv7" ]; then
+            _kernel_pkg="linux-rpi2"
+            _kernel_config_file="config-rpi2"
+          else
+            _kernel_pkg="linux-rpi"
+            _kernel_config_file="config-rpi"
+          fi ;;
+        rpi4 )
+          _kernel_pkg="linux-rpi4"
+          _kernel_config_file="config-rpi4"
+          ;;
+      esac
+    fi
+  fi
+
+  cat <<EOF >> "$run_script"
+write_log "Installing kernel $_kernel_pkg"
+apk add $_kernel_pkg ${_firmware_pkg:-} >> /chroot.log 2>&1
+EOF
+
+  cat <<'EOF' >> "$run_script"
+
+_kernel_version=\$(get_kernel_version)
+_kernel_package_version=\$(get_kernel_package_version)
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+write_debug_log "Kernel is: \\\$_kernel_version"
+write_debug_log "Kernel package version is: \\\$_kernel_package_version"
+
+# Take a copy of the kernel config file
+cp /boot/$_kernel_config_file /kernel-config_\\\${_kernel_package_version}_${image_arch}_${_kernel_config_file}
+EOF
+  fi
+}
+
+
+#
+# Install CPU microcode packages
+#
+install_microcode() {
+  local _microcode_pkgs
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Selecting microcode packages to install"
+EOF
+
+  if [ "$image_class" = "physical" ]; then
+    # Physical machine
+    if [ -n "${image_cpu_vendor+x}" ] && \
+       [ "$image_cpu_vendor" = "amd" ]; then
+      cat <<'EOF' >> "$run_script"
+write_log "  Selecting AMD CPU microcode"
+EOF
+      _microcode_pkgs="amd-ucode"
+    elif [ -n "${image_cpu_vendor+x}" ] && \
+         [ "$image_cpu_vendor" = "intel" ]; then
+      cat <<'EOF' >> "$run_script"
+write_log "  Selecting Intel CPU microcode"
+EOF
+        _microcode_pkgs="intel-ucode"
+    else
+      cat <<'EOF' >> "$run_script"
+write_log "  Selecting AMD and Intel microcode"
+EOF
+      _microcode_pkgs="amd-ucode intel-ucode"
+    fi
+  fi
+
+  if [ -z "${_microcode_pkgs+x}" ]; then
+    cat <<EOF >> "$run_script"
+write_log "  No microcode required"
+EOF
+  else
+    cat <<EOF >> "$run_script"
+write_log "  Installing microcode"
+apk add $_microcode_pkgs >> /chroot.log 2>&1
+EOF
+  fi
+}
+
+
+#
+# Install Syslinux onto disk
+#
+install_syslinux() {
+ if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+# Debug
+cp /boot/extlinux.conf /boot/extlinux.conf-orig
+write_debug_log "/boot/extlinux.conf contents at start:"
+cat /boot/extlinux.conf >> /chroot.log
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Installing Syslinux"
+EOF
+
+  if [ "$image_boot_type" = "bios" ]; then
+    # BIOS
+    cat <<'EOF' >> "$run_script"
+write_log "  Installing BIOS MBR"
+dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of="$loop_device" \
+  >> /chroot.log 2>&1
+write_log "  Installing Syslinux files in /boot directory"
+extlinux --install /boot/ >> /chroot.log 2>&1
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "/boot/extlinux.conf contents after extlinux --install:"
+  cat /boot/extlinux.conf >> /chroot.log
+}
+EOF
+    fi
+
+  else
+    # UEFI
+    cat <<'EOF' >> "$run_script"
+###write_log "  Installing Syslinux files in EFI/boot"
+###mkdir -p /boot/EFI/BOOT
+###cp \
+###  /usr/share/syslinux/efi64/syslinux.efi \
+###  /boot/EFI/boot/bootx64.efi
+###cp \
+###  /boot/initramfs-* \
+###  /boot/vmlinuz-* \
+###  /usr/share/syslinux/efi64/ldlinux.e64 \
+###  /boot/EFI/alpine/*.c32 \
+###  /boot/EFI/boot/
+
+write_log "  Installing Syslinux UEFI files in EFI/BOOT aka /boot"
+cp /usr/share/syslinux/efi64/syslinux.efi /boot/bootx64.efi
+rm /boot/*.c32
+cp \\
+  /usr/share/syslinux/efi64/syslinux.c32 \\
+  /usr/share/syslinux/efi64/ldlinux.e64 \\
+  /usr/share/syslinux/efi64/libcom32.c32 \\
+  /usr/share/syslinux/efi64/libutil.c32 \\
+  /usr/share/syslinux/efi64/mboot.c32 \\
+  /usr/share/syslinux/efi64/menu.c32 \\
+  /usr/share/syslinux/efi64/vesamenu.c32 \\
+  /boot/
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  After installing Syslinux UEFI files"
+  ls -ltrR /boot/ >> /chroot.log
+  write_debug_log "/boot/extlinux.conf contents:"
+  cat /boot/extlinux.conf >> /chroot.log
+}
+EOF
+    fi
+
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Before update-extlinux"
+  ls -ltrR /boot/ >> /chroot.log
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Updating extlinux.conf file"
+update-extlinux --verbose --warn-only >> /chroot.log 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "/boot/extlinux.conf contents after update-extlinux:"
+  cat /boot/extlinux.conf >> /chroot.log
+}
+
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+write_log "  Fix permissions on extlinux.conf files"
+chmod g=,o= /boot/extlinux.conf*
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+EOF
+
+    if [ "$image_boot_type" = "uefi" ]; then
+      # UEFI
+      cat <<'EOF' >> "$run_script"
+  write_debug_log "/boot/extlinux.conf contents after everything:"
+  cat /boot/extlinux.conf >> /chroot.log
+  write_debug_log "  /boot contents:"
+  ls -ltrR /boot/ >> /chroot.log
+}
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+
+  diff /boot/extlinux.conf-orig /boot/extlinux.conf >> /chroot.log || true
+  rm /boot/extlinux.conf-orig
+
+  write_debug_log "  extlinux.conf contents:"
+  cat /boot/extlinux.conf >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# LVM extents are 4MiB in size and so the size of a LV must be rounded
+# up to the nearest 4MiB multiple.
+#
+lvm_round_extents() {
+  local _size=$1
+
+  # 4MiB
+  local _extent=4
+
+  echo "$(echo "$_size $_extent" | awk '{print int(($1/$2)+0.75)*$2}')"
+}
+
+
+#
+# Partition the disk image for booting via BIOS
+#
+partition_bios() {
+  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
+  local _luks_part_start _luks_part_end _lvm_part_start _lvm_part_end
+
+  cat <<EOF >> "$run_script"
+
+write_log "Partitioning disk image for BIOS"
+EOF
+
+  create_disk_label "msdos"
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Disk encryption
+
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # When using Syslinux with encrypted rootfs or when using remote
+      # unlock (whether with Grub or Syslinux) we need to create a separate
+      # boot partition which will be unencrypted.
+      boot_part_num=1
+      _boot_part_start="0%"
+      _boot_part_end="${image_boot_part_size}MiB"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=2
+        _cidata_part_start="${image_boot_part_size}MiB"
+        _cidata_part_end="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        luks_part_num=3
+        _luks_part_start="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+        _luks_part_end="100%"
+      else
+        luks_part_num=2
+        _luks_part_start="${image_boot_part_size}MiB"
+        _luks_part_end="100%"
+      fi
+
+      create_disk_partition "$luks_part_num" "$_luks_part_start" \
+        "$_luks_part_end" "$image_luks_part_size" "LUKS"
+    else
+      # GRUB and no remote unlock enabled
+
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=1
+        _cidata_part_start="0%"
+        _cidata_part_end="${CONSTANT_CIDATA_PART_SIZE}MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        luks_part_num=2
+        _luks_part_start="${CONSTANT_CIDATA_PART_SIZE}MiB"
+        _luks_part_end="100%"
+
+      else
+        luks_part_num=1
+        _luks_part_start="0%"
+        _luks_part_end="100%"
+      fi
+
+      create_disk_partition "$luks_part_num" "$_luks_part_start" \
+        "$_luks_part_end" "$image_luks_part_size" "LUKS" "boot"
+    fi
+
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM
+
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # When using Syslinux with LVM rootfs we need to create a separate
+      # boot partition.
+      boot_part_num=1
+      _boot_part_start="0%"
+      _boot_part_end="${image_boot_part_size}MiB"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+
+      if [ "$image_class" = "physical" ] && \
+         [ -z "${image_without_cloud_init+x}" ]; then
+        # Also create a seperate partition for cloud-init config
+        cidata_part_num=2
+        _cidata_part_start="${image_boot_part_size}MiB"
+        _cidata_part_end="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        lvm_part_num=3
+        _lvm_part_start="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+        _lvm_part_end="100%"
+      else
+        lvm_part_num=2
+        _lvm_part_start="${image_boot_part_size}MiB"
+        _lvm_part_end="100%"
+      fi
+
+      create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
+        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+    else
+      # no separate boot partition
+
+      if [ "$image_class" = "physical" ] && \
+         [ -z "${image_without_cloud_init+x}" ]; then
+        # Create a seperate partition for cloud-init config
+        cidata_part_num=1
+        _cidata_part_start="0%"
+        _cidata_part_end="${CONSTANT_CIDATA_PART_SIZE}MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        lvm_part_num=2
+        _lvm_part_start="${CONSTANT_CIDATA_PART_SIZE}MiB"
+        _lvm_part_end="100%"
+
+      else
+        lvm_part_num=1
+        _lvm_part_start="0%"
+        _lvm_part_end="100%"
+      fi
+
+      create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
+        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "boot lvm"
+    fi
+  else
+    # No disk encryption, no LVM
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # A separate boot partition is to be created.
+      boot_part_num=1
+      _boot_part_start="0%"
+      _boot_part_end="${image_boot_part_size}MiB"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=2
+        _cidata_part_start="${image_boot_part_size}MiB"
+        _cidata_part_end="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        root_part_num=3
+        _root_part_start="$((image_boot_part_size+CONSTANT_CIDATA_PART_SIZE))MiB"
+        _root_part_end="100%"
+      else
+        root_part_num=2
+        _root_part_start="${image_boot_part_size}MiB"
+        _root_part_end="100%"
+      fi
+
+      create_disk_partition "$root_part_num" "$_root_part_start" \
+        "$_root_part_end" "$image_root_part_size" "Root" "boot"
+    else
+      # No boot partition created
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=1
+        _cidata_part_start="0%"
+        _cidata_part_end="${CONSTANT_CIDATA_PART_SIZE}MiB"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        root_part_num=2
+        _root_part_start="${CONSTANT_CIDATA_PART_SIZE}MiB"
+        _root_part_end="100%"
+      else
+        root_part_num=1
+        _root_part_start="0%"
+        _root_part_end="100%"
+      fi
+
+      create_disk_partition "$root_part_num" "$_root_part_start" \
+        "$_root_part_end" "$image_root_part_size" "Root" "boot"
+    fi
+  fi
+}
+
+
+#
+# Partition for Raspberry Pi use
+#
+partition_rpi() {
+  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
+  local _luks_part_start _luks_part_end _lvm_part_start _lvm_part_end
+
+  cat <<EOF >> "$run_script"
+
+write_log "Partitioning disk image for Raspberry Pi"
+EOF
+
+  create_disk_label "msdos"
+
+  boot_part_num="1"
+  _boot_part_start="0%"
+  _boot_part_end="${image_boot_part_size}MiB"
+
+  create_disk_partition "$boot_part_num" "$_boot_part_start" \
+    "$_boot_part_end" "$image_boot_part_size" "Boot" "" "fat32"
+
+  cidata_part_num="2"
+  _cidata_part_start="${image_boot_part_size}MiB"
+  _cidata_part_end="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+
+  create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+    "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Disk encryption
+    luks_part_num=3
+    _luks_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+    _luks_part_end="100%"
+
+    create_disk_partition "$luks_part_num" "$_luks_part_start" \
+      "$_luks_part_end" "$image_luks_part_size" "LUKS"
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM
+    lvm_part_num=3
+    _lvm_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+    _lvm_part_end="100%"
+
+    create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
+      "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+  else
+    # No disk encryption
+    root_part_num="3"
+    _root_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+    _root_part_end="100%"
+
+    create_disk_partition "$root_part_num" "$_root_part_start" \
+      "$_root_part_end" "$image_root_part_size" "Root"
+  fi
+}
+
+
+# 
+# Partition the disk image for booting via UEFI
+#
+partition_uefi() {
+  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
+  local _esp_part_type _luks_part_start _luks_part_end
+  local _lvm_part_start _lvm_part_end _uefi_part_start _uefi_part_end
+
+  cat <<EOF >> "$run_script"
+
+write_log "Partitioning disk image for UEFI"
+EOF
+
+  create_disk_label "gpt"
+
+  uefi_part_num=1
+  _uefi_part_start="0%"
+  _uefi_part_end="${image_uefi_part_size}"
+
+  case $esp_type in
+    fat12 | fat16 )
+      _esp_part_type="fat16" ;;
+    fat32 )
+      _esp_part_type="fat32" ;;
+  esac
+
+  create_disk_partition "$uefi_part_num" "$_uefi_part_start" \
+    "$_uefi_part_end" "$image_uefi_part_size" "ESP" "esp" "$_esp_part_type"
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Disk encryption
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # When using remote unlock with GRUB we need to create a separate boot
+      # partition which will be unencrypted. This is not needed for Syslinux
+      # as in that case the EFI partition contains the boot files.
+      boot_part_num=2
+      _boot_part_start="${_uefi_part_end}"
+      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=3
+        _cidata_part_start="${_boot_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        luks_part_num=4
+        _luks_part_start="${_cidata_part_end}"
+        _luks_part_end="100%"
+      else
+        luks_part_num=3
+        _luks_part_start="${_boot_part_end}"
+        _luks_part_end="100%"
+      fi
+
+      create_disk_partition "$luks_part_num" "$_luks_part_start" \
+        "$_luks_part_end" "$image_luks_part_size" "LUKS"
+    else
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=2
+        _cidata_part_start="${_uefi_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        luks_part_num=3
+        _luks_part_start="${_cidata_part_end}"
+        _luks_part_end="100%"
+      else
+        luks_part_num=2
+        _luks_part_start="${_uefi_part_end}"
+        _luks_part_end="100%"
+      fi
+
+      create_disk_partition "$luks_part_num" "$_luks_part_start" \
+        "$_luks_part_end" "$image_luks_part_size" "LUKS"
+    fi
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # When using Syslinux with LVM rootfs we need to create a separate
+      # boot partition.
+      boot_part_num=2
+      _boot_part_start="${_uefi_part_end}"
+      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+
+      if [ "$image_class" = "physical" ] && \
+         [ -z "${image_without_cloud_init+x}" ]; then
+        # Also create a seperate partition for cloud-init config
+        cidata_part_num=3
+        _cidata_part_start="${_boot_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        lvm_part_num=4
+        _lvm_part_start="${_cidata_part_end}"
+        _lvm_part_end="100%"
+      else
+        lvm_part_num=3
+        _lvm_part_start="${_boot_part_end}"
+        _lvm_part_end="100%"
+      fi
+
+      create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
+        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+    else
+      # no separate boot partition
+      if [ "$image_class" = "physical" ] && \
+         [ -z "${image_without_cloud_init+x}" ]; then
+        # Create a seperate partition for cloud-init config
+        cidata_part_num=2
+        _cidata_part_start="${_uefi_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        lvm_part_num=2
+        _lvm_part_start="${_cidata_part_end}"
+        _lvm_part_end="100%"
+      else
+        lvm_part_num=1
+        _lvm_part_start="${_uefi_part_end}"
+        _lvm_part_end="100%"
+      fi
+
+      create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
+        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+    fi
+  else
+    # No disk encryption, no LVM
+    if [ -n "${needs_boot_partition+x}" ]; then
+      # A separate boot partition is to be created.
+      boot_part_num=2
+      _boot_part_start="${_uefi_part_end}"
+      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
+
+      create_disk_partition "$boot_part_num" "$_boot_part_start" \
+        "$_boot_part_end" "$image_boot_part_size" "Boot"
+
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=3
+        _cidata_part_start="${_boot_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        root_part_num=4
+        _root_part_start="${_cidata_part_end}"
+        _root_part_end="100%"
+      else
+        root_part_num=3
+        _root_part_start="${_boot_part_end}"
+        _root_part_end="100%"
+      fi
+
+      create_disk_partition "$root_part_num" "$_root_part_start" \
+        "$_root_part_end" "$image_root_part_size" "Root"
+    else
+      # No boot partition
+      if [ "$image_class" = "physical" ]; then
+        cidata_part_num=2
+        _cidata_part_start="${_uefi_part_end}"
+        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
+
+        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+
+        root_part_num=3
+        _root_part_start="${_cidata_part_end}"
+        _root_part_end="100%"
+      else
+        root_part_num=2
+        _root_part_start="${_uefi_part_end}"
+        _root_part_end="100%"
+      fi
+
+      create_disk_partition "$root_part_num" "$_root_part_start" \
+        "$_root_part_end" "$image_root_part_size" "Root"
+    fi
+  fi
+}
+
+
+#
+# Patch Grub to support specifying rootfs by label
+#
+patch_grub_for_label() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+{
+  # Debug
+  cp /etc/grub.d/10_linux /etc/grub.d/10_linux-orig
+	cp /usr/share/grub/grub-mkconfig_lib /usr/share/grub/grub-mkconfig_lib-orig
+	cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "  Temporarily installing patch program"
+apk add --quiet patch >> $logfile
+
+write_log "  Patching /etc/grub.d/10_linux"
+cat <<-'_SCRIPT_' | patch /etc/grub.d/10_linux >> $logfile
+	--- /etc/grub.d/10_linux
+	+++ /etc/grub.d/10_linux-label
+	@@ -44,7 +44,8 @@
+	 # the initrds that Linux uses don't like that.
+	 case ${GRUB_DEVICE} in
+	   /dev/loop/*|/dev/loop[0-9])
+	-    GRUB_DEVICE=`losetup ${GRUB_DEVICE} | sed -e "s/^[^(]*(\([^)]\+\)).*/\1/"`
+	+    # Work with both Busybox and util-linux versions of losetup
+	+    GRUB_DEVICE=`losetup ${GRUB_DEVICE} | sed -e "s/^[^:]*: []0-9[\:]* [\(]*\([^)]\+\)[\)]*$/\1/"`
+	   ;;
+	 esac
+	
+	@@ -64,6 +65,10 @@
+	   LINUX_ROOT_DEVICE=PARTUUID=${GRUB_DEVICE_PARTUUID}
+	 else
+	   LINUX_ROOT_DEVICE=UUID=${GRUB_DEVICE_UUID}
+	+  GRUB_DEVICE_LABEL="$(blkid | grep "UUID=\"${GRUB_DEVICE_UUID}\"" | sed -e 's|^.* LABEL="||g' -e 's|".*||g' | head -1)"
+	+  if [ "x${GRUB_ENABLE_LINUX_LABEL}" = "xtrue" ] ; then
+	+    LINUX_ROOT_DEVICE=LABEL=${GRUB_DEVICE_LABEL}
+	+  fi
+	 fi
+	
+	 case x"$GRUB_FS" in
+	_SCRIPT_
+
+write_log "  Patching /usr/share/grub/grub-mkconfig_lib"
+cat <<-'_SCRIPT_' | patch /usr/share/grub/grub-mkconfig_lib >> $logfile
+	--- grub-mkconfig_lib-stock
+	+++ grub-mkconfig_lib-custom
+	@@ -156,7 +156,9 @@
+	   if [ "x$fs_hint" != x ]; then
+	     echo "set root='$fs_hint'"
+	   fi
+	-  if fs_uuid="`"${grub_probe}" --device $@ --target=fs_uuid 2> /dev/null`" ; then
+	+  if label="`${grub_probe} --device $@ --target=fs_label 2> /dev/null`" ; then
+	+    echo "search --no-floppy --label --set=root ${label}"
+	+  elif fs_uuid="`"${grub_probe}" --device $@ --target=fs_uuid 2> /dev/null`" ; then
+	     hints="`"${grub_probe}" --device $@ --target=hints_string 2> /dev/null`" || hints=
+	     echo "if [ x\$feature_platform_search_hint = xy ]; then"
+	     echo "  search --no-floppy --fs-uuid --set=root ${hints} ${fs_uuid}"
+	_SCRIPT_
+
+write_log "  Patching /usr/sbin/grub-mkconfig"
+cat <<-'_SCRIPT_' | patch /usr/sbin/grub-mkconfig >> $logfile
+	--- grub-mkconfig-stock
+	+++ grub-mkconfig-custom
+	@@ -135,10 +135,12 @@
+	 GRUB_DEVICE="`${grub_probe} --target=device /`"
+	 GRUB_DEVICE_UUID="`${grub_probe} --device ${GRUB_DEVICE} --target=fs_uuid 2> /dev/null`" || true
+	 GRUB_DEVICE_PARTUUID="`${grub_probe} --device ${GRUB_DEVICE} --target=partuuid 2> /dev/null`" || true
+	+GRUB_DEVICE_LABEL="`${grub_probe} --device ${GRUB_DEVICE} --target=fs_label 2> /dev/null`" || true
+	 
+	 # Device containing our /boot partition.  Usually the same as GRUB_DEVICE.
+	 GRUB_DEVICE_BOOT="`${grub_probe} --target=device /boot`"
+	 GRUB_DEVICE_BOOT_UUID="`${grub_probe} --device ${GRUB_DEVICE_BOOT} --target=fs_uuid 2> /dev/null`" || true
+	+GRUB_DEVICE_BOOT_LABEL="`${grub_probe} --device ${GRUB_DEVICE_BOOT} --target=fs_label 2> /dev/null`" || true
+	 
+	 # Filesystem for the device containing our userland.  Used for stuff like
+	 # choosing Hurd filesystem module.
+	@@ -190,8 +192,10 @@
+	 export GRUB_DEVICE \
+	   GRUB_DEVICE_UUID \
+	   GRUB_DEVICE_PARTUUID \
+	+  GRUB_DEVICE_LABEL \
+	   GRUB_DEVICE_BOOT \
+	   GRUB_DEVICE_BOOT_UUID \
+	+  GRUB_DEVICE_BOOT_LABEL \
+	   GRUB_FS \
+	   GRUB_FONT \
+	   GRUB_PRELOAD_MODULES \
+	@@ -226,6 +230,7 @@
+	   GRUB_SERIAL_COMMAND \
+	   GRUB_DISABLE_LINUX_UUID \
+	   GRUB_DISABLE_LINUX_PARTUUID \
+	+  GRUB_ENABLE_LINUX_LABEL \
+	   GRUB_DISABLE_RECOVERY \
+	   GRUB_VIDEO_BACKEND \
+	   GRUB_GFXMODE \
+	_SCRIPT_
+
+write_log "  Uninstalling patch program"
+apk del --quiet patch >> $logfile
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+{
+  # Debug
+	write_debug_log "  Diff 10_linux:"
+  diff -aur /etc/grub.d/10_linux-orig /etc/grub.d/10_linux >> $logfile || true
+  rm /etc/grub.d/10_linux-orig
+
+  write_debug_log "  Diff grub-mkconfig_lib:"
+  diff -aur \
+    /usr/share/grub/grub-mkconfig_lib-orig /usr/share/grub/grub-mkconfig_lib \\
+    >> $logfile || true
+  rm /usr/share/grub/grub-mkconfig_lib-orig
+
+  write_debug_log "  Diff grub-mkconfig:"
+  diff -aur /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+    >> $logfile || true
+  rm /usr/sbin/grub-mkconfig-orig
+
+}
+EOF
+  fi
+}
+
+
+#
+# Prepare the main section of the run script
+#
+prep_runscript_main_section() {
+  cat <<EOF >> "$run_script"
+
+#############################################################################
+##   Main Section
+#############################################################################
+
+# Ensure if any errors occur that various cleanup operations happen
+trap error_cleanup EXIT
+
+chroot_dir="$chroot_directory"
+images_dir="$images_directory"
+TMPDIR="/var/tmp"
+
+image_filename="$filename_for_image"
+logfile="$logs_output_file"
+
+EOF
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<EOF >> "$run_script"
+default_user_password="$image_default_user_password"
+EOF
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    cat <<EOF >> "$run_script"
+encryption_passphrase="$image_encryption_passphrase"
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+# Create empty logfile
+:> \$logfile
+
+EOF
+
+if [ -n "${use_ramdisk+x}" ]; then
+  cat <<EOF >> "$run_script"
+ramdisk_dir="$ramdisk_directory"
+image_full_filename="\$ramdisk_dir/\$image_filename"
+EOF
+else
+  cat <<EOF >> "$run_script"
+image_full_filename="\$images_dir/\$image_filename"
+EOF
+fi
+
+cat <<EOF >> "$run_script"
+
+check_for_required_packages
+check_binfmt_packages $image_arch
+
+mkdir -p \$images_dir
+EOF
+}
+
+
+#
+# Create the /etc/crypttab file
+#
+setup_crypttab() {
+  local _crypttab_options="luks"
+
+  if [ -n "${image_for_ssd+x}" ]; then
+    # Enable discard to be triggered at intervals by fstrim via cron.
+    _crypttab_options="$_crypttab_options,discard"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Creating /etc/crypttab"
+echo \\
+  "${CONSTANT_LUKS_DEVICE_NAME} UUID=\${luks_part_uuid} /crypto_keyfile.bin $_crypttab_options" \\
+  > /etc/crypttab
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # debug
+  write_debug_log "    /etc/crypttab contents:"
+  cat /etc/crypttab >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create Dropbear authorized_keys file
+#
+setup_dropbear_authorized_keys() {
+  cat <<EOF >> "$run_script"
+
+write_log "Setup Dropbear authorized_keys file"
+echo $ssh_public_key \\
+  > /etc/dropbear/authorized_keys
+chown root:root /etc/dropbear/authorized_keys
+chmod 600 /etc/dropbear/authorized_keys
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "  Dropbear authorized_keys contents:"
+  cat /etc/dropbear/authorized_keys >> "$logfile"
+}
+EOF
+  fi
+}
+
+
+#
+# Configure modules to be loaded upon boot
+#
+setup_etc_modules() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Setup /etc/modules"
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/modules /etc/modules-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+cat <<-_SCRIPT_ > /etc/modules
+	af_packet
+EOF
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	ipv6
+EOF
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+	# LUKS
+	dm-crypt
+EOF
+  fi
+
+###  cat <<'EOF' >> "$run_script"
+###
+###	# Used by rngd
+###	jitterentropy_rng
+###EOF
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud machine
+    cat <<'EOF' >> "$run_script"
+
+	# Cloud-specific modules
+EOF
+
+    case $image_cloud_type in
+      azure | generic )
+        cat <<'EOF' >> "$run_script"
+	ptp_kvm
+EOF
+        ;;
+    esac
+
+    cat <<'EOF' >> "$run_script"
+	virtio-rng
+EOF
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual machine
+    case $image_vm_type in
+      libvirtd | lxd | proxmox | qemu | generic )
+        cat <<'EOF' >> "$run_script"
+
+	# VM-specific modules
+	ptp_kvm
+	virtio-rng
+EOF
+        ;;
+      vmware )
+        cat <<'EOF' >> "$run_script"
+
+	# VM-specific modules
+	ptp_vmw
+EOF
+        ;;
+    esac
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/modules-orig /etc/modules >> /chroot.log || true
+  rm /etc/modules-orig
+}
+EOF
+  fi
+}
+
+
+#
+# Setup the LUKS device
+#
+setup_luks_device() {
+  local _cipher_to_use
+
+  cat <<EOF >> "$run_script"
+
+write_log "Setting up LUKS device"
+luks_device="\${loop_device}p${luks_part_num}"
+EOF
+  if [ "$image_alpine_release" = "v3.13" ]; then
+    image_luks_version="1"
+  else
+    if [ -n "${needs_boot_partition+x}" ]; then
+      image_luks_version="2"
+    else
+      # For now only use LUKSv1 with Grub
+      image_luks_version="1"
+      ###image_luks_version="2"
+    fi
+  fi
+
+  if [ "$image_encryption_cipher" = "adiantum" ]; then
+    _cipher_to_use="xchacha12,aes-adiantum-plain64"
+  else
+    _cipher_to_use="aes-xts-plain64"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Formatting partition as LUKS version ${image_luks_version}"
+echo "\$encryption_passphrase" | cryptsetup -q luksFormat \\
+  --cipher $_cipher_to_use --hash sha256 --key-size 512 --pbkdf pbkdf2 \\
+  --type luks${image_luks_version} --label $CONSTANT_LUKS_LABEL "\$luks_device" >> "\$logfile" 2>&1
+EOF
+
+###      --offset 8 \
+
+  if [ "$image_bootloader" = "grub" ] && \
+     [ -z "${remote_unlock_enabled+x}" ] && \
+     [ -z "${image_no_grub_encryption+x}" ]; then
+    # When bootloader is GRUB with GRUB encryption enabled and not enabling
+    # Remote SSH Unlock, create keyfile - this will be placed in the
+    # initramfs and used to unlock the rootfs - this prevents being prompted
+    # for passphrase twice, once by GRUB and then again by initramfs.
+    cat <<EOF >> "$run_script"
+
+write_log "  Creating keyfile for LUKS"
+dd bs=512 count=4 if=/dev/random of=crypto_keyfile.bin iflag=fullblock \\
+  >> "\$logfile" 2>&1
+
+write_log "  Adding keyfile to LUKS device"
+echo "\$encryption_passphrase" | \\
+  cryptsetup luksAddKey "\$luks_device" ./crypto_keyfile.bin >> "\$logfile"
+
+write_log "  Opening LUKS device"
+cryptsetup open --type luks$image_luks_version --key-file ./crypto_keyfile.bin \\
+  "\$luks_device" $CONSTANT_LUKS_DEVICE_NAME
+EOF
+  else
+    # Remote unlock enabled, use default passphrase to open
+    cat <<EOF >> "$run_script"
+
+write_log "  Opening LUKS device"
+echo "\$encryption_passphrase" | \\
+  cryptsetup open --type luks$image_luks_version "\$luks_device" $CONSTANT_LUKS_DEVICE_NAME -
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+luks_part_uuid=$(get_uuid_from_device "$luks_device")
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  write_log "  Show LUKS device details"
+  cryptsetup luksDump "$luks_device" >> "$logfile"
+}
+EOF
+  fi
+}
+
+
+#
+# Setup the LVM device
+#
+setup_lvm_device() {
+  cat <<EOF >> "$run_script"
+
+write_log "Setting up LVM device"
+EOF
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # LVM on top of LUKS
+    cat <<EOF >> "$run_script"
+lvm_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+EOF
+  else
+    cat <<EOF >> "$run_script"
+lvm_device="\${loop_device}p${lvm_part_num}"
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Creating LVM physical volume"
+pvcreate "\$lvm_device" >> "\$logfile"
+
+write_log "  Creating LVM volume group"
+vgcreate ${CONSTANT_LVM_VG_NAME} "\$lvm_device" >> "\$logfile"
+
+write_log "  Creating $(calculate_lvm_root_lv_size)MiB LVM logical volume for rootfs"
+lvcreate -L $(calculate_lvm_root_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_ROOT_LV_NAME} >> "\$logfile" 2>&1
+EOF
+
+  if [ -z "${needs_boot_partition+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+write_log "  Creating $(calculate_lvm_boot_lv_size)MiB LVM logical volume for boot"
+lvcreate -L $(calculate_lvm_boot_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_BOOT_LV_NAME} >> "\$logfile" 2>&1
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Creating $(calculate_lvm_logs_lv_size)MiB LVM logical volume for logs"
+lvcreate -L $(calculate_lvm_logs_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_LOGS_LV_NAME} >> "\$logfile" 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  lvscan >> "$logfile" 2>&1
+}
+EOF
+  fi
+}
+
+
+#
+# Change the default OpenSSH server config to be more secure
+#
+tighten_sshd_configuration() {
+  local _rsa_key_length=4096
+
+  if [ "$image_ssh_server" = "openssh" ]; then
+    # OpenSSH
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Tighten the OpenSSH server configuration"
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
+  cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+}
+EOF
+    fi
+
+    if [ "$image_ssh_keytypes" = "ed25519" ]; then
+      cat <<'EOF' >> "$run_script"
+
+write_log "    Only generate ED25519 host key"
+sed -i \
+  -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+  /etc/conf.d/sshd
+EOF
+    else
+      if [ -n "${remote_unlock_enabled+x}" ]; then
+        cat <<'EOF' >> "$run_script"
+
+_rsa_key_length=4096
+EOF
+      fi
+
+      cat <<'EOF' >> "$run_script"
+write_log "    Only generate ED25519 and \${_rsa_key_length}bit RSA host keys"
+sed -i \\
+  -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
+  -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
+  /etc/conf.d/sshd
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+
+# Configure sshd to:
+EOF
+
+    if [ "$image_ssh_keytypes" = "ed25519" ]; then
+      cat <<'EOF' >> "$run_script"
+#   - only use ED25519 host key
+EOF
+    else
+      cat <<'EOF' >> "$run_script"
+#   - only use ED25519 & RSA host keys
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+#   - enable ED25519 key use
+#   - prevent challenge-response logins
+#   - prevent keyboard-interactive logins
+#   - prevent logins to accounts with empty passwords
+#   - prevent root logins
+#   - prevent password-based logins
+#   - enable PAM
+#   - use built-in SFTP server
+write_log "    Prevent root login, prevent password logins"
+sed -i \
+  -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
+  -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
+  -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
+  -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
+  -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
+  -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
+  -e 's|^[#]*UsePAM .*$|UsePAM yes|' \
+  -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
+  /etc/ssh/sshd_config
+#
+#   - ensure only key-based authentication is enabled
+#
+sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
+{
+  printf '\n'
+  printf 'AuthenticationMethods "publickey"\n'
+  printf '\n'
+} >> /etc/ssh/sshd_config
+EOF
+
+    if [ "$image_ssh_keytypes" != "ed25519" ]; then
+		  # Enable RSA key use
+      cat <<'EOF' >> "$run_script"
+sed -i \
+  -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
+  /etc/ssh/sshd_config
+EOF
+    fi
+
+    if [ -n "${image_disable_ipv4+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+sed -i \
+  -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
+  -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
+  /etc/ssh/sshd_config
+EOF
+    elif [ -n "${image_disable_ipv6+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+sed -i \
+  -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
+  -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
+  /etc/ssh/sshd_config
+EOF
+    fi
+
+    if [ -n "${image_harden+x}" ]; then
+		  # Further restrict the OpenSSH configuration
+      harden_sshd_configuration
+    fi
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+  rm /etc/conf.d/sshd-orig
+
+  diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log || true
+  rm /etc/ssh/sshd_config-orig
+}
+EOF
+    fi
+  elif [ "$image_ssh_server" = "tinyssh" ]; then
+    # TinySSH
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "  Configure TinySSH server"
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
+}
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+
+write_log "    Enable SFTP server"
+sed -i \
+  -e 's|^# OPTIONS=.*|OPTIONS="-l -v -x sftp=/usr/lib/ssh/sftp-server"|' \
+  /etc/conf.d/tinysshd
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  diff /etc/conf.d/tinysshd-orig /etc/conf.d/tinysshd >> /chroot.log || true
+  rm /etc/conf.d/tinysshd-orig
+}
+EOF
+    fi
+  fi
+}

@@ -1,0 +1,2499 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  common-functions
+##
+##  Copyright 2021 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+#
+# Add more Alpine repos to the repositories file
+#
+add_additional_repos() {
+  cat <<EOF >> "$run_script"
+
+write_log "Adding additional repos"
+EOF
+
+  add_alpine_repo "$alpine_mirror_site" "$image_alpine_release" "community"
+
+  if [ "$image_alpine_release" = "edge" ]; then
+    add_alpine_repo "$alpine_mirror_site" "$image_alpine_release" "testing"
+  fi
+
+  if [ -n "${local_alpine_repository+x}" ]; then
+    add_alpine_repo "$local_alpine_repository" "$image_alpine_release"
+  fi
+}
+
+
+#
+# Enable base Alpine init.d services
+#
+add_base_init_d() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Enable init.d scripts"
+{
+EOF
+
+  add_init_d_service "devfs" "sysinit"
+  add_init_d_service "dmesg" "sysinit"
+  add_init_d_service "bootmisc" "boot"
+  add_init_d_service "hostname" "boot"
+  add_init_d_service "modules" "boot"
+  add_init_d_service "sysctl" "boot"
+  add_init_d_service "swap" "boot"
+  add_init_d_service "urandom" "boot"
+
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ] || \
+     { [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; }; then
+    # Everything except RPIs
+    add_init_d_service "osclock" "boot"
+  elif [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    # RPIs
+    if [ -n "${rpi_use_rtc+x}" ]; then
+      # With hardware RTC
+      add_init_d_service "osclock" "boot"
+    else
+      # Without hardware RTC
+      add_init_d_service "swclock" "boot"
+    fi
+  fi
+
+  add_init_d_service "crond" "default"
+  add_init_d_service "networking" "default"
+
+  add_init_d_service "killprocs" "shutdown"
+  add_init_d_service "mount-ro" "shutdown"
+  add_init_d_service "savecache" "shutdown"
+
+  cat <<'EOF' >> "$run_script"
+} >> /chroot.log 2>&1
+EOF
+}
+
+
+#
+# Add an entry to /etc/apk/repositories file
+#
+add_alpine_repo() {
+  local _mirror=$1
+  local _release=$2
+  local _repo=${3:-local}
+
+  cat <<EOF >> "$run_script"
+
+write_log "  Adding $_repo repo to /etc/apk/repositories"
+cat <<-_SCRIPT_ >> /etc/apk/repositories
+EOF
+
+  if [ "$_repo" = "local" ]; then
+    cat <<EOF >> "$run_script"
+	$_mirror/$_release
+EOF
+  else
+    cat <<EOF >> "$run_script"
+	$_mirror/$_release/$_repo
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+EOF
+}
+
+
+#
+# Enable the specified service on the specified runlevel
+#
+add_init_d_service() {
+  local _service_name=$1
+  local _run_level=$2
+
+  cat <<EOF >> "$run_script"
+  rc-update add $_service_name $_run_level
+EOF
+}
+
+
+#
+# Display error as command option is not supported, and exit
+#
+cli_option_not_handled() {
+	error_message "This option does not apply in this situation."
+}
+
+
+#
+# Display error as command option value is not valid, and exit
+#
+cli_option_unknown_value() {
+  local _additional_text="$1"
+
+  error_message "Unknown $_additional_text!"
+}
+
+
+#
+# Copy /etc/resolv.conf from host system to chroot
+#
+copy_host_resolv_conf_to_chroot() {
+  cat <<EOF >> "$run_script"
+
+write_log "Copying system's /etc/resolv.conf into chroot filesystem"
+mkdir -p "\$chroot_dir"/etc
+cp /etc/resolv.conf "\$chroot_dir"/etc/
+EOF
+}
+
+#
+# Copy local repository signing key to chroot
+#
+copy_local_repo_key_to_chroot() {
+  cat <<EOF >> "$run_script"
+
+write_log "Copy local repo key to /etc/apk/keys/ directory inside chroot"
+cp "$local_repo_signature_file" "\$chroot_dir"/etc/apk/keys/
+EOF
+}
+
+
+#
+# Create MBR or GPT disk label
+#
+create_disk_label() {
+  local label_type=$1
+
+  cat <<EOF >> "$run_script"
+
+write_debug_log "  Creating $label_type disk label"
+parted --machine --script --align=optimal \$image_full_filename \\
+  mklabel $label_type >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Create a disk partition
+#
+create_disk_partition() {
+  local _part_number=$1
+  local _part_start=$2
+  local _part_end=$3
+  local _size=$4
+  local _part_desc=$5
+  local _flags="${6:-}"
+  local _fs_type=${7:-}
+
+  local _flag
+
+  cat <<EOF >> "$run_script"
+write_debug_log "  Creating ${_size}MiB $_part_desc partition"
+parted --machine --script --align=optimal \$image_full_filename \\
+  unit MiB mkpart primary ${_fs_type} ${_part_start} ${_part_end} >> "\$logfile" 2>&1
+EOF
+
+  for _flag in $_flags; do
+    cat <<EOF >> "$run_script"
+write_debug_log "  Setting partition $_flag flag on"
+parted --machine --script --align=optimal \$image_full_filename \\
+  set $_part_number $_flag on >> "\$logfile" 2>&1
+EOF
+  done
+}
+
+
+#
+# Create basic /etc/apk/repositories file inside chroot
+#
+create_repositories_file_inside_chroot() {
+  cat <<EOF >> "$run_script"
+
+write_log "Creating /etc/apk/repositories file inside chroot"
+mkdir -p "\$chroot_dir"/etc/apk/keys
+echo "$alpine_mirror_site/$image_alpine_release/main" \\
+  > "\$chroot_dir"/etc/apk/repositories
+EOF
+}
+
+
+#
+# Output list of options, one per line
+#
+options_wrap() {
+  local _options_list="$1"
+
+  local _option
+
+  while [ ${#_options_list} -gt 0 ] && \
+        [ "${_options_list#*--}" != "$_options_list" ]; do
+	  _options_list="${_options_list#*--}"
+		_option="${_options_list%% --*}"
+    cat <<EOF >> "$run_script"
+#   --$_option
+EOF
+  done
+}
+
+
+#
+# Create the comment block at the start of the runscript
+#
+create_runscript_header() {
+  cat <<EOF > "$run_script"
+#!/bin/sh -eu
+# shellcheck disable=SC2039
+
+#############################################################################
+# Generated on $(date +%c) by ${script_name}
+# version ${script_version} using the following options:
+#
+EOF
+
+  options_wrap "$full_command_options"
+
+  cat <<EOF >> "$run_script"
+#
+#############################################################################
+
+if [ "\$(id -u)" -ne 0 ]; then
+  echo
+  echo "This script must be run as the root user!"
+  echo
+  exit 1
+fi
+
+EOF
+}
+
+
+#
+# Download tarball of statically compiled apk tool
+#
+download_static_apk() {
+  cat <<EOF >> "$run_script"
+
+write_log "Downloading statically built APK tool"
+wget -q -O $TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz \\
+  ${apk_static_url}/apk-tools-${apk_static_version}-x86_64-linux.tar.gz \\
+  2>> "\$logfile"
+tar --extract -C \$TMPDIR -z \\
+  -f \$TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz >> "\$logfile"
+rm -f $TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz
+EOF
+}
+
+
+#
+# Enable getty for serial console
+#
+enable_serial_console() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+# Debug
+cp /etc/inittab /etc/inittab-orig
+EOF
+
+    if [ "$image_bootloader" = "grub" ]; then
+      # GRUB
+      cat <<'EOF' >> "$run_script"
+
+cp /etc/default/grub /etc/default/grub-orig
+EOF
+    elif [ "$image_bootloader" = "syslinux" ]; then
+      # Syslinux
+      cat <<'EOF' >> "$run_script"
+
+cp /etc/update-extlinux.conf /etc/update-extlinux.conf-orig
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Enable serial console"
+EOF
+
+  cat <<EOF >> "$run_script"
+write_log "  Enabling getty on ${serial_port_name} for serial console"
+sed -i \\
+  -e 's|^[#]*ttyS0::.*$|${serial_port_name}::respawn:/sbin/getty -L ${serial_port_name} ${serial_port_speed} vt100|g' \\
+  /etc/inittab
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+{
+  # Debug
+  diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
+  rm /etc/inittab-orig
+}
+EOF
+  fi
+
+  if [ "$image_bootloader" = "grub" ]; then
+    # GRUB
+    cat <<EOF >> "$run_script"
+write_log "  Configure GRUB serial command"
+echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} --speed=${serial_port_speed}"' \\
+  >> /etc/default/grub
+write_log "  Configure GRUB for serial console"
+EOF
+
+    if [ "$image_console_type" = "both" ]; then
+      cat <<EOF >> "$run_script"
+echo 'GRUB_TERMINAL="serial console"' >> /etc/default/grub
+EOF
+    else
+      cat <<EOF >> "$run_script"
+echo 'GRUB_TERMINAL="serial"' >> /etc/default/grub
+EOF
+    fi
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+{
+  # Debug
+  diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
+  rm /etc/default/grub-orig
+}
+EOF
+    fi
+
+  elif [ "$image_bootloader" = "syslinux" ]; then
+    # Syslinux
+    cat <<EOF >> "$run_script"
+write_log "  Configure Syslinux serial port and speed"
+sed -i \\
+  -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
+  -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
+  /etc/update-extlinux.conf
+EOF
+
+    if [ "$image_console_type" = "serial" ]; then
+      cat <<EOF >> "$run_script"
+write_log "  Disable normal Syslinux console"
+sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
+EOF
+    fi
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+{
+  # Debug
+  diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \
+    >> /chroot.log || true
+  rm /etc/update-extlinux.conf-orig
+}
+EOF
+    fi
+
+  fi
+}
+
+
+#
+# Display an error message and exit the script
+#
+error_message() {
+	local _error_message="$1"
+
+  echo
+  echo "${_error_message}"
+  echo
+	exit 2
+}
+
+
+#
+# Create an ESP FAT filesystem
+#
+format_esp_fs() {
+  case $esp_type in
+    fat12 )
+      uefi_info_type="FAT12"
+      uefi_mkfs_option="-F12 -s 1 -S 512"
+      ;;
+    fat16 )
+      uefi_info_type="FAT16"
+      uefi_mkfs_option="-F16 -s 1 -S 512"
+      ;;
+    fat32 )
+      uefi_info_type="FAT32"
+      uefi_mkfs_option="-F32"
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting $uefi_info_type filesystem on ESP partition"
+mkfs.fat -v $uefi_mkfs_option -n $CONSTANT_ESP_FS_LABEL "\$uefi_part_device" \\
+  >> "\$logfile" 2>&1
+
+EOF
+}
+
+
+#
+# Create an EXT4 filesystem
+#
+format_ext4_fs() {
+  local device=$1
+  local fs_use="$2"
+  local label=$3
+  local formatting_where="$4"
+
+  local _fs_options
+
+  # Ensure EXT4 inode size is 256 bytes rather than 128 in order to avoid
+  # Year 2038 problems/warning.
+  _fs_options="-I 256"
+
+  if [ "$fs_use" = "boot" ]; then
+    if [ "$image_bootloader" = "syslinux" ]; then
+      # Syslinux requires 64bit flag be disabled for boot filesystem
+      _fs_options="$_fs_options -O ^64bit"
+    fi
+  elif [ "$fs_use" = "root" ] && \
+       [ -z "${needs_boot_partition+x}" ] && \
+       [ "$image_bootloader" = "syslinux" ] && \
+       [ -z "${image_lvm_rootfs+x}" ]; then
+    # Syslinux requires 64bit flag be disabled for boot filesystem
+    _fs_options="$_fs_options -O ^64bit"
+  fi
+
+  cat <<EOF >> "$run_script"
+write_log "  Formatting Ext4 $fs_use filesystem on $formatting_where"
+mkfs.ext4 -q -L $label $_fs_options "$device" >> "\$logfile" 2>&1
+EOF
+}
+
+
+#
+# Insert function add_fstab_entry into created script
+#
+insert_chroot_function_add_fstab_entry() {
+  cat <<'EOF' >> "$run_script"
+
+add_fstab_entry() {
+  local _entry_type=\$1
+  local _entry_value=\$2
+  local _mount_point=\$3
+  local _fs_type=\$4
+  local _fs_options=\$5
+  local _entry_log=\$6
+
+  local _fstab_entry
+  if [ "\$_entry_type" = "BIND" ]; then
+    _fs_options="bind,\${_fs_options}"
+    local _fs_passno="0"
+  elif [ "\$_mount_point" = "/" ]; then
+    local _fs_passno="1"
+  else
+    local _fs_passno="2"
+  fi
+
+  if [ "\$_entry_type" = "BIND" ] ||
+     [ "\$_entry_type" = "DEVICE" ]; then
+    _fstab_entry="\${_entry_value}"
+  else
+    _fstab_entry="\${_entry_type}=\${_entry_value}"
+  fi
+  _fstab_entry="\${_fstab_entry}\t\${_mount_point}\t\${_fs_type}\t\${_fs_options} 0 \${_fs_passno}"
+
+  write_log "  Add \${_entry_log} entry"
+  # shellcheck disable=SC2169,SC3036
+  echo -e "\${_fstab_entry}" >> /etc/fstab
+}
+EOF
+}
+
+
+#
+# Insert function get_kernel_version into created script
+#
+insert_chroot_function_get_kernel_version() {
+  local _kernel_package
+
+  cat <<EOF >> "$run_script"
+
+get_kernel_version() {
+EOF
+
+  case $image_class in
+    cloud | virtual )
+      if [ "$image_kernel_type" = "edge" ]; then
+        _kernel_package="edge4virt"
+      else
+        _kernel_package="virt"
+      fi
+      ;;
+    physical )
+      case $image_physical_type in
+        pc )
+          if [ "$image_kernel_type" = "edge" ]; then
+            _kernel_package="edge"
+          else
+            _kernel_package="lts"
+          fi
+          ;;
+        rpi2 | rpi3 )
+          if [ "$image_arch" = "armv7" ]; then
+            _kernel_package="rpi2"
+          else
+            _kernel_package="rpi"
+          fi
+          ;;
+        rpi4 )
+          _kernel_package="rpi4" ;;
+      esac
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+  echo "\\\$(apk info linux-$_kernel_package | head -n 1 | sed -e "s/^linux-$_kernel_package-//" \\
+    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-$_kernel_package/")"
+}
+EOF
+}
+
+
+#
+# Insert function write_debug_log into created script
+#
+insert_chroot_function_write_debug_log() {
+  cat <<EOF >> "$run_script"
+
+write_debug_log() {
+  local _current_time
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+  echo "\$_current_time chroot: \$1" >> /chroot.log
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+  # Debug not enabled so do nothing
+  true
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Insert function write_log into created script
+#
+insert_chroot_function_write_log() {
+cat <<'EOF' >> "$run_script"
+
+write_log() {
+  local _current_time
+
+  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+  echo "\$_current_time chroot: \$1" >> /chroot.log
+  echo "chroot: \$1"
+}
+EOF
+}
+
+
+#
+# Insert function check_binfmt_packages into the run script
+#
+insert_runscript_function_check_binfmt_packages() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Check that the host OS has necessary packages installed for
+# running user-mode QEMU via binfmt and that it is configured.
+#
+check_binfmt_packages() {
+  local _arch=$1
+
+  local _binfmt_arch_enabled _binfmt_file _host_arch _host_os _required_packages
+
+  _host_arch=$(uname -m)
+
+  if [ "$_host_arch" != "$_arch" ]; then
+    _host_os=$(detect_host_os)
+    case $_host_os in
+      alpine )
+        _required_packages="qemu-openrc"
+        case $_arch in
+          aarch64 )
+            _required_packages="$_required_packages qemu-aarch64" ;;
+          armv7 )
+            _required_packages="$_required_packages qemu-arm" ;;
+          x86 )
+            _required_packages="$_required_packages qemu-i386" ;;
+          x86_64 )
+            _required_packages="$_required_packages qemu-x86_64" ;;
+          * )
+            echo "Unsupported architecture: $_arch!"
+            exit 1
+            ;;
+        esac
+        # shellcheck disable=SC2086
+        if ! apk info -e -q $_required_packages; then
+          echo
+          echo "The following Alpine packages need to be installed:"
+          echo "  $_required_packages"
+          echo
+          exit 1
+        fi
+        ;;
+      debian | ubuntu )
+        _required_packages="binfmt-support qemu-user-static"
+        if [ "$(dpkg-query -W -f='${Status}\n' "$_required_packages")" -ne 0 ]; then
+          echo
+          echo "The following packages need to be installed:"
+          echo "  $_required_packages"
+          echo
+          exit 1
+        fi
+        ;;
+      * )
+        echo
+        echo "Unsupported host OS!"
+        echo
+        exit 1
+        ;;
+    esac
+
+    # Is binfmt configured for this QEMU arch?
+    case $_arch in
+      aarch64 )
+        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-aarch64" ;;
+      armv7 )
+        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-arm" ;;
+      x86 )
+        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-i386" ;;
+      x86_64 )
+        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-x86_64" ;;
+    esac
+    if [ -e "$_binfmt_file" ]; then
+      _binfmt_arch_enabled=$(head -1 ${_binfmt_file})
+      if [ "$_binfmt_arch_enabled" = "enabled" ]; then
+        return
+      else
+        echo
+        echo "Binfmt is not enabled for $_arch"
+        echo
+        exit 1
+      fi
+    else
+      echo
+      echo "Binfmt and QEMU are not configured for $_arch"
+      echo
+      exit 1
+    fi
+  fi
+}
+EOF
+}
+
+
+#
+# Insert function check_for_required_packages into the run script
+#
+insert_runscript_function_check_for_required_packages() {
+  local _package_list
+
+  cat <<'EOF' >> "$run_script"
+
+#
+# Checks that the host OS has all necessary packages installed
+#
+check_for_required_packages() {
+  local _host_os _host_os_major_version _required_packages
+
+  _host_os=$(detect_host_os)
+  case $_host_os in
+    alpine )
+      _host_os_major_version="$(grep VERSION_ID /etc/os-release | sed -E -e 's/^VERSION_ID=([0-9]+\.[0-9]+).*/\1/g')"
+EOF
+
+  # Select:
+  #    coreutils for: truncate
+  _package_list="blkid busybox coreutils lsblk parted tar wget"
+
+  if [ "$image_fs_type" = "btrfs" ]; then
+    _package_list="$_package_list btrfs-progs btrfs-progs-extra"
+  elif [ "$image_fs_type" = "ext4" ]; then
+    # e2fsprogs for: mkfs.ext4
+    _package_list="$_package_list e2fsprogs"
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    _package_list="$_package_list f2fs-tools"
+  elif [ "$image_fs_type" = "xfs" ]; then
+    _package_list="$_package_list xfsprogs xfsprogs-extra"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    _package_list="$_package_list cryptsetup"
+  fi
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _package_list="$_package_list lvm2"
+  fi
+
+  cat <<EOF >> "$run_script"
+      _required_packages="$_package_list"
+      if [ "\$_host_os_major_version" = "3.13" ] || \\
+         [ "\$_host_os_major_version" = "3.14" ]; then
+        # Select:
+        #    util-linux for: losetup, mount (Busybox losetup is not suitable)
+        _required_packages="\$_required_packages util-linux"
+      else
+        # Select:
+        #    util-linux-misc for: losetup, mount (Busybox losetup is not suitable)
+        _required_packages="\$_required_packages util-linux-misc"
+      fi
+      # shellcheck disable=SC2086
+      if ! apk info -e -q \$_required_packages; then
+        echo
+        echo "The following Alpine packages need to be installed:"
+        echo "  \$_required_packages"
+        echo
+        exit 1
+      fi
+      ;;
+    debian | ubuntu )
+EOF
+
+  _package_list="coreutils mount parted wget"
+  if [ "$image_fs_type" = "btrfs" ]; then
+    _package_list="$_package_list btrfs-progs"
+  elif [ "$image_fs_type" = "ext4" ]; then
+    _package_list="$_package_list e2fsprogs"
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    _package_list="$_package_list f2fs-tools"
+  elif [ "$image_fs_type" = "xfs" ]; then
+    _package_list="$_package_list xfsprogs"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    _package_list="$_package_list cryptsetup-bin"
+  fi
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _package_list="$_package_list lvm2"
+  fi
+
+  cat <<EOF >> "$run_script"
+      _required_packages="$_package_list"
+      if [ "\$(dpkg-query -W -f='\${Status}\n' "\$_required_packages")" -ne 0 ]; then
+        echo
+        echo "The following packages need to be installed:"
+        echo "  \$_required_packages"
+        echo
+        exit 1
+      fi
+      ;;
+    *)
+      echo
+      echo "Unsupported host OS!"
+      echo
+      exit 1
+      ;;
+  esac
+}
+EOF
+}
+
+
+#
+# Insert function detect_host_os into the run script
+#
+insert_runscript_function_detect_host_os() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Determine the Linux distro that this script is being run on
+#
+detect_host_os() {
+  local _os
+
+  _os=$(grep "^ID" /etc/os-release | sed -e 's/^ID=//')
+  echo "$_os"
+}
+EOF
+}
+
+
+#
+# Insert function error_cleanup into the run script
+#
+insert_runscript_function_error_cleanup() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Unmount filesystems whenever an error occurs in the script
+#
+error_cleanup() {
+  local _rc
+
+  write_log "An error occurred, cleaning up before aborting!"
+
+  if [ -f "$chroot_dir"/chroot.log ]; then
+    cat "$chroot_dir"/chroot.log >> "$logfile"
+  fi
+
+  normal_cleanup
+EOF
+
+  if [ -n "${ramdisk_directory+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  if mount | grep -q "$ramdisk_dir" ; then
+    _rc=1
+    while [ $_rc -ne 0 ]; do
+      write_log "Unmounting ramdisk"
+      umount "$ramdisk_dir" >> "$logfile"
+      _rc=$?
+      sleep 5
+    done
+    # A small delay before rmdir as sometimes the umount is not immediate
+    sleep 5
+    rmdir "$ramdisk_dir"
+  fi
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Insert function get_uuid_from_device into the run script
+#
+insert_runscript_function_get_uuid_from_device() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Get the UUID of the filesystem in the specified device
+#
+get_uuid_from_device() {
+  local _device=$1
+
+  # shellcheck disable=SC2005
+  echo "$(blkid -s UUID "$_device" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
+}
+EOF
+}
+
+
+#
+# Insert function normal_cleanup into the run script
+#
+insert_runscript_function_normal_cleanup() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Unmount filesystems mounted inside chroot directory
+#
+normal_cleanup() {
+  write_log "Normal cleanup"
+
+  unmount_chroot_fs "/dev"
+  unmount_chroot_fs "/sys"
+  unmount_chroot_fs "/proc"
+EOF
+
+  if [ -n "${needs_boot_partition+x}" ] || \
+     [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+  unmount_chroot_fs "/boot"
+EOF
+  elif [ "$image_boot_type" = "uefi" ] && \
+       [ "$image_bootloader" = "syslinux" ]; then
+    cat <<'EOF' >> "$run_script"
+  unmount_chroot_fs "/boot" "bind-mounted from ESP filesystem"
+EOF
+  fi
+
+  if [ "$image_boot_type" = "uefi" ]; then
+    cat <<'EOF' >> "$run_script"
+  unmount_chroot_fs "/efi"
+EOF
+  fi
+
+  if [ "$image_class" = "physical" ]; then
+    cat <<'EOF' >> "$run_script"
+  unmount_chroot_fs "/cidata"
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  unmount_chroot_fs "/"
+EOF
+
+  if [ -n "${image_encrypted+x}" ]; then
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      # LVM-on-LUKS
+      cat <<'EOF' >> "$run_script"
+
+  vgchange -an >> "$logfile"
+EOF
+    fi
+
+    cat <<EOF >> "$run_script"
+
+  cryptsetup close ${CONSTANT_LUKS_DEVICE_NAME} >> "\$logfile"
+EOF
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  vgchange -an >> "$logfile"
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+  if [ -n "${loop_device+x}" ]; then
+    write_log "  Freeing up loop device"
+    losetup -d "$loop_device" >> "$logfile"
+  fi
+}
+EOF
+}
+
+
+#
+# Insert function unmount_chroot_fs into the run script
+#
+insert_runscript_function_unmount_chroot_fs() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Unmount a filesystem inside chroot
+#
+unmount_chroot_fs() {
+  local _mountpoint="$1"
+  local _where_from="${2:-inside chroot}"
+
+  local _full_path _pseudo_path
+
+  if [ "$_mountpoint" = "/" ]; then
+    _full_path="$chroot_dir"
+    _pseudo_path="root filesystem"
+  else
+    _full_path="${chroot_dir}${_mountpoint}"
+    _pseudo_path="$_mountpoint"
+  fi
+
+  if mount | grep -q "$_full_path" ; then
+    write_log "  Unmounting ${_pseudo_path} ${_where_from}"
+    umount -l -f "$_full_path" >> "$logfile"
+  fi
+}
+EOF
+}
+
+
+#
+# Insert function write_debug_log into the run script
+#
+insert_runscript_function_write_debug_log() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Write debug messages only to the log file
+#
+write_debug_log() {
+  local _log_entry="$1"
+
+  local _current_time
+
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+	  cat <<'EOF' >> "$run_script"
+  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+  echo "$_current_time $_log_entry" >> "$logfile"
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+  # Debug not enabled so do nothing
+  true
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Insert function write_log into the run script
+#
+insert_runscript_function_write_log() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Write log messages to both the logfile (with timestamp) and stdout
+#
+write_log() {
+  local _log_entry="$1"
+
+  local _current_time
+
+  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+  echo "$_current_time $_log_entry" >> "$logfile"
+  echo "$_log_entry"
+}
+EOF
+}
+
+
+#
+# Insert required functions into the run script
+#
+insert_runscript_functions() {
+  cat <<'EOF' >> "$run_script"
+
+#############################################################################
+##   Functions
+#############################################################################
+EOF
+
+  insert_runscript_function_check_for_required_packages
+
+  insert_runscript_function_check_binfmt_packages
+
+  insert_runscript_function_detect_host_os
+  insert_runscript_function_error_cleanup
+  insert_runscript_function_get_uuid_from_device
+  insert_runscript_function_normal_cleanup
+  insert_runscript_function_unmount_chroot_fs
+  insert_runscript_function_write_debug_log
+  insert_runscript_function_write_log
+}
+
+
+#
+# Adds an entry to the specified /etc/mkinitfs/features.d/*.modules file
+#
+initramfs_entry_add() {
+  local _modules_entry="$1"
+
+  cat <<EOF >> "$run_script"
+	$_modules_entry
+EOF
+}
+
+
+#
+# Complete adding entries to the specified /etc/mkinitfs/features.d/*.modules file
+#
+initramfs_entry_finish() {
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+EOF
+}
+
+
+#
+# Prep adding entries to the specified /etc/mkinitfs/features.d/*.modules file
+#
+initramfs_entry_initialise() {
+  local modules_file=$1
+
+  cat <<EOF >> "$run_script"
+cat <<-_SCRIPT_ > /etc/mkinitfs/features.d/${modules_file}.modules
+EOF
+}
+
+
+#
+# Install additional packages
+#
+install_additional_packages() {
+  cat <<EOF >> "$run_script"
+
+_initial_packages="$(define_additional_packages)"
+EOF
+
+  cat <<'EOF' >> "$run_script"
+write_log "Install additional packages: \$_initial_packages"
+apk add \$_initial_packages >> /chroot.log 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+{
+  # Debug
+  write_debug_log "Full installed packages list:"
+  apk info | sort >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Mount the ramdisk
+#
+mount_ramdisk() {
+  cat <<EOF >> "$run_script"
+write_log "Setting up ramdisk"
+mkdir -p \$ramdisk_dir
+mount -t tmpfs -o size=$CONSTANT_RAMDISK_SIZE tmpfs \$ramdisk_dir >> \$logfile
+EOF
+}
+
+
+#
+# Mount special filesystems from host inside chroot
+#
+mount_host_special_fs_in_chroot() {
+  cat <<EOF >> "$run_script"
+
+write_log "Mounting /proc, /sys, and /dev special filesystems in chroot"
+{
+  mount -v -t proc none \$chroot_dir/proc
+  mount -v -t none -o rbind /sys \$chroot_dir/sys
+  mount -v --make-rprivate \$chroot_dir/sys
+  mount -v -t none -o rbind /dev \$chroot_dir/dev
+  mount -v --make-rprivate \$chroot_dir/dev
+} >> \$logfile 2>&1
+EOF
+}
+
+
+#
+# Display the help for an individual option, wrapped to 70 chars width
+#
+option_help() {
+  local _option_format="$1"
+  local _option_description="$2"
+
+  local _remaining_desc _temp_chunk _this_line
+  local _desc_len=76
+
+  echo "  $_option_format"
+  echo
+  if [ "${#_option_description}" -le 70 ]; then
+    echo "    $_option_description"
+  else
+    # Chop the description into appropriate line portions based on spaces
+    _remaining_desc="$_option_description"
+    while [ ${#_remaining_desc} -gt 0 ]; do
+      if [ ${#_remaining_desc} -le $_desc_len ]; then
+        _this_line=$_remaining_desc
+        _remaining_desc=''
+      else
+        _temp_chunk="$(printf '%s' "$_remaining_desc" | cut -c -$_desc_len)"
+        _this_line=${_temp_chunk% *}
+        _remaining_desc=${_remaining_desc##$_this_line}
+        # Remove any leading space
+        _remaining_desc=${_remaining_desc# }
+      fi
+      echo "    $_this_line"
+    done
+  fi
+  echo
+}
+
+
+#
+# Parse options given on the command line
+#
+parse_cli_options() {
+	local _cli
+
+  if ! _cli=$(getopt -s sh \
+    -o h \
+    -l add-packages:,\
+apk-static-url:,\
+apk-static-version:,\
+arch:,\
+auth-control:,\
+boot-by-label,\
+bootchart,\
+bootloader:,\
+bootloader-password:,\
+boottype:,\
+chroot-directory:,\
+cloud:,\
+cloud-seed-url:,\
+cpu-vendor:,\
+create-boot-partition,\
+debug,\
+dhcp-client:,\
+disable-normal-console,\
+disable-serial-console,\
+disk-image-size:,\
+enable-utmp,\
+encrypt,\
+encrypt-cipher:,\
+encrypt-passphrase:,\
+encrypt-remote-unlock,\
+esp-part-size:,\
+esp-part-type:,\
+ethernet-module:,\
+experimental,\
+extra-cmdline-options:,\
+firewall:,\
+for-ssd,\
+fs-type:,\
+full-hostname:,\
+graphics-vendor:,\
+graphics-vendor-driver:,\
+harden,\
+help,\
+image-filename:,\
+images-directory:,\
+ipv4only,\
+ipv6only,\
+kernel-type:,\
+keymap:,\
+local-repo:,\
+local-repo-sig-file:,\
+locale:,\
+lvm,\
+mdev,\
+minimise,\
+mirror:,\
+no-grub-encryption,\
+password:,\
+optimise,\
+physical:,\
+ramdisk-directory:,\
+release:,\
+remote-unlock-network-module:,\
+remote-unlock-ssh-port:,\
+remote-unlock-static-gateway:,\
+remote-unlock-static-interface:,\
+remote-unlock-static-ip:,\
+remote-unlock-static-netmask:,\
+rpi-poe-hat,\
+rpi-rtc,\
+script-filename:,\
+short-hostname:,\
+ssh-key-types:,\
+ssh-public-key:,\
+ssh-server:,\
+syslogd:,\
+timezone:,\
+udev,\
+use-ramdisk,\
+username:,\
+virtual:,\
+without-cloud-init \
+    -n "$0" -- "$@"); then
+    error_message "Terminating..."
+  fi
+
+  eval set -- "$_cli"
+
+  while true; do
+    case "$1" in
+      --add-packages )
+        add_packages_list="$(echo "$2" | sed -e 's|,| |g')"
+        shift 2
+        ;;
+      --apk-static-url )
+        apk_static_url="$2"
+        shift 2
+        ;;
+      --apk-static-version )
+        apk_static_version="$2"
+        shift 2
+        ;;
+      --arch )
+        case $2 in
+          aarch64 | armv7 | x86 | x86_64 )
+            image_arch=$2
+            ;;
+          * )
+					  cli_option_unknown_value "arch '$2'"
+            ;;
+        esac
+        shift 2
+        ;;
+      --auth-control )
+        case $2 in
+          doas | sudo | both )
+            image_auth_control=$2
+            ;;
+          * )
+            cli_option_unknown_value "auth control mechanism '$2'"
+            ;;
+        esac
+        shift 2
+        ;;
+      --boot-by-label )
+        image_boot_reference="label"
+        shift
+        ;;
+      --bootchart )
+			  if [ "$script_type" = "creator" ]; then
+          image_bootchart="true"
+				else
+				  cli_option_not_handled
+        fi
+				shift
+				;;
+      --bootloader )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            grub | rpi | syslinux )
+              image_bootloader=$2
+            ;;
+          * )
+            cli_option_unknown_value "bootloader '$2', valid values are 'grub', 'rpi', and 'syslinux'"
+            ;;
+          esac
+				else
+				  cli_option_not_handled
+				fi
+				shift 2
+				;;
+      --bootloader-password )
+			  if [ "$script_type" = "creator" ]; then
+          image_bootloader_password="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --boottype )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            bios | rpi | uefi )
+              image_boot_type=$2
+              ;;
+            * )
+              cli_option_unknown_value "boot type '$2', valid values are 'bios', 'rpi', and 'uefi'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --chroot-directory )
+        chroot_directory="$2"
+        shift 2
+        ;;
+      --cloud )
+			  if [ "$script_type" = "creator" ]; then
+          image_class="cloud"
+          case $2 in
+            aliyun | aws | azure | bigstep | brightbox | digitalocean | e24 | exoscale | generic | google | hetzner | hyperone | ibmcloud | oracle | rootbox | scaleway | tencent | upcloud | vultr )
+              image_cloud_type=$2
+              ;;
+            *)
+              cli_option_unknown_value "cloud type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --cloud-seed-url )
+			  if [ "$script_type" = "creator" ]; then
+          cloud_seed_url="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --cpu-vendor )
+			  if [ "$script_type" = "creator" ]; then
+          image_cpu_vendor="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --create-boot-partition )
+			  if [ "$script_type" = "creator" ]; then
+          create_boot_partition=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --debug )
+        debug_enabled=true
+        shift
+        ;;
+      --dhcp-client )
+			  if [ "$script_type" = "creator" ]; then
+          image_dhcp_client="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --disable-normal-console )
+        image_console_type="serial"
+        shift
+        ;;
+      --disable-serial-console )
+        image_console_type="normal"
+        shift
+        ;;
+      --disk-image-size )
+        disk_image_size="$2"
+        shift 2
+        ;;
+      --enable-utmp )
+			  if [ "$script_type" = "creator" ]; then
+          image_enable_utmp="true"
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --encrypt )
+			  if [ "$script_type" = "creator" ]; then
+          image_encrypted=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --encrypt-cipher )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            adiantum | typical )
+              image_encryption_cipher=$2
+              ;;
+            *)
+              cli_option_unknown_value "or unsupported LUKS cipher type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --encrypt-passphrase )
+			  if [ "$script_type" = "creator" ]; then
+          image_encryption_passphrase="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --encrypt-remote-unlock )
+			  if [ "$script_type" = "creator" ]; then
+          image_encrypted=true
+          remote_unlock_enabled=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --esp-part-size )
+			  if [ "$script_type" = "creator" ]; then
+          esp_part_size=$2
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --esp-part-type )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            fat12 | fat16 | fat32 )
+              esp_type=$2
+              ;;
+            *)
+              cli_option_unknown_value "or unsupported ESP partition FAT type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --ethernet-module )
+			  if [ "$script_type" = "creator" ]; then
+          image_ethernet_module="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --experimental )
+			  if [ "$script_type" = "creator" ]; then
+          image_experimental=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --extra-cmdline-options )
+        image_extra_cmdline_options="$2"
+        shift 2
+        ;;
+      --firewall )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            awall | iptables | nftables )
+              image_firewall=$2
+              ;;
+            * )
+              cli_option_unknown_value "or unsupported firewall '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --for-ssd )
+			  if [ "$script_type" = "creator" ]; then
+          image_for_ssd=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --fs-type )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            btrfs | ext4 | f2fs | xfs )
+              image_fs_type="$2"
+              ;;
+            * )
+              cli_option_unknown_value "or unsupported filesystem type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --full-hostname )
+			  if [ "$script_type" = "creator" ]; then
+          image_full_hostname="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --graphics-vendor )
+			  if [ "$script_type" = "creator" ]; then
+          image_graphics_vendor="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --graphics-vendor-driver )
+			  if [ "$script_type" = "creator" ]; then
+          image_graphics_vendor_driver="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --harden )
+			  if [ "$script_type" = "creator" ]; then
+          image_harden=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      -h | --help )
+        usage
+        exit 0
+        ;;
+      --image-filename )
+        filename_for_image="$2"
+        shift 2
+        ;;
+      --images-directory )
+        images_directory="$2"
+        shift 2
+        ;;
+      --ipv4only )
+			  if [ "$script_type" = "creator" ]; then
+          image_disable_ipv6=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --ipv6only )
+			  if [ "$script_type" = "creator" ]; then
+          image_disable_ipv4=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --kernel-type )
+        case $2 in
+          normal | edge )
+            image_kernel_type=$2
+            ;;
+          * )
+            cli_option_unknown_value "kernel type '$2', can only be 'edge' or 'normal'"
+            ;;
+        esac
+        shift 2
+        ;;
+      --keymap )
+        image_keymap="$2"
+        shift 2
+        ;;
+      --local-repo )
+        local_alpine_repository="$2"
+        shift 2
+        ;;
+      --local-repo-sig-file )
+        local_repo_signature_file="$2"
+        shift 2
+        ;;
+      --locale )
+        image_locale="$2"
+        shift 2
+        ;;
+      --lvm )
+			  if [ "$script_type" = "creator" ]; then
+          image_lvm_rootfs=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --mdev )
+			  if [ "$script_type" = "creator" ]; then
+          image_mdev=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --minimise )
+			  if [ "$script_type" = "creator" ]; then
+         image_minimise=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --mirror )
+        alpine_mirror_site="$2"
+        shift 2
+        ;;
+      --no-grub-encryption )
+        if [ "$script_type" = "creator" ]; then
+          image_no_grub_encryption=true
+        else
+          cli_option_not_handled
+        fi
+        shift
+        ;;
+      --optimise )
+			  if [ "$script_type" = "creator" ]; then
+         image_optimise=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --password )
+        image_default_user_password="$2"
+        shift 2
+        ;;
+      --physical )
+			  if [ "$script_type" = "creator" ]; then
+          image_class="physical"
+          case $2 in
+            pc | all-rpi | rpi2 | rpi3 | rpi4 )
+              image_physical_type=$2
+              ;;
+            * )
+              cli_option_unknown_value "physical machine type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --ramdisk-directory )
+        ramdisk_directory="$2"
+        shift 2
+        ;;
+      --release )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            3.13 | 3.14 | 3.15 )
+              image_alpine_release=v$2
+              ;;
+            edge )
+              image_alpine_release=$2
+              ;;
+            * )
+              cli_option_unknown_value "or unsupported Alpine release '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-network-module )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_network_module="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-ssh-port )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_ssh_port="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-static-gateway )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_static_gateway="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-static-interface )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_static_interface="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-static-ip )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_static_ip="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --remote-unlock-static-netmask )
+			  if [ "$script_type" = "creator" ]; then
+          remote_unlock_static_netmask="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --rpi-poe-hat )
+			  if [ "$script_type" = "creator" ]; then
+          rpi_use_poe_hat=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --rpi-rtc )
+			  if [ "$script_type" = "creator" ]; then
+          rpi_use_rtc=true
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --script-filename )
+        generated_script_filename="$2"
+        shift 2
+        ;;
+      --short-hostname )
+			  if [ "$script_type" = "creator" ]; then
+          image_short_hostname="$2"
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --ssh-key-types )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            'ed25519' | 'ed25519+rsa' )
+              IMAGE_SSH_KEYTYPES="$2"
+              ;;
+            *)
+              cli_option_unknown_value "SSH host key type '$2', must be either 'ed25519' or 'ed25519+rsa'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --ssh-public-key )
+			  if [ "$script_type" = "creator" ]; then
+          if [ -f "$2" ]; then
+            ssh_public_key=$(cat "$2")
+          else
+            error_message "SSH keyfile '$2' not found"
+          fi
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --ssh-server )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            dropbear | openssh | tinyssh )
+              image_ssh_server=$2
+              ;;
+            * )
+              cli_option_unknown_value "SSH server software '$2', must be one of 'dropbear', 'openssh', or 'tinyssh'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --syslogd )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            busybox | rsyslog )
+              image_syslog_server=$2
+              ;;
+            * )
+              cli_option_unknown_value "Syslog server software '$2', must be one of 'busybox', or 'rsyslog'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --timezone )
+        image_timezone=$2
+        shift 2
+        ;;
+      --udev )
+			  if [ "$script_type" = "creator" ]; then
+          image_mdev=false
+				else
+				  cli_option_not_handled
+        fi
+        shift
+        ;;
+      --use-ramdisk )
+        use_ramdisk=true
+        shift
+        ;;
+      --username )
+			  if [ "$script_type" = "creator" ]; then
+          image_admin_username=$2
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --virtual )
+			  if [ "$script_type" = "creator" ]; then
+          image_class="virtual"
+          case $2 in
+            generic | hyperv | libvirtd | lxd | proxmox | qemu | virtualbox | vmware )
+              image_vm_type=$2
+              ;;
+            * )
+              echo
+              cli_option_unknown_value "virtual machine type '$2'"
+              ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --without-cloud-init )
+        image_without_cloud_init=true
+        shift
+        ;;
+      -- )
+        shift
+        break
+        ;;
+    esac
+  done
+}
+
+
+#
+# In the script, setup the loop device for the disk image
+#
+setup_loop_device() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Setting up loop device for disk image"
+loop_device=$(losetup -P --show -f $image_full_filename 2>> $logfile)
+if [ -z "${loop_device+x}" ]; then
+  echo
+  echo "There was a problem creating the loop device. Aborting!"
+  echo
+  exit 1
+fi
+EOF
+}
+
+
+#
+# Upgrade Alpine packages
+#
+update_upgrade_packages() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Updating package list"
+apk update >> /chroot.log
+
+write_log "Upgrading base packages if necessary"
+apk -a upgrade >> /chroot.log
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+# Debug
+apk info | sort > /base-packages.list
+EOF
+  fi
+}
+
+
+#
+# Help text
+#
+usage() {
+  echo "Usage: $0 [ options ]"
+  echo
+  echo "When called with no options is equivalent to"
+  echo "'--arch x86_64 --release edge --bootloader syslinux --virtual qemu'."
+  echo
+  echo "Options:"
+	echo
+  option_help "--apk-static-url < url >" "Base url to download statically compiled APK tool from."
+  option_help "--apk-static-version < version >" "Version of the statically compiled APK tool to download/use."
+  option_help "--arch < aarch64 | armv7 | x86 | x86_64 >" "Defaults to x86_86, except if physical rpi/rpi2/rpi3/rpi4 specified when it defaults to aarch64."
+  option_help "--boot-by-label" "Use Labels rather than UUIDs in /etc/fstab and bootloader to refer to filesystems."
+  option_help "--bootchart" "Enables bootchart creation during boot."
+  option_help "--bootloader < grub | syslinux >" "Defaults to Syslinux. Not relevant for RPI physical machines."
+  option_help "--bootloader-password < password >" "Specify password to lock GRUB or Syslinux menu with. Not relevant for RPI physical machines."
+  option_help "--boottype < bios | uefi >" "Defaults to UEFI. Not relevant for RPI physical machines."
+  option_help "--chroot-directory < directory >" "Temporary directory to use for building the Alpine image. Defaults to './chroot'."
+  option_help "--cloud <cloud type>" "Valid values are: generic aliyun aws azure bigstep brightbox digitalocean e24 exoscale google hetzner hyperone ibmcloud oracle rootbox scaleway tencent upcloud vultr"
+  option_help "--cloud-seed-url < url >" "Base url for cloud-init NoCloud DataSource to download configuration from."
+  option_help "--cpu_vendor < amd | intel >" "Used to decide if only AMD or Intel relevant microcode is installed and whether vendor-specific kernel modules are included in the initramfs."
+  option_help "--create-boot-partition" "Create a separate /boot partition, even if not required."
+  option_help "--debug" "Enable debug-specific logging."
+  option_help "--dhcp-client < dhclient | dhcpcd | udhcpc >" "Specify the DHCP Client software to use. Defaults to 'udhcpc'."
+  option_help "--disable-normal-console" "Disable normal display-based Linux console. Can be used when serial console is enabled if only serial is required."
+  option_help "--disable-serial-console" "Disable serial-based Linux console."
+  option_help "--ethernet-module < module-name >" "When remote unlocking of encrypted filesystem is enabled this parameter is also required to specific the relevant kernel module for the ethernet device as the driver must be included in the initramfs as (obviously) it cannot be loaded from the (still encrypted at that point) rootfs."
+  option_help "--encrypt" "Enable LUKS encryption of the rootfs."
+  option_help "--encrypt-passphrase < passphrase >" "The passphrase to use for the encrypted filesystem. Defaults to 'InsecureDefault' if not specified."
+  option_help "--encrypt-remote-unlock" "Enable functionality for the remote-unlocking of encrypted root filesystem at boot time via SSH."
+  option_help "--experimental" "Enable experimental options."
+  option_help "--extra-cmdline-options < options >" "Extra entries to add to the /proc/cmdline passed by bootloader to the initramfs and kernel."
+  option_help "--full-hostname < hostname >" "Only for physical machines. The hostname, including domain, to place in the generated cloud-init user-data YAML file."
+  option_help "--graphics-vendor < amd | intel | nvidia >" "Indicate the vendor of server's graphics card so that the initramfs can be generated containing only that vendor's drivers and firmware."
+  option_help "--harden" "Disables kernel module loading, delete unnecessary users & groups, and also disable unnecessary kernel modules."
+  option_help "--image-filename < filename >" "Filename to use for the created Alpine disk image."
+  option_help "--images-directory < directory >" "The directory where to store the created disk image."
+  option_help "--ipv4only" "Do not enable IPv6 in the created disk image."
+  option_help "--ipv6only" "Do not enable IPv4 in the created disk image."
+  option_help "--keymap '< keymap >'" "Defaults to 'us us'."
+  option_help "--local-repo < url >" "Local Alpine repository for *additional* packages."
+  option_help "--local-repo-sig-file < filename >" "Signature file used to sign packages in local Alpine repository."
+  option_help "--locale < locale >" "Defaults to 'en_US'."
+  option_help "--lvm" "Use LVM for root filesystem. If '--encrypt' is also specified then create LVM-on-LUKS filesystem."
+  option_help "--mdev" "Use mdev rather than udev."
+  option_help "--minimise" "??????."
+  option_help "--mirror < mirror url >" "URL of Alpine mirror site to use."
+  option_help "--no-grub-encryption" "Do not enable GRUB's own LUKS handling (distinct from whether LUKS is in use in general)."
+  option_help "--optimise" "Optimise the image setup such as only enabling kernel modules required."
+  option_help "--password < password >" "Password for default user created upon 1st boot. If this option is not specified then the account password is locked (but SSH access via SSH key, if configured using '--ssh-public-key', is still possible)."
+  option_help "--physical < pc | rpi2 | rpi3 | rpi4 >" "The type of physical machine to be created."
+  option_help "--ramdisk-directory < directory >" "When '--use-ramdisk' is also specified this value indicates the directory in which to store the ramdisk file."
+  option_help "--release < 3.13 | 3.14 | edge >" "Which Alpine Release to use for the disk image. If not specified then defaults to 'edge'."
+  option_help "--remote-unlock-network-module < kernel module name >" "Specifies the name of the network device kernel module to be loaded."
+  option_help "--remote-unlock-ssh-port < port number >" "Specifies the TCP port that the temporary SSH daemon should listen on. If not specified then defaults to '22'."
+  option_help "--remote-unlock-static-gateway < IP address >" "Specifies the IP address of the local router. Only applicable when '--remote-unlock-static-ip' has also been specified."
+  option_help "--remote-unlock-static-interface < interface name >" "Specifies the network interface name. Only applicable when '--remote-unlock-static-ip' has also been specified."
+  option_help "--remote-unlock-static-ip < IP address >" "Specifies the (temporary) IP address for the machine to use for remote unlock functionality. If not specified then DHCP is used instead."
+  option_help "--remote-unlock-static-netmask < netmask >" "Specifies the network netmask to use. Only applicable when '--remote-unlock-static-ip' has also been specified."
+  option_help "--rpi-rtc" "When creating an image for a Raspberry Pi (i.e. '--physical rpi2') indicates that the RPI has a hardware RTC fitted."
+  option_help "--script-filename < filename >" "The filename of the script to be created."
+  option_help "--short-hostname < hostname >" "Only for physical machines. The hostname, without domain, to place in the generated cloud-init user-data YAML file."
+  option_help "--ssh-key-types < key types >" "SSH host key types to be used. Valid values are: 'ed25519' or 'ed25519+rsa'."
+  option_help "--ssh-public-key < filename >" "File containing the SSH public key that is permitted to log in as the default user and also, when remote encryption unlocking is enabled, to connect to the temporary SSH server used for unlocking of disk encryption."
+  option_help "--ssh-server < dropbear | openssh | tinyssh >" "SSH server software to use."
+  option_help "--syslogd < busybox | rsyslog >" "Syslog server software to use."
+  option_help "--timezone < zonename >" "Only for physical machines. Timezone to place in the generated cloud-init user-data YAML file. Example value: 'Europe/London'."
+  option_help "--udev" "Use udev rather than mdev."
+  option_help "--use-ramdisk" "Indicates to use a (temporary) ramdisk when creating the disk image to speed up creation and/or to reduce disk writes (i.e. on SSD)."
+  option_help "--username <username>" "Name of the default account to create upon 1st boot. Defaults to 'alpine'."
+  option_help "--virtual <vm type>" "Valid values are: generic hyperv libvirtd lxd openstack proxmox qemu virtualbox vmware"
+  option_help "--without-cloud-init" "Indicates that cloud-init should not be installed/configured."
+}
+
+
+#
+# Check that the combination of CLI options make sense
+#
+validate_cli_options() {
+  local _image_base_filename
+
+  if [ -z "${generated_script_filename+x}" ]; then
+    error_message "You must specify a filename for the script to be created!"
+  fi
+
+  # If Filesystem type not specified, use default.
+  if [ -z ${image_fs_type+x} ]; then
+    image_fs_type=$CONSTANT_DEFAULT_FS_TYPE
+  fi
+
+  # If console name not specified then assume default
+  if [ -z ${image_console_name+x} ]; then
+    image_console_name=$CONSTANT_DEFAULT_CONSOLE_NAME
+  fi
+
+  # If console type not specified then assume default
+  if [ -z ${image_console_type+x} ]; then
+    image_console_type="normal"
+  fi
+
+  # If Alpine release not specified then assume default
+  if [ -z ${image_alpine_release+x} ]; then
+    image_alpine_release=$CONSTANT_DEFAULT_ALPINE_RELEASE
+  fi
+
+  # If arch not specified then assume default
+  if [ -z ${image_arch+x} ]; then
+    image_arch=$CONSTANT_DEFAULT_ARCH
+  fi
+
+  # If neither Cloud / VM / Physical specified then assume QEMU VM
+  if [ -z ${image_class+x} ]; then
+    image_class="virtual"
+    image_vm_type="qemu"
+  fi
+
+  if [ -z ${image_kernel_type+x} ]; then
+    image_kernel_type="normal"
+  fi
+
+  if [ -z "${filename_for_image+x}" ]; then
+    _image_base_filename="alpine-$image_alpine_release-$image_arch-$image_class"
+    case $image_class in
+      cloud )
+        filename_for_image="$_image_base_filename-$image_cloud_type.img"
+        ;;
+      physical )
+        filename_for_image="$_image_base_filename-$image_physical_type.img"
+        ;;
+      virtual )
+        filename_for_image="$_image_base_filename-$image_vm_type.img"
+        ;;
+    esac
+  fi
+
+  # Log filename is based on image filename
+  logs_output_file=$(echo "$filename_for_image" | sed -e 's|\.img$|\.log|')
+
+  # If version of APK-static is not specified then assume default
+  if [ -z ${apk_static_version+x} ]; then
+    apk_static_version=$CONSTANT_APK_STATIC_VERSION
+  fi
+
+  # If URL to download APK-static is not specified then assume default
+  if [ -z ${apk_static_url+x} ]; then
+    apk_static_url=$CONSTANT_APK_STATIC_URL
+  fi
+
+  # If chroot directory not specified then assume default
+  if [ -z ${chroot_directory+x} ]; then
+    chroot_directory=$CONSTANT_DEFAULT_CHROOT_DIRECTORY
+  fi
+
+  # If images directory not specified then assume default
+  if [ -z ${images_directory+x} ]; then
+    images_directory=$CONSTANT_DEFAULT_IMAGES_DIRECTORY
+  fi
+
+  # If use_ramdisk specified then assume disabled
+  if [ -n "${use_ramdisk+x}" ]; then
+    if [ -z "${ramdisk_directory+x}" ]; then
+      # If ramdisk directory not specified then assume default
+      ramdisk_directory=$CONSTANT_DEFAULT_RAMDISK_DIRECTORY
+    fi
+  fi
+
+  # If Alpine repo mirror site not specified then assume default
+  if [ -z ${alpine_mirror_site+x} ]; then
+    alpine_mirror_site=$CONSTANT_DEFAULT_MIRROR_SITE
+  fi
+
+  if [ -z ${image_auth_control+x} ]; then
+    image_auth_control=$CONSTANT_DEFAULT_AUTH_CONTROL
+  fi
+
+  # If boot_by_label not specified then assume default
+  if [ -z ${image_boot_reference+x} ]; then
+    image_boot_reference=$CONSTANT_DEFAULT_BOOT_REFERENCE
+  fi
+
+  if [ -z ${image_admin_username+x} ]; then
+    image_admin_username=$CONSTANT_DEFAULT_ADMIN_USERNAME
+  fi
+
+  if [ -z ${image_dhcp_client+x} ]; then
+    image_dhcp_client=$CONSTANT_DEFAULT_DHCP_CLIENT
+  fi
+
+  if [ -z ${esp_type+x} ]; then
+    case $image_class in
+      cloud )
+        esp_type=$CONSTANT_CLOUD_ESP_TYPE
+        ;;
+      physical )
+        esp_type=$CONSTANT_PHYSICAL_ESP_TYPE
+        ;;
+      virtual )
+        esp_type=$CONSTANT_VIRTUAL_ESP_TYPE
+        ;;
+    esac
+  fi
+
+  if [ -z ${image_firewall+x} ]; then
+    image_firewall=$CONSTANT_DEFAULT_FIREWALL
+  fi
+
+  if [ -z ${image_keymap+x} ]; then
+    image_keymap=$CONSTANT_DEFAULT_KEYMAP
+  fi
+
+  if [ -z ${image_locale+x} ]; then
+    image_locale=$CONSTANT_DEFAULT_LOCALE
+  fi
+
+  # If mdev/udev not specified, use default.
+  if [ -z ${image_mdev+x} ]; then
+    image_mdev=$CONSTANT_DEFAULT_MDEV
+  fi
+
+  # If SSH host key types not specified then assume default
+  if [ -z ${image_ssh_keytypes+x} ]; then
+    image_ssh_keytypes=$CONSTANT_DEFAULT_SSH_KEYTYPES
+  fi
+
+  # If SSH server software not specified then assume default
+  if [ -z ${image_ssh_server+x} ]; then
+    image_ssh_server=$CONSTANT_DEFAULT_SSH_SERVER
+  fi
+
+  # If Syslog server software not specified then assume default
+  if [ -z ${image_syslog_server+x} ]; then
+    image_syslog_server=$CONSTANT_DEFAULT_SYSLOG_SERVER
+  fi
+
+  if [ -z ${image_timezone+x} ] && \
+     [ "$image_class" = "physical" ]; then
+    image_timezone=$CONSTANT_DEFAULT_TIMEZONE
+  fi
+
+  if [ -z ${image_for_ssd+x} ]; then
+    if { [ "$image_class" = "physical" ] && \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; }; then
+      # RPI's SDcard counts as SSD for the purposes of Discard/Trim
+      image_for_ssd=true
+    fi
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    if [ "$image_class" = "cloud" ] && \
+       [ "$image_cloud_type" = "aws" ]; then
+      error_message "For AWS you should use an encrypted EBS device!"
+    fi
+
+    if [ -z ${image_encryption_cipher+x} ]; then
+      if [ "$image_class" = "physical" ] && \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        # For Raspberry Pis use Adiantum
+        image_encryption_cipher="adiantum"
+      else
+        image_encryption_cipher=$CONSTANT_DEFAULT_LUKS_CIPHER
+      fi
+    fi
+    if [ -z "${image_encryption_passphrase+x}" ]; then
+      image_encryption_passphrase="$CONSTANT_DEFAULT_LUKS_PASSPHRASE"
+    fi
+  fi
+
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    if [ "$image_class" = "cloud" ]; then
+      error_message "Remote unlocking of encrypted rootfs is not supported in cloud!"
+    fi
+  fi
+
+  if [ -n "${image_for_ssd+x}" ] && \
+     [ "$image_class" != "physical" ]; then
+    error_message "--for-ssd setting only applies to physical machines!"
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Check for cloud machines that other specified settings make sense
+    case $image_arch in
+      aarch64 )
+        if [ -n "${image_bootloader+x}" ]; then
+          if [ "$image_bootloader" = "syslinux" ]; then
+            error_message "aarch64 cloud machine can only use Grub bootloader!"
+          fi
+        else
+          image_bootloader="grub"
+        fi
+        case $image_cloud_type in
+          aws | oracle )
+            ;;
+          * )
+            error_message "aarch64 cloud images cannot be created for this cloud provider!"
+            ;;
+        esac
+        # aarch VMs always use UEFI
+        image_boot_type="uefi"
+        ;;
+
+      x86_64 )
+        case $image_cloud_type in
+          oracle )
+            image_boot_type="bios"
+            image_bootloader="syslinux"
+            ;;
+          vultr )
+            image_boot_type="bios"
+            image_bootloader="syslinux"
+            ;;
+          * )
+            image_boot_type="bios"
+            image_bootloader="grub"
+            ;;
+        esac
+        ;;
+    esac
+  elif [ "$image_class" = "physical" ]; then
+    # Check for physical machines that other specified settings make sense
+    if [ "$image_physical_type" = "pc" ]; then
+      if [ "$image_arch" = "x86" ]; then
+        # x86
+        if [ -z "${image_bootloader+x}" ]; then
+          image_bootloader="syslinux"
+        fi
+        if [ -n "${image_boot_type+x}" ]; then
+          image_boot_type="bios"
+        elif [ "$image_boot_type" = "uefi" ]; then
+          error_message "UEFI is not supported for x86!"
+        fi
+      else
+        # x86_64
+        if [ -z "${image_boot_type+x}" ]; then
+          image_boot_type="uefi"
+          if [ -z "${image_bootloader+x}" ]; then
+            image_bootloader="grub"
+          fi
+        fi
+        if [ -z "${image_bootloader+x}" ]; then
+          image_bootloader="syslinux"
+        fi
+      fi
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # Raspberry Pi
+      if [ -z "${image_bootloader+x}" ]; then
+        image_bootloader="rpi"
+
+        if [ -z ${image_boot_type+x} ]; then
+          image_boot_type="rpi"
+        elif [ "$image_boot_type" != "rpi" ]; then
+          error_message "An invalid boot type was specified! For an RPI only 'rpi' is valid"
+        fi
+      elif [ "${image_bootloader}" != "rpi" ]; then
+        error_message "An invalid bootloader was specified!"
+      fi
+    fi
+  elif [ "$image_class" = "virtual" ]; then
+    # Check for Virtual Machines that other specified settings make sense
+    case $image_arch in
+      armv7 )
+        error_message "armv7 virtual machines are not supported!"
+        ;; 
+      aarch64 )
+        if [ -n "${image_bootloader+x}" ]; then
+          if [ "$image_bootloader" = "syslinux" ]; then
+            error_message "aarch64 virtual machine can only use Grub bootloader!"
+          fi
+        else
+          image_bootloader="grub"
+        fi
+
+        if [ "$image_vm_type" = "virtualbox" ]; then
+          error_message "aarch64 Virtualbox images cannont be created!"
+        fi
+
+        # aarch VMs always use UEFI
+        image_boot_type="uefi"
+        ;;
+      x86 )
+        if [ -z "${image_bootloader+x}" ]; then
+          image_bootloader="syslinux"
+        fi
+
+        if [ -n "${image_boot_type+x}" ]; then
+          image_boot_type="bios"
+        elif [ "$image_boot_type" = "uefi" ]; then
+          error_message "UEFI is not supported for x86!"
+        fi
+        ;;
+      x86_64 )
+        if [ -z ${image_bootloader+x} ]; then
+          if [ -z ${image_boot_type+x} ]; then
+            image_bootloader="syslinux"
+            image_boot_type="uefi"
+          elif [ "$image_boot_type" = "bios" ]; then
+            image_bootloader="syslinux"
+          else
+            image_bootloader="syslinux"
+          fi
+        elif [ "$image_bootloader" = "syslinux" ]; then
+          if [ -z ${image_boot_type+x} ]; then
+            image_boot_type="uefi"
+          fi
+        else
+          if [ -z ${image_boot_type+x} ]; then
+            image_boot_type="uefi"
+          fi
+        fi
+        ;;
+    esac
+  fi
+
+  if [ -z "${image_experimental+x}" ]; then
+    if [ "$image_bootloader" = "syslinux" ] && \
+       [ "$image_boot_type" = "uefi" ]; then
+      error_message "Syslinux UEFI support is an experimental option!"
+    fi
+  fi
+
+  if [ -n "${create_boot_partition+x}" ] && \
+     [ "$image_bootloader" = "grub" ]; then
+    # By creating a separate boot partition this means that
+    # GRUB should also not enable its own encryption support.
+    image_no_grub_encryption=true
+  fi
+
+  if { [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
+     { [ "$image_bootloader" = "syslinux" ]  && \
+       [ "$image_boot_type" = "bios" ] && \
+       { [ -n "${image_encrypted+x}" ] || \
+         [ -n "${image_lvm_rootfs+x}" ]; } } || \
+     { [ "$image_bootloader" = "grub" ] && \
+       [ -n "${image_encrypted+x}" ] && \
+       [ -n "${remote_unlock_enabled+x}" ]; } || \
+     { [ "$image_bootloader" = "grub" ] && \
+       [ -n "${image_encrypted+x}" ] && \
+       [ -n "${image_no_grub_encryption+x}" ]; } || \
+     [ -n "${create_boot_partition+x}" ]; then
+    # A separate boot partition is required in the following situations:
+    # (a) its a Raspberry Pi
+    # (b) Syslinux is used as bootloader for BIOS with encrypted rootfs or LVM rootfs
+    # (c) GRUB is used as bootloader with remote unlock of encrypted rootfs
+    # (d) GRUB is used as bootloader with encrypted rootfs but unencrypted boot partition
+    # (e) a separate boot partition is explicitly requested
+    needs_boot_partition=true
+  fi
+
+  # Sort out partition sizing
+  case $image_class in
+    cloud )
+      general_boot_part_size=$CONSTANT_CLOUD_BOOT_PART_SIZE
+      general_root_part_size=$CONSTANT_CLOUD_ROOT_PART_SIZE
+      if [ -z ${esp_part_size+x} ]; then
+        general_uefi_part_size=$CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE
+      else
+        general_uefi_part_size=$esp_part_size
+      fi
+      ;;
+    physical )
+      if [ "$image_physical_type" = "pc" ]; then
+        # PC
+        general_boot_part_size=$CONSTANT_PHYSICAL_BOOT_PART_SIZE
+        general_root_part_size=$CONSTANT_PHYSICAL_ROOT_PART_SIZE
+        if [ -z ${esp_part_size+x} ]; then
+          general_uefi_part_size=$CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE
+        else
+          general_uefi_part_size=$esp_part_size
+        fi
+      else
+        # Raspberry Pi
+        case $image_arch in
+          aarch64 )
+            general_boot_part_size=$CONSTANT_RPI_AARCH64_BOOT_PART_SIZE
+            general_root_part_size=$CONSTANT_RPI_AARCH64_ROOT_PART_SIZE
+            ;;
+          armv7 )
+            general_boot_part_size=$CONSTANT_RPI_ARMV7_BOOT_PART_SIZE
+            general_root_part_size=$CONSTANT_RPI_ARMV7_ROOT_PART_SIZE
+            ;;
+        esac
+      fi
+      ;;
+    virtual )
+      general_boot_part_size=$CONSTANT_VIRTUAL_BOOT_PART_SIZE
+      general_root_part_size=$CONSTANT_VIRTUAL_ROOT_PART_SIZE
+      if [ -z ${esp_part_size+x} ]; then
+        general_uefi_part_size=$CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE
+      else
+        general_uefi_part_size=$esp_part_size
+      fi
+      ;;
+  esac
+
+  if [ -n "${image_encrypted+x}" ]; then
+    image_luks_part_size=$(calculate_luks_part_size)
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    image_lvm_part_size=$(calculate_lvm_vg_size)
+  else
+    image_root_part_size=$(calculate_root_part_size)
+  fi
+
+  image_boot_part_size=$(calculate_boot_part_size)
+
+  if [ "$image_boot_type" = "uefi" ]; then
+    image_uefi_part_size=$(calculate_uefi_part_size)
+  fi
+}
