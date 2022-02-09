@@ -1,0 +1,1763 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  mkinitfs-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure mkinitfs so that only the modules necessary for the relevant
+# image type are placed in the initramfs file.
+#
+configure_mkinitfs() {
+  local _optimise
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring mkinitfs"
+{
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+    configure_mkinitfs_conf "optimise-"
+  else
+    configure_mkinitfs_conf
+  fi
+
+  configure_mkinitfs_feature_base
+  configure_mkinitfs_feature_keymap
+  configure_mkinitfs_feature_network
+
+  if [ "$image_fs_type" = "btrfs" ]; then
+    configure_mkinitfs_feature_btrfs
+  elif [ "$image_fs_type" = "ext4" ]; then
+    configure_mkinitfs_feature_ext4
+  elif [ "$image_fs_type" = "f2fs" ]; then
+    configure_mkinitfs_feature_f2fs
+  elif [ "$image_fs_type" = "xfs" ]; then
+    configure_mkinitfs_feature_xfs
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    configure_mkinitfs_feature_lvm
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    configure_mkinitfs_feature_cryptsetup
+
+    if [ "$image_bootloader" = "grub" ] && \
+       { [ -z "${image_experimental+x}" ] || \
+         [ -z "${remote_unlock_enabled+x}" ]; } && \
+       [ -z "${image_no_grub_encryption+x}" ] && \
+       [ -z "${needs_boot_partition+x}" ]; then
+      # Cryptkey is used for unlock rootfs without 2nd password prompt.
+      # It applies only when:
+      #  - disk image is encrypted, AND
+      #  - bootloader is Grub, AND
+      #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+      #  - Grub LUKS encryption support is not disabled, AND
+      #  - /boot is not a separate partition.
+      configure_mkinitfs_feature_cryptkey
+    fi
+  fi
+
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud provider feature files
+
+    ###if [ "$image_console_type" = "normal" ] || \
+    ###   [ "$image_console_type" = "both" ]; then
+    ###  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+    ###fi
+    ###initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+
+    case $image_cloud_type in
+      alibada )
+        configure_mkinitfs_feature_cloud_alibaba ;;
+      aws )
+        configure_mkinitfs_feature_cloud_aws ;;
+      azure )
+        configure_mkinitfs_feature_cloud_azure ;;
+      exoscale )
+        configure_mkinitfs_feature_cloud_exoscale ;;
+      gce )
+        configure_mkinitfs_feature_cloud_gce ;;
+      generic )
+        configure_mkinitfs_feature_cloud_alibaba
+        configure_mkinitfs_feature_cloud_aws
+        configure_mkinitfs_feature_cloud_azure
+        configure_mkinitfs_feature_cloud_exoscale
+        configure_mkinitfs_feature_cloud_gce
+        configure_mkinitfs_feature_virtio
+        ;;
+    esac
+  elif [ "$image_class" = "physical" ]; then
+    # Physical machine feature files
+
+    configure_mkinitfs_feature_kms
+
+		if [ "$image_physical_type" = "pc" ]; then
+      # PC
+      if [ "$image_boot_device_type" = "nvme" ]; then
+        configure_mkinitfs_feature_nvme
+      elif [ "$image_boot_device_type" = "scsi" ]; then
+        configure_mkinitfs_feature_scsi
+      elif [ "$image_boot_device_type" = "sd" ]; then
+        configure_mkinitfs_feature_mmc
+      else
+        configure_mkinitfs_feature_ata
+      fi
+	  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+      configure_mkinitfs_feature_mmc
+    fi
+
+    if [ "$image_boot_device_type" = "usb" ] || \
+       [ "$keyboard_type" = "usb" ] || \
+       [ "$keyboard_type" = "both" ]; then
+      # USB for keyboard
+      configure_mkinitfs_feature_usb
+    fi
+
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual machine feature files
+
+    case $image_vm_type in
+      hyperv )
+        configure_mkinitfs_feature_vm_hyperv ;;
+      libvirtd | lxd | proxmox | qemu )
+        configure_mkinitfs_feature_vm_qemu ;;
+      virtualbox )
+        configure_mkinitfs_feature_vm_virtualbox ;;
+      vmware )
+        configure_mkinitfs_feature_vm_vmware ;;
+      generic )
+        configure_mkinitfs_feature_vm_hyperv
+        configure_mkinitfs_feature_vm_qemu
+        configure_mkinitfs_feature_vm_virtualbox
+        configure_mkinitfs_feature_vm_vmware
+        configure_mkinitfs_feature_virtio
+        ;;
+    esac
+	fi
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_debug_log "Creating script to determine modules dependancies on other modules" 2
+  {
+    cat <<-'_SCRIPT_' > /root/module-deps
+	#!/bin/sh
+	
+	for mod in \$(lsmod | sort | sed -e '/^Module .*/d' -e 's/[ ].*$//g'); do
+	  mod_name_len=\${#mod}
+	  if [ "\$mod_name_len" -le 7 ]; then
+	    padding="\t\t\t\t"
+	  elif [ "\$mod_name_len" -le 15 ]; then
+	    padding="\t\t\t"
+	  elif [ "\$mod_name_len" -le 23 ]; then
+	    padding="\t\t"
+	  else
+	    padding="\t"
+	  fi
+	
+	  deps=\$(modinfo "\$mod" | grep "depends:" | sed -e 's/^depends:[ ]*//g')
+	  if [ "\$deps" != "" ]; then
+	    echo -e "\${mod}\${padding}\${deps}"
+	  else
+	    echo -e "\${mod}"
+	  fi
+	done
+	
+	exit
+	_SCRIPT_
+    chmod +x /root/module-deps
+  }
+
+  # Fudge
+  {
+    sed -i -e 's|^set -e$|set -ex|' /sbin/mkinitfs
+  }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Configure /etc/mkinitfs/mkinitfs.conf
+#
+configure_mkinitfs_conf() {
+  local _optimise=${1:-}
+
+  local _features_list _cloud_features_list _virt_features_list
+
+  cat <<'EOF' >> "$run_script"
+  write_log "Setting up mkinitfs.conf" 2
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    cp /etc/mkinitfs/mkinitfs.conf /etc/mkinitfs/mkinitfs.conf-orig
+  }
+EOF
+  fi
+
+  _features_list="${_optimise:-}base keymap ${_optimise:-}network"
+
+  if [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    # For physical except RPIs
+    _features_list="$_features_list ${_optimise:-}kms"
+  fi
+
+  # Add feature for relevant filesystem type
+  case $image_fs_type in
+    ext4 | xfs )
+      _features_list="$_features_list ${_optimise:-}${image_fs_type}" ;;
+    * )
+      _features_list="$_features_list ${image_fs_type}" ;;
+  esac
+
+  if [ -n "${image_experimental+x}" ] && \
+	   [ -n "${image_bootchart+x}" ]; then
+    _features_list="$_features_list ${_optimise:-}bootchart"
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _features_list="$_features_list ${_optimise:-}lvm"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    if [ "$image_bootloader" = "grub" ] && \
+       { [ -z "${image_experimental+x}" ] || \
+         [ -z "${remote_unlock_enabled+x}" ]; } && \
+       [ -z "${image_no_grub_encryption+x}" ] && \
+			 [ -z "${needs_boot_partition+x}" ]; then
+      # Cryptkey is used for unlock rootfs without 2nd password prompt.
+      # It applies only when:
+      #  - disk image is encrypted, AND
+      #  - bootloader is Grub, AND
+      #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+      #  - Grub LUKS encryption support is not disabled AND
+      #  - /boot is not a separate partition.
+      _features_list="$_features_list cryptkey"
+    fi
+    # cryptsetup is required in all rootfs encryption situations
+    _features_list="$_features_list ${_optimise:-}cryptsetup"
+    if [ -n "${image_experimental+x}" ] && \
+		   [ -n "${remote_unlock_enabled+x}" ]; then
+      # enable SSH remote unlock functionality and also dhcp which it uses
+      _features_list="$_features_list ${_optimise:-}dhcp ${_optimise:-}remote_unlock_luks"
+    fi
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+
+    _cloud_features_list=""
+    case $image_cloud_type in
+      alibaba)
+        _cloud_features_list="cloud-alibaba" ;;
+      aws )
+        _cloud_features_list="cloud-aws" ;;
+      azure )
+        _cloud_features_list="cloud-azure" ;;
+      gce )
+        _cloud_features_list="cloud-gce" ;;
+      oracle )
+        _cloud_features_list="virtio" ;;
+      generic )
+        _cloud_features_list="cloud-alibaba cloud-aws cloud-azure cloud-gce ${_optimise:-}nvme ${_optimise:-}virtio" ;;
+    esac
+
+    if [ "$_cloud_features_list" != "" ]; then
+  	  _features_list="$_features_list $_cloud_features_list"
+    fi
+	elif [ "$image_class" = "physical" ]; then
+    # Physical machine
+
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+
+      if [ "$image_boot_device_type" = "scsi" ]; then
+        # SCSI boot device type
+        _features_list="$_features_list ${_optimise:-}scsi"
+      elif [ "$image_boot_device_type" = "nvme" ]; then
+        # NVME boot device type, assume use of additional SATA devices
+        _features_list="$_features_list ${_optimise:-}nvme"
+      elif [ "$image_boot_device_type" = "sd" ]; then
+        # SDcard
+        _features_list="$_features_list ${_optimise:-}mmc"
+      else
+        # SATA
+        _features_list="$_features_list ${_optimise:-}ata"
+      fi
+
+      if [ "$image_boot_device_type" = "usb" ] || \
+         [ "$keyboard_type" = "usb" ] || \
+         [ "$keyboard_type" = "both" ]; then
+        # USB boot and/or USB keyboard
+        _features_list="$_features_list ${_optimise:-}usb"
+      fi
+
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # Raspberry Pi - always USB keyboard and possibly USB boot
+
+      _features_list="$_features_list ${_optimise:-}usb"
+
+      if [ "$image_boot_device_type" = "sd" ]; then
+        # MMC boot
+        _features_list="$_features_list ${_optimise:-}mmc"
+      elif [ "$image_boot_device_type" = "usb" ]; then
+        # USB boot
+        _features_list="$_features_list ${_optimise:-}scsi"
+      fi
+    fi
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual Machine
+
+    _virt_features_list=""
+
+    case $image_vm_type in
+      hyperv )
+        _virt_features_list="vm-hyperv" ;;
+      libvirtd | lxd | proxmox | qemu )
+        _virt_features_list="vm-qemu" ;;
+      virtualbox )
+        _virt_features_list="vm-virtualbox" ;;
+      vmware )
+        _virt_features_list="vm-vmware" ;;
+      generic )
+        _virt_features_list="vm-hyperv vm-qemu vm-virtualbox vm-vmware ${_optimise:-}virtio" ;;
+      * )
+        _virt_features_list="${_optimise:-}virtio" ;;
+    esac
+
+    _features_list="$_features_list $_virt_features_list"
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "mkinitfs features list is: $_features_list" 2
+  }
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+  sed -i \\
+    -e "s|^features=\".*\"|features=\"$_features_list\"|" \\
+    /etc/mkinitfs/mkinitfs.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    diff /etc/mkinitfs/mkinitfs.conf-orig /etc/mkinitfs/mkinitfs.conf \
+      >> /chroot.log || true
+    rm /etc/mkinitfs/mkinitfs.conf-orig
+  }
+EOF
+  fi
+}
+
+
+#
+# Create/modify ata mkinitfs feature file
+#
+configure_mkinitfs_feature_ata() {
+  cat <<'EOF' >> "$run_script"
+
+  # ATA
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+    # optimise-ata.modules
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-ata.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-ata"
+    initramfs_entry_add "kernel/drivers/ata/ahci.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ahci_platform.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ata_generic.ko*"
+    initramfs_entry_add "kernel/drivers/ata/ata_piix.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libahci.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libahci_platform.ko*"
+    initramfs_entry_add "kernel/drivers/ata/libata.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-ata.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-ata.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # ata.modules
+
+###      cat <<'EOF' >> "$run_script"
+###
+###  write_log "Setting up features.d/ata.modules" 2
+###EOF
+###
+###      initramfs_entry_initialise "ata" "append"
+###      initramfs_entry_add "kernel/drivers/ata"
+###      initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "ata.modules contents:" 2
+      cat /etc/mkinitfs/features.d/ata.modules >> /chroot.log
+    }
+EOF
+    fi
+  fi
+
+    cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify base mkinitfs feature files
+#
+configure_mkinitfs_feature_base() {
+  cat <<'EOF' >> "$run_script"
+
+  # Base
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-base.files
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-base.files" 2
+    {
+      echo "/bin/busybox"
+      echo "/bin/sh"
+      echo "/sbin/modprobe"
+      echo "/lib/mdev"
+      echo "/sbin/apk"
+      echo "/etc/modprobe.d/*.conf"
+      echo "/etc/mdev.conf"
+      echo "/sbin/nlplug-findfs"
+    } > /etc/mkinitfs/features.d/optimise-base.files
+
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      write_debug_log "optimise-base.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-base.files >> /chroot.log
+    }
+
+EOF
+    fi
+
+    # optimise-base.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-base.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-base"
+    initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
+    if [ "$image_alpine_release" = "v3.13" ] || \
+       [ "$image_alpine_release" = "v3.14" ]; then
+      # FBdev
+      :
+    else
+      # DRM
+      initramfs_entry_add "kernel/drivers/gpu/drm/tiny/simpledrm.ko*"
+    fi
+    if [ "$image_arch" != "aarch86" ] || \
+       [ "$image_class" != "virtual" ]; then
+      # jitterentropy_rng is a module for all machines except for
+      # aarch64 VMs where it is compiled into the linux-virt kernel.
+      ###initramfs_entry_add "base" "kernel/crypto/jitterentropy_rng.ko*"
+      initramfs_entry_add "# No jitterentropy_rng for now."
+    fi
+
+    if [ "$image_class" = "physical" ] && \
+       { [ "$image_arch" = "x86" ] || \
+         [ "$image_arch" = "x86_64" ]; }; then
+      # x86 and x86_64 Physical machines use the normal button module
+      initramfs_entry_add "kernel/drivers/acpi/button.ko*"
+    fi
+
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-base.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-base.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # base.files
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      write_debug_log "base.files contents:" 2
+      cat /etc/mkinitfs/features.d/base.files >> /chroot.log
+    }
+
+EOF
+    fi
+
+    # base.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/base.modules" 2
+EOF
+
+    initramfs_entry_initialise "base" "append"
+    initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
+    ###initramfs_entry_add "kernel/drivers/gpu/drm/tiny/simpledrm.ko*"
+    if [ "$image_arch" != "aarch86" ] || \
+       [ "$image_class" != "virtual" ]; then
+      # jitterentropy_rng is a module for all machines except for
+      # aarch64 VMs where it is compiled into the linux-virt kernel.
+      ###initramfs_entry_add "base" "kernel/crypto/jitterentropy_rng.ko*"
+      initramfs_entry_add "# No jitterentropy_rng for now."
+    fi
+
+    if [ "$image_class" = "physical" ] && \
+       { [ "$image_arch" = "x86" ] || \
+         [ "$image_arch" = "x86_64" ]; }; then
+      # x86 and x86_64 Physical machines use the normal button module
+      initramfs_entry_add "kernel/drivers/acpi/button.ko*"
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "base.modules contents:" 2
+      cat /etc/mkinitfs/features.d/base.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify cryptkey mkinitfs feature file
+#
+configure_mkinitfs_feature_cryptkey() {
+
+  cat <<'EOF' >> "$run_script"
+
+  # Cryptkey
+  {
+EOF
+
+  # cryptkey.files
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      cp /etc/mkinitfs/features.d/cryptkey.files \
+        /etc/mkinitfs/features.d/cryptkey.files-orig
+    }
+
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/cryptkey.files" 2
+    echo "/etc/crypttab" >> /etc/mkinitfs/features.d/cryptkey.files
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      diff /etc/mkinitfs/features.d/cryptkey.files-orig \
+        /etc/mkinitfs/features.d/cryptkey.files \
+        >> /chroot.log || true
+      rm /etc/mkinitfs/features.d/cryptkey.files-orig
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify cryptsetup mkinitfs feature files
+#
+configure_mkinitfs_feature_cryptsetup() {
+  cat <<'EOF' >> "$run_script"
+
+  # Cryptsetup
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-cryptsetup.files
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-cryptsetup.files" 2
+    {
+      echo "/sbin/cryptsetup"
+    } >> /etc/mkinitfs/features.d/optimise-cryptsetup.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-cryptsetup.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-cryptsetup.files >> /chroot.log
+    }
+EOF
+    fi
+
+    # optimise-cryptsetup.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-cryptsetup.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-cryptsetup"
+    case $image_arch in
+      aarch64 )
+        if [ "$image_encryption_cipher" = "adiantum" ]; then
+          initramfs_entry_add "kernel/arch/arm64/crypto/chacha-neon.ko*"
+          initramfs_entry_add "kernel/arch/arm64/crypto/nhpoly1305-neon.ko*"
+          initramfs_entry_add "kernel/arch/arm64/crypto/poly1305-neon.ko*"
+        else
+          initramfs_entry_add "kernel/arch/arm64/crypto/aes-arm64.ko*"
+          initramfs_entry_add "kernel/arch/arm64/crypto/aes-neon-blk.ko*"
+          initramfs_entry_add "kernel/arch/arm64/crypto/aes-neon-bs.ko*"
+        fi
+        if [ "$image_class" = "cloud" ] || \
+           [ "$image_class" = "virtual" ]; then
+          # Add Arm Crypto Extension modules for ARM64 servers
+          initramfs_entry_add "kernel/arch/arm64/crypto/*-ce*.ko*"
+        fi
+        ;;
+      armv7 )
+        if [ "$image_encryption_cipher" = "adiantum" ]; then
+          initramfs_entry_add "kernel/arch/arm/crypto/chacha-neon.ko*"
+          initramfs_entry_add "kernel/arch/arm/crypto/poly1305-arm.ko*"
+        else
+          initramfs_entry_add "kernel/arch/arm/crypto/aes-arm.ko*"
+          initramfs_entry_add "kernel/arch/arm/crypto/aes-arm-bs.ko*"
+        fi
+        ;;
+      x86 | x86_64 )
+        if [ "$image_encryption_cipher" = "adiantum" ]; then
+          initramfs_entry_add "kernel/crypto/chacha_generic.ko*"
+          initramfs_entry_add "kernel/crypto/chacha_x86_64.ko*"
+          initramfs_entry_add "kernel/crypto/nhpoly1305.ko*"
+        elif [ -z ${image_cpu_vendor+X} ] || \
+             [ "$image_cpu_vendor" = "intel" ]; then
+          initramfs_entry_add "kernel/arch/x86/crypto/aesni-intel.ko*"
+        fi
+        ;;
+    esac
+    if [ "$image_encryption_cipher" = "adiantum" ]; then
+      initramfs_entry_add "kernel/crypto/adiantum.ko*"
+    fi
+    ###initramfs_entry_add "kernel/crypto/cryptd.ko*"
+    ###initramfs_entry_add "kernel/crypto/crypto_engine*.ko*"
+    initramfs_entry_add "kernel/crypto/algif_skcipher.ko*"
+    initramfs_entry_add "kernel/drivers/md/dm-crypt.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-cryptsetup.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-cryptsetup.modules >> /chroot.log
+    }
+EOF
+    fi
+  else
+
+  cat <<'EOF' >> "$run_script"
+    :
+EOF
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify ext4 mkinitfs feature files
+#
+configure_mkinitfs_feature_ext4() {
+  cat <<'EOF' >> "$run_script"
+
+  # Ext4
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-ext4.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-ext4.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-ext4"
+    if [ -z "${image_cpu_vendor+x}" ] || \
+       [ "$image_cpu_vendor" = "intel" ]; then
+      initramfs_entry_add "kernel/arch/*/crypto/crc32c-intel.ko*"
+    fi
+    initramfs_entry_add "kernel/crypto/crc32c*.ko*"
+    initramfs_entry_add "kernel/fs/ext4"
+    initramfs_entry_add "kernel/fs/jbd2"
+    initramfs_entry_add "kernel/fs/mbcache"
+    initramfs_entry_add "kernel/lib/crc16.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-ext4.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-ext4.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # ext4.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    :
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+  {
+    # Debug
+    {
+      write_debug_log "ext4.modules contents:" 2
+      cat /etc/mkinitfs/features.d/ext4.modules >> /chroot.log
+    }
+  }
+EOF
+
+    fi
+
+	fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify keymap mkinitfs feature files
+#
+configure_mkinitfs_feature_keymap() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Keymap
+  {
+    # Debug
+    {
+      write_debug_log "keymap.files contents:" 2
+      cat /etc/mkinitfs/features.d/keymap.files >> /chroot.log
+    }
+  }
+EOF
+
+  fi
+}
+
+
+#
+# Create/modify kms mkinitfs feature files
+#
+configure_mkinitfs_feature_kms() {
+  cat <<'EOF' >> "$run_script"
+
+  # KMS
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-kms.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-kms.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-kms"
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+
+      initramfs_entry_add "kernel/drivers/char/agp/agpgart.ko*"
+      if [ -z ${image_graphics_vendor+x} ] || \
+         [ "$image_graphics_vendor" = "amd" ]; then
+        initramfs_entry_add "kernel/drivers/char/agp/amd64-agp.ko*"
+        if [ "$image_alpine_release" = "v3.13" ] || \
+           [ "$image_alpine_release" = "v3.14" ]; then
+          # FBdev
+          initramfs_entry_add "kernel/drivers/video/fbdev/aty/radeonfb.ko*"
+        else
+          # DRM
+          if [ -z ${image_graphics_vendor_driver+x} ] || \
+             [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/amd"
+          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+               [ "$image_graphics_vendor_driver" = "radeon" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/radeon"
+          else
+            initramfs_entry_add "kernel/drivers/gpu/drm/amd"
+            initramfs_entry_add "kernel/drivers/gpu/drm/radeon"
+          fi
+        fi
+      fi
+      if [ -z ${image_graphics_vendor+x} ] || \
+         [ "$image_graphics_vendor" = "intel" ]; then
+        initramfs_entry_add "kernel/drivers/char/agp/intel-agp.ko*"
+        initramfs_entry_add "kernel/drivers/char/agp/intel-gtt.ko*"
+        if [ "$image_alpine_release" = "v3.13" ] || \
+           [ "$image_alpine_release" = "v3.14" ]; then
+          # FBdev
+          initramfs_entry_add "kernel/drivers/video/fbdev/intelfb"
+        else
+          # DRM
+          if [ -z ${image_graphics_vendor_driver+x} ] || \
+             [ "$image_graphics_vendor_driver" = "gma500" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/gma500"
+          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+               [ "$image_graphics_vendor_driver" = "i915" ]; then
+            initramfs_entry_add "kernel/drivers/gpu/drm/i915"
+          else
+            initramfs_entry_add "kernel/drivers/gpu/drm/gma500"
+            initramfs_entry_add "kernel/drivers/gpu/drm/i915"
+          fi
+        fi
+      fi
+      if [ -z ${image_graphics_vendor+x} ] || \
+         [ "$image_graphics_vendor" = "nvidia" ]; then
+        if [ "$image_alpine_release" = "v3.13" ] || \
+           [ "$image_alpine_release" = "v3.14" ]; then
+          # FBdev
+          initramfs_entry_add "kernel/drivers/video/fbdev/nvidia"
+        else
+          # DRM
+          initramfs_entry_add "kernel/drivers/gpu/drm/nouveau"
+        fi
+      fi
+      if [ "$image_alpine_release" = "v3.13" ] || \
+         [ "$image_alpine_release" = "v3.14" ]; then
+        # FBdev
+        initramfs_entry_add "kernel/drivers/video/fbdev/uvesafb.ko*"
+        initramfs_entry_add "kernel/drivers/video/fbdev/vga16fb.ko*"
+      else
+        # DRM
+        initramfs_entry_add "kernel/drivers/gpu/drm/i2c"
+        initramfs_entry_add "kernel/drivers/gpu/drm/scheduler"
+      fi
+      ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-amd*.ko*"
+      ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-piix4.ko*"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+
+      initramfs_entry_add "# This file is empty for RPI machines"
+      if [ "$image_alpine_release" = "v3.13" ] || \
+         [ "$image_alpine_release" = "v3.14" ]; then
+        # FBdev
+        :
+      else
+        # DRM
+        ###initramfs_entry_add "kernel/drivers/gpu/drm/vc4/vc4.ko*"
+        :
+      fi
+      ###initramfs_entry_add "kernel/drivers/i2c"
+      ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-bcm2708.ko*"
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-kms.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-kms.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # kms.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/kms.modules" 2
+EOF
+
+    initramfs_entry_initialise "kms" "append"
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+
+      initramfs_entry_add "kernel/drivers/char/agp"
+      if [ "$image_alpine_release" = "v3.13" ] || \
+         [ "$image_alpine_release" = "v3.14" ]; then
+        initramfs_entry_add "kernel/drivers/video/fbdev"
+      else
+        initramfs_entry_add "kernel/drivers/gpu/drm"
+      fi
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+
+    ###  ###initramfs_entry_add "kernel/drivers/gpu/drm/vc4/vc4.ko*"
+    ###  ###initramfs_entry_add "kernel/drivers/i2c"
+    ###  ###initramfs_entry_add "kernel/drivers/i2c/busses/i2c-bcm2708.ko*"
+      :
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "kms.modules contents:" 2
+      cat /etc/mkinitfs/features.d/kms.modules >> /chroot.log
+    }
+EOF
+    fi
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify lvm mkinitfs feature files
+#
+configure_mkinitfs_feature_lvm() {
+  cat <<'EOF' >> "$run_script"
+
+  # LVM
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-lvm.files
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-lvm.files" 2
+    {
+      echo "/sbin/lvm"
+    } >> /etc/mkinitfs/features.d/optimise-lvm.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-lvm.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-lvm.files >> /chroot.log
+    }
+EOF
+    fi
+
+    # optimise-lvm.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-lvm.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-lvm"
+    initramfs_entry_add "kernel/drivers/md/dm-mod.ko*"
+    initramfs_entry_add "kernel/drivers/md/dm-snapshot.ko*"
+    initramfs_entry_add "kernel/drivers/md/dm-thin-pool.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-lvm.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-lvm.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # lvm.files & lvm.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "lvm.files contents:" 2
+      cat /etc/mkinitfs/features.d/lvm.files >> /chroot.log
+
+      write_debug_log "lvm.modules contents:" 2
+      cat /etc/mkinitfs/features.d/lvm.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify mmc mkinitfs feature files
+#
+configure_mkinitfs_feature_mmc() {
+  cat <<'EOF' >> "$run_script"
+
+  # LVM
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-mmc.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-mmc.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-mmc"
+    initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
+    initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
+    initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-mmc.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-mmc.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # mmc.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "mmc.modules contents:" 2
+      cat /etc/mkinitfs/features.d/mmc.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify network mkinitfs feature files
+#
+configure_mkinitfs_feature_network() {
+  cat <<'EOF' >> "$run_script"
+
+  # Network
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-network.files
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-network.files" 2
+    {
+EOF
+
+###    if [  ]; then
+###      cat <<'EOF' >> "$run_script"
+###      echo "/usr/share/udhcpc/default.script"
+###EOF
+###    fi
+
+    cat <<'EOF' >> "$run_script"
+      echo "# This file is empty"
+EOF
+
+    cat <<'EOF' >> "$run_script"
+    } > /etc/mkinitfs/features.d/optimise-network.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-network.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-network.files >> /chroot.log
+    }
+EOF
+    fi
+
+    # optimise-network.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-network.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-network"
+
+    if [ -z "${image_disable_ipv6+x}" ]; then
+      initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
+    fi
+
+    if [ "$image_class" = "physical" ]; then
+      # Physical machine
+
+      if [ "$image_physical_type" = "pc" ]; then
+        # PC
+
+        if [ -n "${image_ethernet_module+x}" ]; then
+          initramfs_entry_add "kernel/drivers/net/ethernet/${image_ethernet_module}.ko*"
+          if [ "$image_ethernet_module" = "realtek/r8169" ]; then
+            initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*"
+          fi
+        else
+          initramfs_entry_add "kernel/drivers/net/ethernet/atheros/alx"
+          initramfs_entry_add "kernel/drivers/net/ethernet/broadcom/tg3.ko*"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/e1000"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/e1000e"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/i40e"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ice"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igb"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igbvf"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/igc"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgb"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgbe"
+          initramfs_entry_add "kernel/drivers/net/ethernet/intel/ixgbevf"
+          initramfs_entry_add "kernel/drivers/net/ethernet/nvidia"
+          initramfs_entry_add "kernel/drivers/net/ethernet/realtek/r8169.ko*"
+          initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*"
+        fi
+        initramfs_entry_add "kernel/drivers/net/mii.ko*"
+      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        # RPI
+        :
+      fi
+    fi
+
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-network.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-network.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # network.files & network.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    :
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "network.files contents:" 2
+      cat /etc/mkinitfs/features.d/network.files >> /chroot.log
+
+      write_debug_log "network.modules contents:" 2
+      cat /etc/mkinitfs/features.d/network.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify nvme mkinitfs feature files
+#
+configure_mkinitfs_feature_nvme() {
+  cat <<'EOF' >> "$run_script"
+
+   # NVME
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-nvme.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-nvme.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-nvme"
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-nvme.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-nvme.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # nvme.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "nvme.modules contents:" 2
+      cat /etc/mkinitfs/features.d/nvme.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify scsi mkinitfs feature files
+#
+configure_mkinitfs_feature_scsi() {
+  cat <<'EOF' >> "$run_script"
+
+  # SCSI
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimised-scsi.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-scsi.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-scsi"
+
+    if [ "$image_physical_type" = "pc" ]; then
+      if [ "$image_boot_device_type" = "scsi" ] || \
+         [ "$image_boot_device_type" = "usb" ]; then
+        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      fi
+      if [ "$image_boot_device_type" = "usb" ]; then
+        initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
+      fi
+      ###initramfs_entry_add "kernel/drivers/scsi/sg.ko*"
+      ###initramfs_entry_add "kernel/drivers/scsi/sr_mod.ko*"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] && \
+         [ "$image_boot_device_type" = "usb" ]; then
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
+    fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-scsi.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-scsi.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # scsi.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "scsi.modules contents:" 2
+      cat /etc/mkinitfs/features.d/scsi.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify usb mkinitfs feature files
+#
+configure_mkinitfs_feature_usb() {
+  cat <<'EOF' >> "$run_script"
+
+  # USB
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-usb.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-usb.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-usb"
+    ###if [ "$image_class" = "cloud" ]; then
+    ###  # Cloud
+    ###  initramfs_entry_add "kernel/drivers/hid/usbhid"
+    ###  initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+    ###  initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+    ###  initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+    ###  initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+    ###  if [ -z "${image_optimise+x}" ] || \
+    ###     [ -z "${image_cpu_vendor+x}" ] || \
+    ###     [ "$image_cpu_vendor" != "intel" ]; then
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+    ###  fi
+    ###  if [ -z "${image_optimise+x}" ] || \
+    ###     [ -z "${image_cpu_vendor+x}" ] || \
+    ###     [ "$image_cpu_vendor" = "intel" ]; then
+    ###    initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+    ###  fi
+    ###  initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+    ###  initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+    ###elif [ "$image_class" = "physical" ]; then
+
+    if [ "$image_physical_type" = "pc" ]; then
+      # PC
+
+      if [ "$keyboard_type" = "usb" ] || \
+         [ "$keyboard_type" = "both" ]; then
+        initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
+        initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
+        initramfs_entry_add "kernel/drivers/hid/usbhid"
+      fi
+
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+      if [ -z "${image_optimise+x}" ] || \
+         [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" != "intel" ]; then
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+        initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+      fi
+      if [ -z "${image_optimise+x}" ] || \
+         [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "intel" ]; then
+        initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+      fi
+      initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+      initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+      if [ "$image_boot_device_type" = "usb" ]; then
+        initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
+        initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
+      fi
+      initramfs_entry_add "kernel/fs/fat"
+    elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+
+      initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
+      initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
+      initramfs_entry_add "kernel/drivers/hid/usbhid"
+      initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+      initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
+      initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
+      initramfs_entry_add "kernel/fs/fat"
+    fi
+
+    ###elif [ "$image_class" = "virtual" ]; then
+    ###  # Virtual
+    ###  if [ "$image_vm_type" != "virtualbox" ]; then
+    ###    initramfs_entry_add "kernel/drivers/hid/usbhid"
+    ###    initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ehci-hcd.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/ehci-platform.ko*"
+    ###    if [ -z "${image_optimise+x}" ] || \
+    ###       [ -z "${image_cpu_vendor+x}" ] || \
+    ###       [ "$image_cpu_vendor" != "intel" ]; then
+    ###      initramfs_entry_add "kernel/drivers/usb/host/ohci-hcd.ko*"
+    ###      initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+    ###      initramfs_entry_add "kernel/drivers/usb/host/ohci-platform.ko*"
+    ###    fi
+    ###    if [ -z "${image_optimise+x}" ] || \
+    ###       [ -z "${image_cpu_vendor+x}" ] || \
+    ###       [ "$image_cpu_vendor" = "intel" ]; then
+    ###      initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+    ###    fi
+    ###    initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
+    ###    initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+    ###  else
+    ###    initramfs_entry_add "# Virtualbox does not require USB for keyboard."
+    ###  fi
+    ###fi
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-usb.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-usb.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # usb.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      write_debug_log "usb.modules contents:" 2
+      cat /etc/mkinitfs/features.d/usb.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify virtio mkinitfs feature files
+#
+configure_mkinitfs_feature_virtio() {
+  cat <<'EOF' >> "$run_script"
+
+  # Virtio
+  {
+EOF
+
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-virtio.modules
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-virtio.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-virtio"
+    initramfs_entry_add "kernel/arch/*/kvm/kvm.ko*"
+    if [ -z "${image_cpu_vendor+x}" ] || \
+       [ "$image_cpu_vendor" = "amd" ]; then
+      initramfs_entry_add "kernel/arch/*/kvm/kvm-amd.ko*"
+    fi
+    if [ -z "${image_cpu_vendor+x}" ] || \
+       [ "$image_cpu_vendor" = "intel" ]; then
+      initramfs_entry_add "kernel/arch/*/kvm/kvm-intel.ko*"
+    fi
+
+    initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+    initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    case $image_vm_type in
+      libvirtd | lxd | proxmox | qemu | generic )
+        initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+        initramfs_entry_add "kernel/drivers/crypto/virtio*"
+        if [ "$image_console_type" = "normal" ] || \
+           [ "$image_console_type" = "both" ]; then
+          initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+        fi
+        initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+        initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+        initramfs_entry_add "kernel/drivers/virtio"
+        ;;
+    esac
+
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-virtio.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-virtio.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+    # virtio.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      cp /etc/mkinitfs/features.d/virtio.modules /etc/mkinitfs/features.d/virtio.modules-orig
+    }
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/virtio.modules" 2
+EOF
+
+    initramfs_entry_initialise "virtio" "append"
+    initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+    ###initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+    initramfs_entry_add "kernel/drivers/crypto/virtio*"
+    initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+    initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+    ###initramfs_entry_add "kernel/drivers/virtio"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "virtio.modules contents:" 2
+      cat /etc/mkinitfs/features.d/virtio.modules >> /chroot.log
+
+      diff /etc/mkinitfs/features.d/virtio.modules-orig \
+        /etc/mkinitfs/features.d/virtio.modules >> /chroot.log || true
+      rm /etc/mkinitfs/features.d/virtio.modules-orig
+    }
+EOF
+    fi
+
+	fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify xfs mkinitfs feature files
+#
+configure_mkinitfs_feature_xfs() {
+  cat <<'EOF' >> "$run_script"
+
+  # XFS
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+
+    # optimise-xfs.files
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-xfs.files" 2
+    {
+      echo "/sbin/xfs_repair"
+    } > /etc/mkinitfs/features.d/optimise-xfs.files
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-xfs.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-xfs.files >> /chroot.log
+    }
+EOF
+    fi
+
+    # optimise-xfs.modules
+
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Setting up features.d/optimise-xfs.modules" 2
+EOF
+
+    initramfs_entry_initialise "optimise-xfs"
+    if [ -z "${image_cpu_vendor+x}" ] || \
+       [ "$image_cpu_vendor" = "intel" ]; then
+      initramfs_entry_add "kernel/arch/*/crypto/crc32c-intel.ko*"
+    fi
+    initramfs_entry_add "kernel/crypto/crc32c*.ko*"
+    initramfs_entry_add "kernel/fs/xfs/xfs.ko*"
+    initramfs_entry_add "kernel/lib/libcrc32c.ko*"
+    initramfs_entry_finish
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "optimise-xfs.modules contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-xfs.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  else
+
+    # xfs.files and xfs.modules
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+    {
+      # Debug
+      write_debug_log "xfs.files contents:" 2
+      cat /etc/mkinitfs/features.d/xfs.files >> /chroot.log
+
+      # Debug
+      write_debug_log "xfs.modules contents:" 2
+      cat /etc/mkinitfs/features.d/xfs.modules >> /chroot.log
+    }
+EOF
+    fi
+
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}

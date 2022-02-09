@@ -1,0 +1,211 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  vm-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Create VM Hyper-V mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_hyperv() {
+  # vm-hyperv.modules
+
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/vm-hyperv.modules" 2
+EOF
+
+  initramfs_entry_initialise "vm-hyperv"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  if [ -n "${image_optimise+x}" ]; then
+    initramfs_entry_add "kernel/drivers/hv/hv_balloon.ko*"
+    initramfs_entry_add "kernel/drivers/hv/hv_utils.ko*"
+    initramfs_entry_add "kernel/drivers/hv/hv_vmbus.ko*"
+    initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*"
+  else
+    initramfs_entry_add "kernel/drivers/hv"
+    initramfs_entry_add "kernel/drivers/net/hyperv"
+  fi
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
+  if [ "$image_alpine_release" = "v3.13" ] || \
+     [ "$image_alpine_release" = "v3.14" ]; then
+    initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*"
+  else
+    initramfs_entry_add "kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*"
+  fi
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "vm-hyperv.modules contents:" 2
+      cat /etc/mkinitfs/features.d/vm-hyperv.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create VM QEMU mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_qemu() {
+  # vm-qemu.modules
+
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/vm-qemu.modules" 2
+EOF
+
+  initramfs_entry_initialise "vm-qemu"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
+  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+
+  if [ -n "${image_optimise+x}" ]; then
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    :
+  else
+    initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+  initramfs_entry_add "kernel/drivers/crypto/virtio"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/virtio"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "vm-qemu.modules contents:" 2
+      cat /etc/mkinitfs/features.d/vm-qemu.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create VM Virtualbox mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_virtualbox() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/vm-virtualbox.modules" 2
+EOF
+
+  initramfs_entry_initialise "vm-virtualbox"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  if [ -n "${image_optimise+x}" ]; then
+    ###initramfs_entry_add "kernel/drivers/gpu/drm/vboxvideo/vboxvideo.ko*"
+    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
+    initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
+    initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
+    initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
+  else
+    ###initramfs_entry_add "kernel/drivers/gpu/drm/vboxvideo"
+    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
+    initramfs_entry_add "kernel/drivers/virt/vboxguest"
+    initramfs_entry_add "kernel/drivers/virtio"
+  fi
+  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "vm-virtualbox.modules contents:" 2
+      cat /etc/mkinitfs/features.d/vm-virtualbox.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create VM VMware mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_vmware() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/vm-vmware.modules" 2
+EOF
+
+  initramfs_entry_initialise "vm-vmware"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  if [ -n "${image_optimise+x}" ]; then
+    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
+  else
+    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
+  fi
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
+  initramfs_entry_add "kernel/drivers/net/vmxnet3"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "vm-vmware.modules contents:" 2
+      cat /etc/mkinitfs/features.d/vm-vmware.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}

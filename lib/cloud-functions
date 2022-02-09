@@ -1,0 +1,211 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  cloud-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Create cloud Alibaba mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_alibaba() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/cloud-alibaba.modules" 2
+EOF
+
+  initramfs_entry_initialise "cloud-alibaba"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "cloud-alibaba.modules contents:" 2
+      cat /etc/mkinitfs/features.d/cloud-alibaba.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create cloud AWS mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_aws() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/cloud-aws.modules" 2
+EOF
+
+  initramfs_entry_initialise "cloud-aws"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/net/ethernet/amazon/ena"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "cloud-aws.modules contents:" 2
+      cat /etc/mkinitfs/features.d/cloud-aws.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create cloud Azure mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_azure() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/cloud-azure.modules" 2
+EOF
+
+  initramfs_entry_initialise "cloud-azure"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/hv/hv_utils.ko*"
+  initramfs_entry_add "kernel/drivers/hv/hv_vmbus.ko*"
+  initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
+  if [ "$image_alpine_release" = "v3.13" ] || \
+     [ "$image_alpine_release" = "v3.14" ]; then
+    initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*"
+  else
+    initramfs_entry_add "kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*"
+  fi
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "cloud-azure.modules contents:" 2
+      cat /etc/mkinitfs/features.d/cloud-azure.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create cloud Exoscale mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_exoscale() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/cloud-exoscale.modules" 2
+EOF
+
+  initramfs_entry_initialise "cloud-exoscale"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "cloud-exoscale.modules contents:" 2
+      cat /etc/mkinitfs/features.d/cloud-exoscale.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create cloud GCE mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_gce() {
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/cloud-gce.modules" 2
+EOF
+
+  initramfs_entry_initialise "cloud-gce"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "cloud-gce.modules contents:" 2
+      cat /etc/mkinitfs/features.d/cloud-gce.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}

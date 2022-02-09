@@ -1,0 +1,1567 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  services-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure ACPI daemon
+#
+configure_acpid() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring ACPI daemon" 4
+    {
+      write_log "Enable ACPI init.d service" 6
+      {
+EOF
+
+  add_init_d_service "acpid" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure Busybox cron daemon
+#
+configure_busybox_cron() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Busybox cron daemon" 4
+    {
+EOF
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/crond /etc/conf.d/crond-orig
+      }
+
+EOF
+    fi
+
+    :
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable Busybox cron init.d service" 6
+      {
+EOF
+
+  add_init_d_service "crond" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
+        rm /etc/conf.d/crond-orig
+      }
+EOF
+    fi
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure Busybox Syslog server daemon
+#
+configure_busybox_syslogd() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Busybox syslogd server" 4
+    {
+EOF
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
+      }
+
+EOF
+    fi
+
+    :
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable Busybox syslogd init.d service" 6
+      {
+EOF
+
+  add_init_d_service "syslog" "boot" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/syslog-orig /etc/conf.d/syslog >> /chroot.log || true
+        rm /etc/conf.d/syslog-orig
+      }
+EOF
+    fi
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure Busybox udhcpc
+#
+configure_busybox_udhcpc() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Busybox udhcpc" 4
+    {
+EOF
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/crond /etc/conf.d/crond-orig
+      }
+
+EOF
+    fi
+
+    :
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable Busybox cron init.d service" 6
+      {
+EOF
+
+  add_init_d_service "crond" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -z "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
+        rm /etc/conf.d/crond-orig
+      }
+EOF
+    fi
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure Chrony server daemon
+#
+configure_chronyd() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Chrony NTP server" 4
+    {
+EOF
+
+  if [ -n "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
+      }
+
+EOF
+    fi
+
+
+    cat <<'EOF' >> "$run_script"
+      write_log "Creating chrony.conf file" 6
+      {
+        echo "# /etc/chrony/chrony.conf"
+        echo
+        echo "driftfile /var/lib/chrony/chrony.drift"
+        echo "rtcsync"
+        echo "cmdport 0"
+      } > /etc/chrony/chrony.conf
+EOF
+
+    if [ -n "${image_ntp_from_host+x}" ]; then
+      # Sync with host
+
+      cat <<'EOF' >> "$run_script"
+
+      write_log "Configuring chrony for time-sync from hypervisor host" 8
+      {
+        echo
+        echo "# For Virtual/Cloud machines use the host machine's clock as reference"
+        echo "# clock. This only works when ptp_kvm or ptp_vmw or (for" Azure/Hyper-v)"
+        echo "# hv_utils kernel modules are loaded, and host machine hypervisor"
+        echo "# supports this."
+        echo "#"
+        echo "refclock PHC /dev/ptp0 poll 3 dpoll -2 offset 0"
+      } >> /etc/chrony/chrony.conf
+
+EOF
+    elif [ -n "${image_ntp_servers+x}" ]; then
+    # Sync with specified NTP server(s)
+
+      cat <<EOF >> "$run_script"
+
+      write_log "Configuring chrony for specific NTP servers" 8
+      {
+        echo
+        echo "pool ${image_ntp_servers} iburst"
+        echo "initstepslew 10 ${image_ntp_servers}"
+      } >> /etc/chrony/chrony.conf
+
+EOF
+    else
+      # Sync with default NTP servers
+
+      cat <<EOF >> "$run_script"
+
+      write_log "Configuring chrony for default NTP servers" 8
+      {
+        echo
+        echo "pool ${CONSTANT_GENERAL_NTP_SERVER} iburst"
+        echo "initstepslew 10 ${CONSTANT_GENERAL_NTP_SERVER}"
+      } >> /etc/chrony/chrony.conf
+
+EOF
+    fi
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable Chrony init.d service" 6
+      {
+EOF
+
+  add_init_d_service "chronyd" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${image_without_cloud_init+x}" ]; then
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
+          /chroot.log || true
+        rm /etc/chrony/chrony.conf-orig
+      }
+EOF
+    fi
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure the relevant Syslog daemon
+#
+configure_cron() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring Cron daemon" 2
+  {
+EOF
+  if [ "$image_cron_daemon" = "busybox" ]; then
+    configure_busybox_cron
+###  elif [ "$image_cron_daemon" = "??" ]; then
+###    configure_??
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure dhclient
+#
+configure_dhclient() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring dhclient" 4
+    {
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+      :
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure DHCP client
+#
+configure_dhcp_client() {
+  cat <<'EOF' >> "$run_script"
+  write_log "Configuring DHCP client" 2
+  {
+EOF
+
+  if [ "$image_dhcp_client" = "busybox" ]; then
+    # Busybox udhcpc
+    configure_busybox_udhcpc
+
+  elif [ "$image_dhcp_client" = "dhclient" ]; then
+    # Dhclient
+    configure_dhclient
+
+  elif [ "$image_dhcp_client" = "dhcpcd" ]; then
+    # Dhcpcd
+    configure_dhcpcd
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure dhcpcd
+#
+configure_dhcpcd() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring dhcpcd" 4
+    {
+      :
+EOF
+
+  # ipv6ra_noautoconf
+  # noipv6rs
+
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+
+#
+# Creates a firewall configuration file
+#
+add_firewall_rules_header() {
+  local _ip_version=${1:-4}
+
+  if [ "$_ip_version" -eq 6 ]; then
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Creating IPtables default IPv6 ruleset" 6
+      {
+        cat <<-_SCRIPT_ >> /etc/iptables/rules6-save
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Creating IPtables default IPv4 ruleset" 6
+      {
+        cat <<-_SCRIPT_ >> /etc/iptables/rules-save
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	# Default ruleset
+	*filter
+	:INPUT DROP [0:0]
+	:FORWARD DROP [0:0]
+	:OUTPUT DROP [0:0]
+EOF
+
+  # Add sshguard table
+  cat <<'EOF' >> "$run_script"
+	:sshguard - [0:0]
+EOF
+}
+
+
+#
+# Finishes creating a firewall configuration file
+#
+add_firewall_rules_footer() {
+  cat <<'EOF' >> "$run_script"
+	COMMIT
+	_SCRIPT_
+      }
+EOF
+}
+
+
+#
+# Adds a rule to the firewall configuration
+#
+add_firewall_rule() {
+  local _in_out="$1"
+	local _action="$2"
+	local _interface="${3:-}"
+  local _rule="${4:-}"
+
+  local _full_rule
+
+  _full_rule="[0:0]"
+  if [ "$_in_out" = "in" ]; then
+    _full_rule="$_full_rule -A INPUT"
+    if [ -n "$_interface" ]; then
+      _full_rule="$_full_rule -i $_interface"
+    fi
+  else
+    _full_rule="$_full_rule -A OUTPUT"
+    if [ -n "$_interface" ]; then
+      _full_rule="$_full_rule -o $_interface"
+    fi
+  fi
+
+  if [ -n "$_rule" ]; then
+    _full_rule="$_full_rule $_rule"
+  fi
+
+  _full_rule="$_full_rule -j $(echo $_action | tr '[a-z]' '[A-Z]')"
+
+  cat <<EOF >> "$run_script"
+	$_full_rule
+EOF
+}
+
+
+#
+# Configure the relevant daemon(s) for specific Cloud Providers
+#
+configure_cloud_integration() {
+  case $image_cloud_type in
+    azure )
+      cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring cloud provider integration daemon(s)" 2
+  {
+EOF
+
+      case $image_cloud_type in
+        azure )
+          add_init_d_service "hv_fcopy_daemon" "default" 4
+          add_init_d_service "hv_kvp_daemon" "default" 4
+          add_init_d_service "hv_vss_daemon" "default" 4
+          ;;
+      esac
+
+      cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
+    ;;
+  esac
+}
+
+
+#
+# Configure firewall using either iptables, nftables, or awall
+#
+configure_firewall() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring firewall" 2
+  {
+EOF
+
+  if [ "$image_firewall" = "iptables" ]; then
+    # IPtables
+    configure_firewall_iptables
+
+  elif [ "$image_firewall" = "nftables" ]; then
+    # NFtables
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Configuring NFtables" 4
+EOF
+
+    :
+
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+  else
+    # Awall
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Configuring Awall" 4
+EOF
+
+    :
+
+
+    cat <<'EOF' >> "$run_script"
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure firewall using iptables
+#
+configure_firewall_iptables() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring IPtables firewall" 4
+    {
+EOF
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Add IPtables kernel modules to /etc/modules" 6
+      {
+        cat <<-_SCRIPT_ >> /etc/modules
+	
+	# Firewall
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	ip_tables
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	ip6_tables
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	nf_conntrack
+	xt_tcpudp
+	_SCRIPT_
+      }
+EOF
+
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    add_firewall_rules_header
+
+    add_firewall_rule "in" "accept" "lo" "" "Loopback traffic"
+    add_firewall_rule "in" "accept" "" "-m conntrack --ctstate RELATED,ESTABLISHED" "Established"
+    add_firewall_rule "in" "drop" "" "-m conntrack --ctstate INVALID" "Drop invalid"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 67" "DHCP"
+    add_firewall_rule "in" "accept" "" "-p tcp -m tcp --dport 22 -m conntrack --ctstate NEW,ESTABLISHED" "Incoming SSH"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 123" "NTP"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 53" "DNS"
+    add_firewall_rule "in" "accept" "" "-p icmp -m icmp --icmp-type 0" "Ping response"
+
+    add_firewall_rule "out" "accept" "lo" "" "Loopback traffic"
+    add_firewall_rule "out" "accept" "" "-m conntrack --ctstate ESTABLISHED" "Established"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 67" "DHCP"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --sport 22 -m conntrack --ctstate ESTABLISHED" "Existing SSH"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --dport 80 -m conntrack --ctstate NEW,ESTABLISHED" "Outgoing HTTP"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED" "Outgoing HTTPS"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 123" "NTP"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 53" "DNS"
+    add_firewall_rule "out" "accept" "" "-p icmp -m icmp --icmp-type 8" "Ping request"
+
+    add_firewall_rules_footer
+  fi
+
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    add_firewall_rules_header 6
+
+    add_firewall_rule "in" "accept" "lo" "" "Loopback traffic"
+    add_firewall_rule "in" "accept" "" "-m conntrack --ctstate RELATED,ESTABLISHED" "Established"
+    add_firewall_rule "in" "drop" "" "-m conntrack --ctstate INVALID" "Drop invalid"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 547" "DHCPv6"
+    add_firewall_rule "in" "accept" "" "-p tcp -m tcp --dport 22 -m conntrack --ctstate NEW,ESTABLISHED" "Incoming SSH"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 53" "DNS"
+    add_firewall_rule "in" "accept" "eth0" "-p udp -m udp --sport 123" "NTP"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 1" "??"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 2" "??"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 3" "??"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 4" "??"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 129" "??"
+    if [ "$image_ipv6_type" = "slaac" ]; then
+      add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 134 -m hl --hl-eq 255" "??"
+    fi
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 135 -m hl --hl-eq 255" "??"
+    add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 136 -m hl --hl-eq 255" "??"
+
+    add_firewall_rule "out" "accept" "lo" "" "Loopback traffic"
+    add_firewall_rule "out" "accept" "" "-m conntrack --ctstate ESTABLISHED" "Established"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 547" "DHCPv6"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --sport 22 -m conntrack --ctstate ESTABLISHED" "Existing SSH"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 53" "DNS"
+    add_firewall_rule "out" "accept" "eth0" "-p udp -m udp --dport 123" "NTP"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --dport 80 -m conntrack --ctstate NEW,ESTABLISHED" "HTTP"
+    add_firewall_rule "out" "accept" "" "-p tcp -m tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED" "HTTPS"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 1" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 2" "??"
+		add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 3" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 4" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 128" "??"
+    if [ "$image_ipv6_type" = "slaac" ]; then
+      add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 133 -m hl --hl-eq 255" "??"
+    fi
+    add_firewall_rule "out" "reject" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 134" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 135 -m hl --hl-eq 255" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 136 -m hl --hl-eq 255" "??"
+    add_firewall_rule "out" "reject" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 137" "??"
+
+    add_firewall_rules_footer
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+
+      write_log "Enable IPtables init.d services" 6
+      {
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    add_init_d_service "iptables" "default" 8
+  fi
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    add_init_d_service "ip6tables" "default" 8
+  fi
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+    }
+EOF
+}
+
+
+#
+# Configure the relevant daemon(s) for specific hypervisors
+#
+configure_hypervisor_integration() {
+  case $image_vm_type in
+    hyperv | libvirtd | lxd | proxmox | qemu | virtualbox | vmware )
+      cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring hypervisor integration daemon(s)" 2
+  {
+EOF
+
+      case $image_vm_type in
+        hyperv )
+          add_init_d_service "hv_fcopy_daemon" "default" 4
+          add_init_d_service "hv_kvp_daemon" "default" 4
+          add_init_d_service "hv_vss_daemon" "default" 4
+          ;;
+        libvirtd | lxd | proxmox | qemu )
+          add_init_d_service "qemu-guest-agent" "default" 4 ;;
+        virtualbox )
+          add_init_d_service "virtualbox-guest-additions" "default" 4 ;;
+        vmware )
+          add_init_d_service "open-vm-tools" "default" 4 ;;
+      esac
+
+      cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
+    ;;
+  esac
+}
+
+
+#
+# Configure the relevant NTP server
+#
+configure_ntpd() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring NTP server" 2
+  {
+EOF
+
+  configure_chronyd
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure OpenSSH server daemon
+#
+configure_opensshd() {
+  local _rsa_key_length=4096
+
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring OpenSSH server" 4
+    {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+      }
+
+EOF
+  fi
+
+
+  if [ -n "${image_harden+x}" ] || \
+     [ "$image_ssh_keytypes" = "ed25519" ]; then
+    cat <<'EOF' >> "$run_script"
+      write_log "Only generate ED25519 host key" 6
+      sed -i \
+        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+        /etc/conf.d/sshd
+EOF
+  else
+    if [ -n "${remote_unlock_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+
+      _rsa_key_length=4096
+EOF
+    else
+      # Dropbear has shorter supported length of RSA key
+      cat <<'EOF' >> "$run_script"
+
+      _rsa_key_length=3072
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+      write_log "Only generate ED25519 and \${_rsa_key_length}bit RSA host keys" 6
+      sed -i \\
+        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
+        -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
+        /etc/conf.d/sshd
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+      # Configure sshd to:
+EOF
+
+  if [ -n "${image_harden+x}" ] || \
+     [ "$image_ssh_keytypes" = "ed25519" ]; then
+    cat <<'EOF' >> "$run_script"
+      # - only use ED25519 host key
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+      # - only use ED25519 & RSA host keys
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+      # - enable ED25519 key use
+      # - prevent challenge-response logins
+      # - prevent keyboard-interactive logins
+      # - prevent logins to accounts with empty passwords
+      # - prevent root logins
+      # - prevent password-based logins
+      # - use built-in SFTP server
+      write_log "Prevent root login, prevent password logins" 6
+      sed -i \
+        -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
+        -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
+        -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
+        -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
+        -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
+        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
+        -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
+        /etc/ssh/sshd_config
+EOF
+
+  if [ -z "${image_without_cloud_init+x}" ] || \
+     [ -n "${image_pam_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      # - enable PAM
+      write_log "Enable PAM support" 6
+      sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+      # - disable PAM
+      write_log "Disabling PAM support" 6
+      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+      #
+      # - ensure only key-based authentication is enabled
+      #
+      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
+      {
+        printf '\n'
+        printf 'AuthenticationMethods "publickey"\n'
+        printf '\n'
+      } >> /etc/ssh/sshd_config
+EOF
+
+  if [ "$image_ssh_keytypes" != "ed25519" ]; then
+		# Enable RSA key use
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Enable RSA key use" 6
+      sed -i \
+        -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
+        /etc/ssh/sshd_config
+EOF
+  fi
+
+  if [ -n "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Enable only IPv6 access" 6
+      sed -i \
+        -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
+        -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
+        /etc/ssh/sshd_config
+EOF
+  elif [ -n "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Enable only IPv4 access" 6
+      sed -i \
+        -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
+        -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
+        /etc/ssh/sshd_config
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Enable both IPv4 and IPv6 access" 6
+      sed -i \
+        -e 's/^[#]*AddressFamily .*$/AddressFamily any/g' \
+        -e 's/^[#]ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
+        -e 's/^[#]ListenAddress ::.*$/ListenAddress ::/g' \
+        /etc/ssh/sshd_config
+EOF
+  fi
+
+
+  if [ -n "${image_harden+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Further harden the configuration" 6
+      # - limit Ciphers to single strong one
+      # - limit KexAlgorithms to curve 25519
+      # - limit MAC to single Encrypt-then-MAC version
+      # - only accept the use of ED25519 public keys
+      {
+        printf 'CASignatureAlgorithms  ssh-ed25519\n'
+        printf 'Ciphers chacha20-poly1305@openssh.com\n'
+        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+        printf 'MACS hmac-sha2-512-etm@openssh.com\n'
+        printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
+        printf '\n'
+      } >> /etc/ssh/sshd_config
+EOF
+
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Disable RSA key use" 6
+      sed -i \
+        -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey \
+        /etc/ssh/ssh_host_rsa_key|' /etc/ssh/sshd_config
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+
+      write_log "Enable OpenSSH init.d service" 6
+      {
+EOF
+
+  add_init_d_service "sshd" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+        rm /etc/conf.d/sshd-orig
+
+        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
+          || true
+        rm /etc/ssh/sshd_config-orig
+      }
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure rngd daemon
+#
+configure_rngd() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring rngd daemon" 2
+  {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      cp /etc/conf.d/rngd /etc/conf.d/rngd-orig
+    }
+
+EOF
+  fi
+
+  :
+
+
+  cat <<'EOF' >> "$run_script"
+    write_log "Enable rngd init.d service" 4
+    {
+EOF
+
+  add_init_d_service "rngd" "boot" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      diff /etc/conf.d/rngd-orig /etc/conf.d/rngd >> /chroot.log || true
+      rm /etc/conf.d/rngd-orig
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure Rsyslog server daemon
+#
+configure_rsyslog() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Rsyslog server" 4
+    {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/rsyslog.conf /etc/rsyslog.conf-orig
+      }
+
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+      # Create empty file as rsyslog's logrotate config expects it
+      :> /var/log/mail.log
+EOF
+
+
+  if [ "$image_boot_device_media" = "flash" ] || \
+     [ "$image_boot_device_media" = "sd" ] || \
+     [ "$image_boot_device_media" = "ssd" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      write_log "Disable routine 'mark' message on SSD/flash-based servers" 6
+      {
+        sed -i -e "s/^[#]module(load=\"immark\")/module(load=\"immark\")/g" \
+        /etc/rsyslog.conf
+      }
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+
+      write_log "Enable rsyslog init.d service" 6
+      {
+EOF
+
+  add_init_d_service "rsyslog" "boot" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/rsyslog.conf-orig /etc/rsyslog.conf >> /chroot.log || true
+        rm /etc/rsyslog.conf-orig
+      }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure various services that will run on the server
+#
+configure_services() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring various system services"
+{
+EOF
+
+  configure_sysctl
+  if [ -n "${image_harden+x}" ]; then
+    configure_firewall
+  fi
+  # No acpid running on Cloud or Virtual machines as tiny-power-button
+  # which does not require acpid. None on Raspberry Pi as it does not
+  # support ACPI.
+  if [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    configure_acpid
+  fi
+  configure_cron
+  configure_dhcp_client
+  configure_ntpd
+  configure_rngd
+  configure_syslogd
+  configure_sshd
+  configure_sshguard
+  if [ -n "${image_enable_utmp+x}" ]; then
+    configure_utmps
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    add_init_d_service "lvm" "boot" 2
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    configure_cloud_integration
+  elif [ "$image_class" = "virtual" ]; then
+    configure_hypervisor_integration
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Configure the relevant SSH server
+#
+configure_sshd() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring SSH server" 2
+  {
+EOF
+
+  if [ "$image_ssh_server" = "openssh" ]; then
+    configure_opensshd
+  elif [ "$image_ssh_server" = "tinyssh" ]; then
+    configure_tinysshd
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure sysctl file
+#
+configure_sysctl() {
+  cat <<'EOF' >> "$run_script"
+  write_log "Configuring sysctl file" 2
+  {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      cp /etc/sysctl.conf /etc/sysctl.conf-orig
+    }
+
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+    write_log "Create /etc/sysctl.d/01-general.conf file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sysctl.d/01-general.conf
+	# /etc/sysctl.d/01-general.conf
+	
+	# Restarts computer after 120 seconds after kernel panic
+	kernel.panic = 120
+	
+	# Users should not be able to create soft or hard links to files which they
+	# do not own. This mitigates several privilege escalation vulnerabilities.
+	fs.protected_hardlinks = 1
+	fs.protected_symlinks = 1
+	
+	# Disable unprivileged use of the bpf(2) syscall. Allowing unprivileged use
+	# of the bpf(2) syscall may allow a malicious user to compromise the machine.
+	kernel.unprivileged_bpf_disabled = 1
+	
+	_SCRIPT_
+    }
+EOF
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Create /etc/sysctl.d/01-ip-general.conf file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sysctl.d/01-ip-general.conf
+	# /etc/sysctl.d/01-ip-general.conf
+	
+	# Prevents SYN DOS attacks. Applies to ipv6 as well, despite name.
+	net.ipv4.tcp_syncookies = 1
+	
+	_SCRIPT_
+    }
+EOF
+
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Create /etc/sysctl.d/05-ipv4.conf file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sysctl.d/05-ipv4.conf
+	# /etc/sysctl.d/05-ipv4.conf
+	
+	# Prevents ip spoofing.
+	net.ipv4.conf.default.rp_filter = 1
+	net.ipv4.conf.all.rp_filter = 1
+	
+	# Only groups within this id range can use ping.
+	net.ipv4.ping_group_range=999 59999
+	
+	# Redirects can potentially be used to maliciously alter hosts routing tables.
+	net.ipv4.conf.all.accept_redirects = 0
+	net.ipv4.conf.all.secure_redirects = 1
+	
+	# The source routing feature includes some known vulnerabilities.
+	net.ipv4.conf.all.accept_source_route = 0
+	
+	# See RFC 1337
+	net.ipv4.tcp_rfc1337 = 1
+EOF
+
+    if [ -n "${image_harden+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+	
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+    }
+EOF
+  fi
+
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Create /etc/sysctl.d/05-ipv6.conf file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sysctl.d/05-ipv6.conf
+	# /etc/sysctl.d/05-ipv6.conf
+	
+	# Redirects can potentially be used to maliciously alter hosts routing tables.
+	net.ipv6.conf.all.accept_redirects = 0
+	
+	# The source routing feature includes some known vulnerabilities.
+	net.ipv6.conf.all.accept_source_route = 0
+	
+	## Enable IPv6 Privacy Extensions (see RFC4941 and RFC3041)
+	net.ipv6.conf.default.use_tempaddr = 2
+	net.ipv6.conf.all.use_tempaddr = 2
+EOF
+
+    if [ -n "${image_harden+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+	
+EOF
+    fi
+
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+    }
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Enable sysctl init.d service" 4
+    {
+EOF
+
+    add_init_d_service "sysctl" "boot" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      diff /etc/sysctl.conf-orig /etc/sysctl.conf >> /chroot.log || true
+      rm /etc/sysctl.conf-orig
+    }
+EOF
+
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure the relevant Syslog daemon
+#
+configure_syslogd() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring Syslog server" 2
+  {
+EOF
+  if [ "$image_syslog_server" = "busybox" ]; then
+    configure_busybox_syslogd
+  elif [ "$image_syslog_server" = "rsyslog" ]; then
+    configure_rsyslog
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure the SSHguard service
+#
+configure_sshguard() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring sshguard" 2
+  {
+    mkdir /etc/sshguard
+
+    write_log "Creating sshguard.conf file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sshguard.conf
+	# /etc/sshguard.conf
+	
+	# Full path to backend executable (required, no default)
+EOF
+
+  if [ "$image_firewall" = "iptables" ]; then
+    cat <<'EOF' >> "$run_script"
+	BACKEND="/usr/libexec/sshg-fw-iptables"
+EOF
+  elif [ "$image_firewall" = "nftables" ]; then
+    cat <<'EOF' >> "$run_script"
+	BACKEND="/usr/libexec/sshg-fw-nft-sets"
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	BACKEND="/usr/libexec/sshg-fw-????"
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	# Space-separated list of log files to monitor. (optional, no default)
+	FILES="/var/log/messages"
+	
+	# Shell command that provides logs on standard output. (optional, no default)
+	# Example 1: ssh and sendmail from systemd journal:
+	#LOGREADER="LANG=C /usr/bin/journalctl -afb -p info -n1 -t sshd -t sendmail -o cat"
+	# Example 2: ssh from os_log (macOS 10.12+)
+	#LOGREADER="/usr/bin/log stream --style syslog --predicate '(processImagePath contains \"sshd\")'"
+	
+	#### OPTIONS ####
+	# Block attackers when their cumulative attack score exceeds THRESHOLD.
+	# Most attacks have a score of 10. (optional, default 30)
+	THRESHOLD=30
+	
+	# Block attackers for initially BLOCK_TIME seconds after exceeding THRESHOLD.
+	# Subsequent blocks increase by a factor of 1.5. (optional, default 120)
+	BLOCK_TIME=120
+	
+	# Remember potential attackers for up to DETECTION_TIME seconds before
+	# resetting their score. (optional, default 1800)
+	DETECTION_TIME=1800
+	
+	# Size of IPv6 'subnet to block. Defaults to a single address, CIDR notation. (optional, default to 128)
+	IPV6_SUBNET=128
+	
+	# Size of IPv4 subnet to block. Defaults to a single address, CIDR notation. (optional, default to 32)
+	IPV4_SUBNET=32
+	
+	#### EXTRAS ####
+	# !! Warning: These features may not work correctly with sandboxing. !!
+	
+	# Full path to PID file (optional, no default)
+	#PID_FILE=/run/sshguard.pid
+	
+	# Colon-separated blacklist threshold and full path to blacklist file.
+	# (optional, no default)
+	#BLACKLIST_FILE=90:/var/lib/sshguard/enemies
+	
+	# IP addresses listed in the WHITELIST_FILE are considered to be
+	# friendlies and will never be blocked.
+	WHITELIST_FILE=/etc/sshguard/friends
+	
+	# If PARSER is unset, SSHGuard will use the installed sshg-parser as its
+	# parser. Setting PARSER overrides this, so that you can use your own parser.
+	#PARSER=
+	
+	# Run POST_PARSER as a filter after the parser. POST_PARSER must read as input
+	# and produce as output lines in the format used by sshg-parser. This example
+	# implements primitive whitelisting, preventing sshg-blocker from seeing
+	# attacks from 1.2.3.4. Unlike whitelisting, attacks filtered by POST_PARSER
+	# are not logged by SSHGuard.
+	#POST_PARSER="grep -v 1.2.3.4"
+	
+	_SCRIPT_
+    }
+
+    write_log "Creating friends file" 4
+    {
+      cat <<-_SCRIPT_ > /etc/sshguard/friends
+	# /etc/sshguard/friends
+	
+	127.0.0.0/8
+	
+	_SCRIPT_
+    }
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Enable sshguard init.d service" 4
+    {
+EOF
+
+  add_init_d_service "sshguard" "default" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure TinySSH server daemon
+#
+configure_tinysshd() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring TinySSH server" 4
+    {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
+      }
+
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable SFTP server" 6
+      sed -i \
+        -e 's|^# OPTIONS=.*|OPTIONS="-l -v -x sftp=/usr/lib/ssh/sftp-server"|' \
+        /etc/conf.d/tinysshd
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+
+      write_log "Enable tinyssh init.d service" 6
+      {
+EOF
+
+  add_init_d_service "tinyssh" "default" 6
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/tinysshd-orig /etc/conf.d/tinysshd >> /chroot.log || true
+        rm /etc/conf.d/tinysshd-orig
+      }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
+# Configure utmps daemons
+#
+configure_utmps() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring UTMPS daemons" 4
+  {
+EOF
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Enable utmps init.d services" 6
+    {
+EOF
+
+  add_init_d_service "utmp-init" "boot" 6
+  add_init_d_service "utmpd" "boot" 6
+  add_init_d_service "wtmpd" "boot" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+  }
+EOF
+}
