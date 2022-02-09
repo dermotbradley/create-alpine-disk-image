@@ -36,23 +36,12 @@ script_dir="$(dirname "$0")"
 # Source functions, some shared with create-alpine-disk-installer
 . ${script_dir}/lib/common-functions
 . ${script_dir}/lib/disk-image-functions
+. ${script_dir}/lib/mkinitfs-functions
+. ${script_dir}/lib/services-functions
 
-
-#
-# ????
-#
-set_firewall_rules() {
-  if [ "$image_firewall" = "iptables" ]; then
-    # ???
-    :
-  elif [ "$image_firewall" = "nftables" ]; then
-    # ??
-    :
-  else
-    # ??
-    :
-  fi
-}
+. ${script_dir}/lib/cloud-functions
+. ${script_dir}/lib/non-cloud-functions
+. ${script_dir}/lib/vm-functions
 
 #############################################################################
 ##		Main Section
@@ -106,11 +95,10 @@ if [ -n "${use_ramdisk+x}" ]; then
   mount_ramdisk
 fi
 
-if [ -z ${disk_image_size+x} ]; then
-   disk_image_size=$(calculate_image_size)
-fi
+disk_image_size=$(calculate_image_size)
 
 cat <<EOF >> "$run_script"
+
 write_log "Creating sparse disk image of ${disk_image_size}MiB"
 truncate -s ${disk_image_size}M \$image_full_filename >> \$logfile
 EOF
@@ -126,9 +114,12 @@ fi
 if [ -n "${debug_enabled+x}" ]; then
   cat <<'EOF' >> "$run_script"
 
-write_debug_log "  Resultant partition layout:"
-parted --machine --script --align=optimal $image_full_filename \
-  unit MiB print >> $logfile
+# Debug
+{
+  write_debug_log "Resultant partition layout:" 2
+  parted --machine --script --align=optimal $image_full_filename \
+    unit MiB print >> $logfile
+}
 EOF
 fi
 
@@ -147,9 +138,15 @@ if [ -n "${image_encrypted+x}" ] && \
    [ "$image_bootloader" = "grub" ] && \
    { [ -z "${image_experimental+x}" ] || \
      [ -z "${remote_unlock_enabled+x}" ]; } && \
-   [ -z "${image_no_grub_encryption+x}" ]; then
-  # LUKS keyfile is only used with GRUB when GRUB's own Cryptodisk is
-  # enabled (so does not apply when Remote Unlock enabled).
+   [ -z "${image_no_grub_encryption+x}" ] && \
+   [ -z "${needs_boot_partition+x}" ]; then
+  # LUKS keyfile is used to unlock rootfs without 2nd password prompt.
+  # It applies only when:
+  #  - disk image is encrypted, AND
+  #  - bootloader is Grub, AND
+  #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+  #  - Grub LUKS encryption support is not disabled, AND
+  #  - /boot is not a separate partition.
   copy_luks_keyfile_into_place
   setup_crypttab
 fi
@@ -166,17 +163,6 @@ rm -Rf \$TMPDIR/apk-tools-$apk_static_version
 EOF
 
 mount_host_special_fs_in_chroot
-
-if [ -n "${debug_enabled+x}" ]; then
-  cat <<EOF >> "$run_script"
-
-{
-  # Debug
-  write_debug_log "Everything mounted inside chroot:"
-  mount | grep \$chroot_dir
-} >> \$logfile 2>&1
-EOF
-fi
 
 # shellcheck disable=SC2129
 cat <<'EOF' >> "$run_script"
@@ -233,56 +219,13 @@ additional_os_configuration
 if [ -z "${image_without_cloud_init+x}" ]; then
   configure_cloud_init
 else
-  if [ "${image_mdev}" = true ]; then
-###    cat <<'EOF' >> "$run_script"
-###
-###{
-###  write_log "Enabling mdev init.d service"
-###  {
-###    ln -s /etc/init.d/mdev /etc/runlevels/sysvinit
-###  } >> /chroot.log 2>&1
-###}
-###EOF
-
-    cat <<'EOF' >> "$run_script"
-
-{
-  write_log "Enable mdev init.d service"
-  {
-EOF
-
-    add_init_d_service "mdev" "sysinit"
-  else
-    cat <<'EOF' >> "$run_script"
-
-{
-  write_log "Enable udev init.d services"
-  {
-EOF
-
-    add_init_d_service "udev" "sysinit"
-    add_init_d_service "udev-trigger" "sysinit"
-
-    add_init_d_service "udev-postmount" "default"
-  fi
-
-    cat <<'EOF' >> "$run_script"
-  } >> /chroot.log 2>&1
-}
-EOF
-
-  configure_network_interfaces
-	create_default_user
+  configure_non_cloud_init
 fi
-
-configure_chrony
 
 if [ "$image_console_type" = "serial" ] || \
    [ "$image_console_type" = "both" ]; then
   enable_serial_console
 fi
-
-add_additional_init_d
 
 if [ -n "${image_optimise+x}" ]; then
   disable_kernel_modules
@@ -302,37 +245,47 @@ fi
 
 if [ -n "${image_lvm_rootfs+x}" ] && \
    [ "$image_bootloader" = "grub" ]; then
+  cat <<'EOF' >> "$run_script"
+
+{
+EOF
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<'EOF' >> "$run_script"
-{
   # Debug
-	cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
-}
+  {
+    cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
+  }
+
 EOF
   fi
 
   cat <<'EOF' >> "$run_script"
-write_log "  Tweaking grub-mkconfig to prevent LVM-related warning"
-sed -i \\
-  -Ee 's|^(GRUB_DEVICE="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  -Ee 's|^(GRUB_DEVICE_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  -Ee 's|^(GRUB_DEVICE_PARTUUID="\`)(.*)|\1 export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  -Ee 's|^(GRUB_DEVICE_BOOT="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  -Ee 's|^(GRUB_DEVICE_BOOT_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  -Ee 's|^(GRUB_FS="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-  /usr/sbin/grub-mkconfig
+  write_log "Tweaking grub-mkconfig to prevent LVM-related warning" 2
+  sed -i \\
+    -Ee 's|^(GRUB_DEVICE="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    -Ee 's|^(GRUB_DEVICE_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    -Ee 's|^(GRUB_DEVICE_PARTUUID="\`)(.*)|\1 export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    -Ee 's|^(GRUB_DEVICE_BOOT="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    -Ee 's|^(GRUB_DEVICE_BOOT_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    -Ee 's|^(GRUB_FS="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+    /usr/sbin/grub-mkconfig
 EOF
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<'EOF' >> "$run_script"
-{
+
   # Debug
-	diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
-    >> /chroot.log || true
-}
+  {
+	  diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+      >> /chroot.log || true
+  }
 EOF
   fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
 fi
 
 if [ "$image_mdev" = true ]; then
@@ -343,12 +296,13 @@ if [ "$image_mdev" = true ]; then
   # eudev to let it use udevadm.
   cat <<EOF >> "$run_script"
 
-write_log "  Temporarily install eudev so that grub-probe can use it"
+write_log "Temporarily installing eudev so that grub-probe can use it"
 apk add eudev >> /chroot.log 2>&1
 EOF
 fi
 
 install_kernel
+
 if [ "$image_arch" = "x86" ] || \
    [ "$image_arch" = "x86_64" ]; then
   install_microcode
@@ -366,8 +320,10 @@ fi
 
 if [ -n "${image_encrypted+x}" ] && \
    [ "$image_bootloader" = "grub" ] && \
-   [ -z "${remote_unlock_enabled+x}" ] && \
-   [ -z "${image_no_grub_encryption+x}" ]; then
+   { [ -z "${image_experimental+x}" ] || \
+     [ -z "${remote_unlock_enabled+x}" ]; } && \
+   [ -z "${image_no_grub_encryption+x}" ] && \
+   [ -z "${needs_boot_partition+x}" ]; then
   # When using GRUB encryption along with a keyfile (to avoid 2nd prompt),
   # ensure that initramfs is only readable by root as it contains the
   # keyfile to decrypt the root partition.
@@ -400,8 +356,8 @@ fi
 if [ -n "${debug_enabled+x}" ]; then
   cat <<'EOF' >> "$run_script"
 
+# Debug
 {
-  # Debug
   write_debug_log "mkinitfs contents:"
   mkinitfs -l "\$_kernel_version" >> /chroot.log
 }
@@ -414,12 +370,30 @@ elif [ "$image_bootloader" = "syslinux" ]; then
   install_syslinux
 fi
 
+
+configure_services
+
+
+if [ -n "${extra_packages_list+x}" ]; then
+  install_extra_packages
+fi
+
+if [ -n "${extra_files_directory+x}" ]; then
+  install_extra_files
+fi
+
+
 if [ -n "${debug_enabled+x}" ]; then
   cat <<'EOF' >> "$run_script"
 
+# Debug
 {
-  # Debug
+  write_debug_log "Final installed packages list:"
+  apk info -v | sort >> /chroot.log
+
+  write_debug_log "Disk space usage:"
   df -k >> /chroot.log
+
   write_debug_log "/boot size:"
   du -k /boot/ |sort -n >> /chroot.log
   write_debug_log "/boot contents:"
@@ -504,7 +478,6 @@ cat <<'EOF' >> "$run_script"
 trap EXIT
 
 exit
-
 EOF
 
 if [ -n "${debug_enabled+x}" ]; then

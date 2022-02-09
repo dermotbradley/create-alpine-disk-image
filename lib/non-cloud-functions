@@ -1,0 +1,558 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  non-cloud-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure /etc/network/interfaces
+#
+configure_network_interfaces() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Creating /etc/network/interfaces" 2
+  {
+    cat <<-_SCRIPT_ >> /etc/network/interfaces
+	# /etc/network/interfaces
+	
+	auto lo
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface lo inet loopback
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface lo inet6 loopback
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	auto eth0
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	iface eth0 inet dhcp
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# control-alias eth0
+	iface eth0 inet6 dhcp
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "Contents of /etc/network/interfaces:" 4
+      cat /etc/network/interfaces >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure non cloud-init
+#
+configure_non_cloud_init() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring non cloud-init"
+{
+EOF
+
+  if [ "${image_mdev}" = true ]; then
+    # mdev
+
+    cat <<'EOF' >> "$run_script"
+  write_log "Enable mdev init.d service" 2
+  {
+EOF
+    add_init_d_service "mdev" "sysinit" 4
+  else
+    # udev
+
+    cat <<'EOF' >> "$run_script"
+  write_log "Enable udev init.d services" 2
+  {
+EOF
+
+    add_init_d_service "udev" "sysinit" 4
+    add_init_d_service "udev-trigger" "sysinit" 4
+    add_init_d_service "udev-postmount" "default" 4
+  fi
+
+    cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
+
+  configure_network_interfaces
+
+  # Need to sort out serial console settings at this stage.
+  if [ "$image_console_type" = "serial" ] || \
+     [ "$image_console_type" = "both" ]; then
+    if [ -z "${serial_port_number+x}" ]; then
+      serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
+      serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
+    fi
+    if [ -z "${serial_port_speed+x}" ]; then
+      serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
+    fi
+  fi
+
+  if [ -z "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    cp /etc/shadow /etc/shadow-orig
+  }
+
+  write_log "Locking the root account" 2
+  passwd -l
+
+  # Debug
+  {
+    diff /etc/shadow-orig /etc/shadow || true
+    rm /etc/shadow-orig
+  }
+EOF
+  fi
+
+  create_default_user
+  setup_init_d_for_growing_root_partition
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Create default user account
+#
+create_default_user() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+# Debug
+{
+  cp /etc/passwd /etc/passwd-orig
+  cp /etc/shadow /etc/shadow-orig
+  cp /etc/group /etc/group-orig
+}
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "Setting up default user '${image_admin_username}'" 2
+{
+  write_log "Creating user account" 4
+  adduser -D -g "Default user" ${image_admin_username}
+EOF
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  write_log "Setting the default user's password"	4
+	echo "${image_admin_username}:\$default_user_password" | chpasswd
+  write_log "Ensure default user's account is not locked as password is set" 4
+  passwd -u ${image_admin_username}
+EOF
+  else
+    cat <<EOF >> "$run_script"
+
+    write_log "Default user's account is locked (for password access)" 4
+EOF
+  fi
+
+  if [ "$image_auth_control" = "doas" ] || \
+     [ "$image_auth_control" = "both" ]; then
+    cat <<EOF >> "$run_script"
+
+  write_log "Adding user to group 'wheel'" 4
+  addgroup ${image_admin_username} wheel
+EOF
+  fi
+
+  if [ "$image_auth_control" = "sudo" ] || \
+     [ "$image_auth_control" = "both" ]; then
+    cat <<EOF >> "$run_script"
+
+  write_log "Adding user to group 'sudo'" 4
+  addgroup ${image_admin_username} sudo
+EOF
+  fi
+
+  if [ -n "${ssh_public_key+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  write_log "Adding SSH public key to user's authorized_keys file" 4
+  mkdir /home/${image_admin_username}/.ssh
+  chown ${image_admin_username}:${image_admin_username} /home/${image_admin_username}/.ssh
+  chmod 700 /home/${image_admin_username}/.ssh
+  echo "${ssh_public_key}" \\
+    > /home/${image_admin_username}/.ssh/authorized_keys
+  chown ${image_admin_username}:${image_admin_username} /home/${image_admin_username}/.ssh/authorized_keys
+  chmod 600 /home/${image_admin_username}/.ssh/authorized_keys
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+}
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+# Debug
+{
+  write_debug_log "/etc/passwd changes:" 2
+  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+  rm /etc/passwd-orig
+
+  write_debug_log "/etc/shadow changes:" 2
+  diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+  rm /etc/shadow-orig
+
+  write_debug_log "/etc/group changes:" 2
+  diff /etc/group-orig /etc/group >> /chroot.log || true
+  rm /etc/group-orig
+
+  write_debug_log "Contents of /home/${image_admin_username}:" 2
+  ls -laR /home/${image_admin_username} >> /chroot.log
+}
+EOF
+  fi
+}
+
+
+#
+# Create an init.d script to grow the root partition
+#
+setup_init_d_for_growing_root_partition() {
+  local _grow_device _grow_part_num _part_grow_size _disk_leave_free_percent
+  local _resize_logs_fs_part _resize_logs_lv _resize_pv_device _resize_pv_part
+  local _resize_root_lv _resize_roof_fs_part _resize_vg
+
+  if [ "$image_boot_device_media" = "flash" ] || \
+     [ "$image_boot_device_media" = "sd" ] || \
+     [ "$image_boot_device_media" = "ssd" ]; then
+    # Leave a percentage of disk unallocated for "overprovisioning"
+    _disk_leave_free_percent=$image_resize_free_percent
+  else
+    _disk_leave_free_percent="0"
+  fi
+  _part_grow_size="$((100-$_disk_leave_free_percent))%"
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # LUKS or LVM-on-LUKS
+    _grow_part_num="$luks_part_num"
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    # LVM
+    _grow_part_num="$lvm_part_num"
+  else
+    # Neither LUKS nor LVM
+    _grow_part_num="$root_part_num"
+  fi
+
+  if [ "$image_class"  = "physical" ] && \
+     { [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] || \
+       [ "$image_boot_device_type" = "sd" ]; }; then
+    # RPI or PC with SDcard
+    _grow_device="/dev/mmcblk0"
+  elif [ "$image_boot_device_type" = "nvme" ]; then
+    # NVME
+    _grow_device="/dev/nvme0n1"
+  else
+    # SATA, SCSI, or USB
+    _grow_device="/dev/sda"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+write_log "Creating init.d script for resizing rootfs" 2
+{
+  cat <<-_SCRIPT_ > /etc/init.d/resize-rootfs
+	#!/sbin/openrc-run
+	
+	description="Resize rootfs"
+	
+	depend() {
+		after clock localmount
+		keyword -openvz -prefix -uml -vserver -xenu -lxc
+	}
+	
+	start() {
+		ebegin "Resizing rootfs"	
+	
+		{
+EOF
+
+  if [ -n "${image_encrypted+x}" ] || \
+     [ -n "${image_lvm_rootfs+x}" ] || \
+     { [ "$image_boot_device_media" = "flash" ] || \
+       [ "$image_boot_device_media" = "sd" ] || \
+       [ "$image_boot_device_media" = "ssd" ]; }; then
+    # growpart does not handle these situations
+
+    if [ -n "${image_encrypted+x}" ]; then
+      # LUKS or LVM-on-LUKS
+
+      _resize_luks_device="$CONSTANT_LUKS_DEVICE_NAME"
+
+      cat <<EOF >> "$run_script"
+		  # Grow the LUKS partition
+		  parted --machine --script --align=optimal $_grow_device resizepart \\
+		    $_grow_part_num $_part_grow_size
+		  # Grow LUKS to fill the partition
+		  cryptsetup resize ${_resize_luks_device}
+EOF
+
+      if [ -n "${image_lvm_rootfs+x}" ]; then
+        # LVM-on-LUKS
+        _resize_pv_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+        _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+
+        cat <<EOF >> "$run_script"
+	
+		  # Grow the LVM PV to fill the LUKS partition
+		  pvresize resize ${_resize_pv_device}
+		  # Don't resize the root LV at all
+		  #
+		  # Grow the logs LV by 10MiB
+		  lvextend -L +10m $_resize_logs_lv
+EOF
+
+        _resize_vg="$CONSTANT_LVM_VG_NAME"
+        _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+        _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+        _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+      else
+        # just LUKS
+        _resize_root_fs_part="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+      fi
+    elif [ -n "${image_lvm_rootfs+x}" ]; then
+      # LVM
+
+      if { [ "$image_class" = "physical" ] && \
+           [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
+         [ "$image_boot_device_type" = "nvme" ]; then
+        _resize_pv_part="${_grow_device}p${lvm_part_num}"
+      else
+        _resize_pv_part="${_grow_device}${lvm_part_num}"
+      fi
+      _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+
+      cat <<EOF >> "$run_script"
+	
+		  # Grow the LVM partition
+		  parted --machine --script --align=optimal $_grow_device resizepart \\
+		    $_grow_part_num $_part_grow_size
+		  # Grow the LVM PV to fill the partition
+		  pvresize $_resize_pv_part
+		  # Don't resize the root LV at all
+		  #
+		  # Grow the logs LV by 10M
+		  lvextend -L +10m $_resize_logs_lv
+EOF
+
+      _resize_vg="$CONSTANT_LVM_VG_NAME"
+      _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+      _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+      _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+    else
+      # Neither LUKS nor LVM
+
+      if [ "$image_alpine_release" = "v3.13" ] || \
+         [ "$image_alpine_release" = "v3.14" ] || \
+         [ "$image_alpine_release" = "v3.15" ]; then
+        # growpart with no overprovisioning support
+        cat <<EOF >> "$run_script"
+	
+		  # Grow the partition to fill most, but not all, of the disk
+		  parted --machine --script --align=optimal $_grow_device resizepart \\
+		    $_grow_part_num $_part_grow_size
+EOF
+      else
+        # growpart version that does support overprovisioning
+        cat <<EOF >> "$run_script"
+		  grow_device="$_grow_device"
+		  grow_part_num="$_grow_part_num"
+		  disk_leave_free_percent="$_disk_leave_free_percent"
+EOF
+        cat <<'EOF' >> "$run_script"
+	
+		  # Grow the partition to fill most, but not all, of the disk
+		  _output=\\\$(growpart --free-percent=\\\$disk_leave_free_percent \\\$grow_device \\\$grow_part_num 2>&1)
+		  _rc=\\\$?
+		  _timestamp=\\\$(printf "[%s]" "\\\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	
+		  if [ \\\$_rc -eq 0 ]; then
+		    echo "\\\$_timestamp: Grew partition \\\${grow_device}\\\${grow_part_num}, leaving \\\${disk_leave_free_percent}% free of disk"
+		  else
+		    echo "\\\$_timestamp: Unable to grow partition \\\${grow_device}\\\${grow_part_num}, leaving \\\${disk_leave_free_percent}% free of disk"
+		  fi
+		  echo \\\$_output
+EOF
+      fi
+
+      ### Never needed?
+      ###_resize_vg="$CONSTANT_LVM_VG_NAME"
+      ###_resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+      ###_resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+      ###_resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+
+      if { [ "$image_class" = "physical" ] && \
+           [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
+         [ "$image_boot_device_type" = "nvme" ]; then
+        _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
+      else
+        _resize_root_fs_part="${_grow_device}${_grow_part_num}"
+      fi
+    fi
+  else
+    # Use growpart
+    cat <<EOF >> "$run_script"
+		  grow_device="$_grow_device"
+		  grow_part_num="$_grow_part_num"
+EOF
+
+    cat <<'EOF' >> "$run_script"
+		
+		  # Grow the partition
+		  _output=\\\$(growpart \\\$grow_device \\\$grow_part_num 2>&1)
+		  _rc=\\\$?
+		  _timestamp=\\\$(printf "[%s]" "\\\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	
+		  if [ \\\$_rc -eq 0 ]; then
+		    echo "\\\$_timestamp: Grew partition \\\${grow_device}\\\${grow_part_num}"
+		  else
+		    echo "\\\$_timestamp: Unable to grow partition \\\${grow_device}\\\${grow_part_num}"
+		  fi
+		  echo \\\$_output
+EOF
+
+    if { [ "$image_class" = "physical" ] && \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
+       [ "$image_boot_device_type" = "nvme" ]; then
+      _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
+    else
+      _resize_root_fs_part="${_grow_device}${_grow_part_num}"
+    fi
+  fi
+
+  case $image_fs_type in
+    btrfs )
+      _resize_command="btrfs filesystem resize max" ;;
+    ext4 )
+      _resize_command="resize2fs" ;;
+    f2fs )
+      _resize_command="resize.f2fs" ;;
+    xfs )
+      _resize_command="xfs_growfs" ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+		
+		  resize_command="$_resize_command"
+		  resize_root_fs_part="$_resize_root_fs_part"
+EOF
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+		  resize_logs_fs_part="$_resize_logs_fs_part"
+  fi
+
+  cat <<'EOF' >> "$run_script"
+		  
+		  # Resize the underlying root filesystem
+		  _output=\\\$(\\\$resize_command \\\$resize_root_fs_part 2>&1)
+		  _rc=\$?
+		  _timestamp=\\\$(printf "[%s]" "\\\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	
+		  if [ \\\$_rc -eq 0 ]; then
+		    echo "\\\$_timestamp: Resized root filesystem \\\${resize_root_fs_part}"
+		  else
+		    echo "\\\$_timestamp: Unable to resize root filesystem \\\${resize_root_fs_part}"
+		  fi
+		  echo \\\$_output
+EOF
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+		  # Resize the underlying logs filesystem
+		  _output=\\\$(\\\$resize_command \\\$resize_logs_fs_part 2>&1)
+		  _rc=\\\$?
+		  _timestamp=\\\$(printf "[%s]" "\\\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	
+		  if [ \\\$_rc -eq 0 ]; then
+		    echo "\\\$_timestamp: Resized logs filesystem \\\${resize_logs_fs_part}"
+		  else
+		    echo "\\\$_timestamp: Unable to resize logs filesystem \\\${resize_logs_fs_part}"
+		  fi
+		  echo \\\$_output
+EOF
+  fi
+
+cat <<'EOF' >> "$run_script"
+		} >> /var/log/resize-storage.log
+	
+		eend 0
+	}
+	_SCRIPT_
+	
+  chmod a+x /etc/init.d/resize-rootfs
+	
+  {
+EOF
+  add_init_d_service "resize-rootfs" "default" 4
+
+  cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<EOF >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "resize-rootfs contents:" 4
+    cat /etc/init.d/resize-rootfs >> /chroot.log
+  }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}

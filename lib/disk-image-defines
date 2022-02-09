@@ -14,7 +14,9 @@
 readonly CONSTANT_DEFAULT_ADMIN_USERNAME="alpine"
 readonly CONSTANT_DEFAULT_AUTH_CONTROL="doas"
 readonly CONSTANT_DEFAULT_BOOT_REFERENCE="uuid"
-readonly CONSTANT_DEFAULT_DHCP_CLIENT="dhcpcd"
+readonly CONSTANT_DEFAULT_CRON_DAEMON="busybox"
+readonly CONSTANT_DEFAULT_DHCP_CLIENT="dhclient"
+readonly CONSTANT_DEFAULT_DISK_RESIZE_FREE_PERCENT=10
 readonly CONSTANT_DEFAULT_FIREWALL="iptables"
 readonly CONSTANT_DEFAULT_FS_TYPE="ext4"
 readonly CONSTANT_DEFAULT_LUKS_CIPHER="aes-xts-plain64"
@@ -43,7 +45,7 @@ readonly CONSTANT_EXT4_RESERVED_PERCENT="5"
 readonly CONSTANT_F2FS_RESERVED_PERCENT="40"
 
 # Storage overhead for LUKS and LVM in %
-readonly CONSTANT_LUKS_OVERHEAD_PERCENT="3"
+readonly CONSTANT_LUKS_OVERHEAD_PERCENT="4"
 readonly CONSTANT_LVM_OVERHEAD_PERCENT="7"
 
 ###########################################################################
@@ -51,13 +53,16 @@ readonly CONSTANT_LVM_OVERHEAD_PERCENT="7"
 ###########################################################################
 
 readonly CONSTANT_CIDATA_PART_SIZE=1
-readonly CONSTANT_LVM_LOGS_LV_SIZE=4
+# With XFS the minimum size must be 16MiB
+readonly CONSTANT_LVM_LOGS_LV_SIZE=16
 
 # Cloud
 ########
 readonly CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE=1
 # Takes into account size of kernel & initramfs
-readonly CONSTANT_CLOUD_BOOT_PART_SIZE=32
+readonly CONSTANT_CLOUD_AARCH64_BOOT_PART_SIZE=64
+readonly CONSTANT_CLOUD_X86_BOOT_PART_SIZE=32
+readonly CONSTANT_CLOUD_X86_64_BOOT_PART_SIZE=32
 readonly CONSTANT_CLOUD_ROOT_PART_SIZE=325
 readonly CONSTANT_CLOUD_ESP_TYPE="fat12"
 
@@ -73,13 +78,122 @@ readonly CONSTANT_PHYSICAL_ESP_TYPE="fat16"
 ######
 readonly CONSTANT_RPI_AARCH64_BOOT_PART_SIZE=64
 readonly CONSTANT_RPI_AARCH64_ROOT_PART_SIZE=256
-readonly CONSTANT_RPI_ARMV7_BOOT_PART_SIZE=48
-readonly CONSTANT_RPI_ARMV7_ROOT_PART_SIZE=224
+readonly CONSTANT_RPI_ARMV7_BOOT_PART_SIZE=40
+readonly CONSTANT_RPI_ARMV7_ROOT_PART_SIZE=240
 
 # Virtual
 ##########
 readonly CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE=1
 # Takes into account size of kernel & initramfs
-readonly CONSTANT_VIRTUAL_BOOT_PART_SIZE=32
-readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=240
+readonly CONSTANT_VIRTUAL_AARCH64_BOOT_PART_SIZE=64
+readonly CONSTANT_VIRTUAL_X86_BOOT_PART_SIZE=32
+readonly CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE=40
+readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=210
 readonly CONSTANT_VIRTUAL_ESP_TYPE="fat12"
+
+
+readonly CONSTANT_GENERAL_NTP_SERVER="pool.ntp.org"
+
+
+
+###########################################################################
+
+# Modules shared between Cloud and VMs, i.e. Azure/Hyper-V
+readonly CONSTANT_CLOUD_VIRTUAL_COMMON_KERNEL_MODULES="hid-hyperv \
+           hv_netvsc hv_storvsc hv_utils hv_vmbus hyperv-keyboard \
+           hyperv_drm hyperv_fb pci-hyperv pci-hyperv-intf"
+
+###########################################################################
+#        Cloud-specific settings
+###########################################################################
+
+# AWS-specific defines
+readonly CONSTANT_AWS_NTP_IPV4ADDRESS="169.254.169.123"
+readonly CONSTANT_AWS_NTP_IPV6ADDRESS="fd00:ec2::123"
+readonly CONSTANT_CLOUD_AWS_KERNEL_MODULES="ena"
+
+# Azure-specific defines
+readonly CONSTANT_CLOUD_AZURE_KERNEL_MODULES=""
+
+# GCE-specific defines
+#
+# https://morganpeat.github.io/cloudmigration/2019/02/01/time-sync-on-cloud-vms-2.html
+readonly CONSTANT_GCE_NTP_INTERNAL_SERVER="metadata.google.internal"
+readonly CONSTANT_CLOUD_GCE_KERNEL_MODULES=""
+
+# General Cloud defines
+readonly CONSTANT_CLOUD_KERNEL_MODULES="${CONSTANT_CLOUD_AWS_KERNEL_MODULES} \
+           ${CONSTANT_CLOUD_AZURE_KERNEL_MODULES} \
+           ${CONSTANT_CLOUD_GCE_KERNEL_MODULES}"
+
+###########################################################################
+#        Virtual-specific settings
+###########################################################################
+
+# Hyper-v-specific defines
+readonly CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES="hv_balloon"
+
+# QEMU-specific defines
+readonly CONSTANT_VIRTUAL_QEMU_KERNEL_MODULES=""
+
+# Virtualbox-specific defines
+readonly CONSTANT_VIRTUAL_VIRTUALBOX_KERNEL_MODULES=""
+
+# VMWare-specific defines
+readonly CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES="ptp_vmw vmw_balloon vmw_vmci \
+            vmw_vsock_virtio_transport vmw_vsock_virtio_transport_common \
+            vmw_vsock_vmci_transport vmxnet3 vsock vsock_diag vsock_loopback"
+
+# Xen-specific defines
+readonly CONSTANT_VIRTUAL_XEN_KERNEL_MODULES="xen-scsiback xen-scsifront"
+
+# General Virtual defines
+readonly CONSTANT_VIRTUAL_KERNEL_MODULES="${CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES} \
+           ${CONSTANT_VIRTUAL_QEMU_KERNEL_MODULES} \
+           ${CONSTANT_VIRTUAL_VIRTUALBOX_KERNEL_MODULES} \
+           ${CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES} \
+           ${CONSTANT_VIRTUAL_XEN_KERNEL_MODULES}"
+
+
+###########################################################################
+#        General kernel modules
+###########################################################################
+
+# Non-server driver kernel modules
+readonly CONSTANT_DESKTOP_KERNEL_MODULES="evdev mousedev psmouse usbmouse"
+
+readonly CONSTANT_PHYSICAL_KERNEL_MODULES="ac battery button i2c-piix4 \
+            usb_common usb_storage usbmon"
+
+# Net
+readonly CONSTANT_UNUSED_NET_GENERAL_KERNEL_MODULES="ah4 ah6 esp4 esp6 fou \
+            fou6 ife ila ip_gre ip_vti ip6_gre ip6_vti ipcomp ipcomp6 libceph \
+            llc llc2 mip6 nsh pktgen"
+readonly CONSTANT_UNUSED_NET_DCCP_KERNEL_MODULES="dccp dccp_diag dccp_ipv4 \
+            dccp_ipv6"
+readonly CONSTANT_UNUSED_NET_IPTUNNEL_KERNEL_MODULES="ip_tunnel ip6_tunnel \
+            ip6_udp_tunnel ipip tunnel4 udp_tunnel"
+readonly CONSTANT_UNUSED_NET_IPVS_KERNEL_MODULES="ip_vs ip_vs_dh ip_vs_fo \
+            ip_vs_ftp ip_vs_lblc ip_vs_lblcr ip_vs_lc ip_vs_nq ip_vs_ovf \
+            ip_vs_pe_sip ip_vs_rr ip_vs_sed ip_vs_sh ip_vs_wlc ip_vs_wrr"
+readonly CONSTANT_UNUSED_NET_L2TP_KERNEL_MODULES="l2tp_core l2tp_eth l2tp_ip \
+            l2tp_ip6 l2tp_netlink l2tp_ppp"
+readonly CONSTANT_UNUSED_NET_MPLS_KERNEL_MODULES="mpls_gso mpls_iptunnel \
+            mpls_router"
+readonly CONSTANT_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES="openvswitch \
+            vport-geneve vport-gre vport-vxlan"
+readonly CONSTANT_UNUSED_NET_SCTP_KERNEL_MODULES="sctp sctp_diag"
+
+readonly CONSTANT_UNUSED_NET_KERNEL_MODULES="\
+            $CONSTANT_UNUSED_NET_GENERAL_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_DCCP_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_IPTUNNEL_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_IPVS_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_L2TP_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_MPLS_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES \
+            $CONSTANT_UNUSED_NET_SCTP_KERNEL_MODULES"
+
+readonly CONSTANT_NET_VMWARE_KERNEL_MODULES="vmw_vsock_virtio_transport \
+            vmw_vsock_virtio_transport_common vmw_vsock_vmci_transport vsock \
+            vsock_diag vsock_loopback"
