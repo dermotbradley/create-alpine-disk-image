@@ -96,7 +96,6 @@ EOF
         configure_mkinitfs_feature_cloud_azure
         configure_mkinitfs_feature_cloud_exoscale
         configure_mkinitfs_feature_cloud_gce
-        configure_mkinitfs_feature_virtio
         ;;
     esac
   elif [ "$image_class" = "physical" ]; then
@@ -126,7 +125,6 @@ EOF
       # USB for keyboard
       configure_mkinitfs_feature_usb
     fi
-
   elif [ "$image_class" = "virtual" ]; then
     # Virtual machine feature files
 
@@ -142,9 +140,9 @@ EOF
       generic )
         configure_mkinitfs_feature_vm_hyperv
         configure_mkinitfs_feature_vm_qemu
+        configure_mkinitfs_feature_vm_virtio
         configure_mkinitfs_feature_vm_virtualbox
         configure_mkinitfs_feature_vm_vmware
-        configure_mkinitfs_feature_virtio
         ;;
     esac
 	fi
@@ -281,10 +279,10 @@ EOF
         _cloud_features_list="cloud-azure" ;;
       gce )
         _cloud_features_list="cloud-gce" ;;
-      oracle )
-        _cloud_features_list="virtio" ;;
+      ###oracle )
+      ###  _cloud_features_list="cloud-oracle" ;;
       generic )
-        _cloud_features_list="cloud-alibaba cloud-aws cloud-azure cloud-gce ${_optimise:-}nvme ${_optimise:-}virtio" ;;
+        _cloud_features_list="cloud-alibaba cloud-aws cloud-azure cloud-gce ${_optimise:-}nvme" ;;
     esac
 
     if [ "$_cloud_features_list" != "" ]; then
@@ -345,9 +343,9 @@ EOF
       vmware )
         _virt_features_list="vm-vmware" ;;
       generic )
-        _virt_features_list="vm-hyperv vm-qemu vm-virtualbox vm-vmware ${_optimise:-}virtio" ;;
+        _virt_features_list="vm-hyperv vm-qemu vm-virtualbox vm-vmware ${_optimise:-}vm-virtio" ;;
       * )
-        _virt_features_list="${_optimise:-}virtio" ;;
+        _virt_features_list="${_optimise:-}vm-virtio" ;;
     esac
 
     _features_list="$_features_list $_virt_features_list"
@@ -1265,8 +1263,14 @@ EOF
 
     cat <<'EOF' >> "$run_script"
 
-    :
+    write_log "Setting up features.d/network.modules" 2
 EOF
+
+    initramfs_entry_initialise "network" "append"
+    if [ -z "${image_disable_ipv6+x}" ]; then
+      initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
+    fi
+    initramfs_entry_finish
 
     if [ -n "${debug_enabled+x}" ]; then
       cat <<'EOF' >> "$run_script"
@@ -1558,117 +1562,6 @@ EOF
     fi
 
   fi
-
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
-}
-
-
-#
-# Create/modify virtio mkinitfs feature files
-#
-configure_mkinitfs_feature_virtio() {
-  cat <<'EOF' >> "$run_script"
-
-  # Virtio
-  {
-EOF
-
-
-  if [ -n "${image_optimise+x}" ]; then
-
-    # optimise-virtio.modules
-
-    cat <<'EOF' >> "$run_script"
-    write_log "Setting up features.d/optimise-virtio.modules" 2
-EOF
-
-    initramfs_entry_initialise "optimise-virtio"
-    initramfs_entry_add "kernel/arch/*/kvm/kvm.ko*"
-    if [ -z "${image_cpu_vendor+x}" ] || \
-       [ "$image_cpu_vendor" = "amd" ]; then
-      initramfs_entry_add "kernel/arch/*/kvm/kvm-amd.ko*"
-    fi
-    if [ -z "${image_cpu_vendor+x}" ] || \
-       [ "$image_cpu_vendor" = "intel" ]; then
-      initramfs_entry_add "kernel/arch/*/kvm/kvm-intel.ko*"
-    fi
-
-    initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-    initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
-    case $image_vm_type in
-      libvirtd | lxd | proxmox | qemu | generic )
-        initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-        initramfs_entry_add "kernel/drivers/crypto/virtio*"
-        if [ "$image_console_type" = "normal" ] || \
-           [ "$image_console_type" = "both" ]; then
-          initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-        fi
-        initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-        initramfs_entry_add "kernel/drivers/virtio"
-        ;;
-    esac
-
-    initramfs_entry_finish
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "optimise-virtio.modules contents:" 2
-      cat /etc/mkinitfs/features.d/optimise-virtio.modules >> /chroot.log
-    }
-EOF
-    fi
-
-  else
-    # virtio.modules
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      cp /etc/mkinitfs/features.d/virtio.modules /etc/mkinitfs/features.d/virtio.modules-orig
-    }
-EOF
-    fi
-
-    cat <<'EOF' >> "$run_script"
-    write_log "Setting up features.d/virtio.modules" 2
-EOF
-
-    initramfs_entry_initialise "virtio" "append"
-    initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-    ###initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-    initramfs_entry_add "kernel/drivers/crypto/virtio*"
-    initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-    initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-    ###initramfs_entry_add "kernel/drivers/virtio"
-    initramfs_entry_finish
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "virtio.modules contents:" 2
-      cat /etc/mkinitfs/features.d/virtio.modules >> /chroot.log
-
-      diff /etc/mkinitfs/features.d/virtio.modules-orig \
-        /etc/mkinitfs/features.d/virtio.modules >> /chroot.log || true
-      rm /etc/mkinitfs/features.d/virtio.modules-orig
-    }
-EOF
-    fi
-
-	fi
 
   cat <<'EOF' >> "$run_script"
   }

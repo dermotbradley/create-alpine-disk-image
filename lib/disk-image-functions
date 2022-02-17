@@ -605,13 +605,11 @@ EOF
   if [ -n "${_modules}" ]; then
     _cmdline="$_cmdline modules=$_modules"
   fi
-  if [ "$image_console_type" = "serial" ] || \
-     [ "$image_console_type" = "both" ]; then
+  if [ "$image_console_type" = "serial" ]; then
     # Serial console
     _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
   fi
-  if [ "$image_console_type" = "normal" ] || \
-     [ "$image_console_type" = "both" ]; then
+  if [ "$image_console_type" = "normal" ]; then
     # Normal console
     _cmdline="$_cmdline console=$image_console_name"
   fi
@@ -707,13 +705,11 @@ EOF
     } >> /etc/default/grub
 EOF
 
-  if [ "$image_boot_type" = "bios" ]; then
-    cat <<'EOF' >> "$run_script"
+  cat <<'EOF' >> "$run_script"
     if ! grep -q "^GRUB_TERMINAL=" /etc/default/grub; then
       echo 'GRUB_TERMINAL=console' >> /etc/default/grub
     fi
 EOF
-  fi
 
   if [ -n "${image_encrypted+x}" ] && \
      { [ -z "${image_experimental+x}" ] || \
@@ -733,6 +729,11 @@ EOF
     echo 'GRUB_ENABLE_CRYPTODISK=n' >> /etc/default/grub
 EOF
   fi
+
+  case $image_console_type in
+    serial | both )
+      enable_grub_serial_console ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
     ###chmod g=,o= /etc/default/grub
@@ -1024,12 +1025,10 @@ EOF
 EOF
 
   _cmdline="rootfstype=$image_fs_type"
-  if [ "$image_console_type" = "serial" ] || \
-     [ "$image_console_type" = "both" ]; then
+  if [ "$image_console_type" = "serial" ]; then
     _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
   fi
-  if [ "$image_console_type" = "normal" ] || \
-     [ "$image_console_type" = "both" ]; then
+  if [ "$image_console_type" = "normal" ]; then
     _cmdline="$_cmdline console=${image_console_name}"
   fi
   if [ "$image_boot_type" = "bios" ]; then
@@ -1107,8 +1106,18 @@ EOF
     if [ -n "\${modules+x}" ]; then
       sed -i -e "s|^modules=.*$|modules=\$modules|g" /etc/update-extlinux.conf
     fi
+EOF
+
+
+  case $image_console_type in
+    serial | both )
+      enable_syslinux_serial_console ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
   }
 EOF
+
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<'EOF' >> "$run_script"
@@ -1119,6 +1128,7 @@ EOF
     diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \\
       >> /chroot.log || true
     rm /etc/update-extlinux.conf-orig
+
     write_debug_log "update-extlinux.conf contents:" 2
     cat /etc/update-extlinux.conf >> /chroot.log
   }
@@ -1172,8 +1182,7 @@ EOF
 
   # Need to sort out serial console settings at this stage, after specific
   # clouds/VM types may/may not have overriden the defaults.
-  if [ "$image_console_type" = "serial" ] || \
-     [ "$image_console_type" = "both" ]; then
+  if [ "$image_console_type" = "serial" ]; then
     if [ -z "${serial_port_number+x}" ]; then
       serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
       serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
@@ -2392,7 +2401,7 @@ define_additional_packages() {
       fi
     fi
     # Packages for all types of physical machines
-    _initial_pkgs="${_initial_pkgs} ethtool lm-sensors lm-sensors-sensord"
+    _initial_pkgs="${_initial_pkgs} cpufrequtils ethtool lm-sensors lm-sensors-sensord"
   elif [ "$image_class" = "virtual" ]; then
     # Virtual Machine
     case $image_vm_type in
@@ -2431,19 +2440,20 @@ define_cloud_settings() {
       if [ "$image_arch" = "aarch64" ]; then
         image_console_name="ttyAMA1"
       fi
-      image_console_type="both"
-      if [ "$image_console_type" = "serial" ] || \
-         [ "$image_console_type" = "both" ]; then
-        serial_port_number="0"
-        if [ "$image_arch" = "aarch64" ]; then
-          serial_port_name="ttyAMA${serial_port_number}"
-        else
-          serial_port_name="ttyS${serial_port_number}"
-        fi
+      image_console_type="serial"
+      serial_port_number="0"
+      if [ "$image_arch" = "aarch64" ]; then
+        serial_port_name="ttyAMA${serial_port_number}"
+      else
+        serial_port_name="ttyS${serial_port_number}"
       fi
       ;;
     azure )
-      datasource_list="'Azure'" ;;
+      datasource_list="'Azure'"
+      image_console_type="serial"
+      serial_port_number="0"
+      serial_port_name="ttyS${serial_port_number}"
+      ;;
     bigstep )
       datasource_list="'Bigstep'" ;;
     brightbox )
@@ -2472,8 +2482,7 @@ define_cloud_settings() {
         image_console_name="ttyAMA1"
       fi
       image_console_type="both"
-      if [ "$image_console_type" = "serial" ] || \
-         [ "$image_console_type" = "both" ]; then
+      if [ "$image_console_type" = "serial" ]; then
         serial_port_number="0"
         if [ "$image_arch" = "aarch64" ]; then
           serial_port_name="ttyAMA${serial_port_number}"
@@ -2571,8 +2580,7 @@ define_virtual_settings() {
       datasource_list="'NoCloud'" ;;
     libvirtd | lxd | proxmox | qemu )
       datasource_list="'NoCloud'"
-      if { [ "$image_console_type" = "serial" ] || \
-           [ "$image_console_type" = "both" ]; } && \
+      if [ "$image_console_type" = "serial" ] && \
          { [ "$image_arch" = "armv7" ] || \
            [ "$image_arch" = "aarch64" ]; }; then
         serial_port_number="0"
@@ -2710,59 +2718,6 @@ EOF
 }
 EOF
   fi
-}
-
-
-#
-# Disable most of the gettys normally configured to run
-#
-disable_extra_getty() {
-  local _first_getty_to_disable
-
-  cat <<'EOF' >> "$run_script"
-
-write_log "Disabling extra getty processes"
-{
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    cp /etc/inittab /etc/inittab-orig
-  }
-EOF
-  fi
-
-  if [ "$image_class" = "cloud" ] || \
-     [ "$image_class" = "virtual" ]; then
-    # Only have 1 getty for cloud/virtual machines
-    _first_getty_to_disable="2"
-  else
-    # Keep 2 gettys for physical machines
-    _first_getty_to_disable="3"
-  fi
-
-  cat <<EOF >> "$run_script"
-
-  sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
-    rm /etc/inittab-orig
-  }
-EOF
-  fi
-
-  cat <<EOF >> "$run_script"
-}
-EOF
 }
 
 
@@ -3475,7 +3430,7 @@ write_log "Bootloader packages to be installed are: $_bootloader_packages"
 write_log "Install base Alpine (plus bootloader packages) inside chroot"
 {
   # shellcheck disable=SC2086
-  \$TMPDIR/apk-tools-${apk_static_version}/apk \\
+  \$TMPDIR/apk.static \\
     --arch "${image_arch}" --initdb --allow-untrusted --root \$chroot_dir \\
     --update-cache \\
     add ${_base_packages} \\
@@ -3632,7 +3587,7 @@ EOF
 # Install GRUB onto disk
 #
 install_grub() {
-  local _grub_options _grub_efi_options _grub_modules_list _grub_target
+  local _grub_options _grub_efi_options _grub_modules_list
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<'EOF' >> "$run_script"
@@ -3738,7 +3693,7 @@ EOF
       _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
     fi
   elif [ "$image_arch" = "x86" ]; then
-    _grub_target="i386-pc"
+    _grub_options="--target=i386-pc"
     if [ -n "${image_optimise+x}" ]; then
       _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
       if [ "$image_class" = "cloud" ]; then
@@ -4971,10 +4926,6 @@ EOF
 	nvme
 EOF
   fi
-
-  cat <<'EOF' >> "$run_script"
-	rng-core
-EOF
 
   if [ -n "${image_encrypted+x}" ]; then
     cat <<'EOF' >> "$run_script"

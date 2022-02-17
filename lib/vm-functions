@@ -117,6 +117,60 @@ EOF
 
 
 #
+# Create VM Virtio mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_virtio() {
+  # vm-virtio.modules
+
+  cat <<'EOF' >> "$run_script"
+
+  {
+    write_log "Setting up features.d/vm-virtio.modules" 2
+EOF
+
+  initramfs_entry_initialise "vm-virtio"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
+  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+
+  if [ -n "${image_optimise+x}" ]; then
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    :
+  else
+    initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+  initramfs_entry_add "kernel/drivers/crypto/virtio"
+  if [ "$image_boot_device_type" = "nvme" ]; then
+    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  fi
+  if [ "$image_boot_device_type" = "sata" ] || \
+     [ "$image_boot_device_type" = "scsi" ]; then
+    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  fi
+  initramfs_entry_add "kernel/drivers/virtio"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "vm-virtio.modules contents:" 2
+      cat /etc/mkinitfs/features.d/vm-virtio.modules >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
 # Create VM Virtualbox mkinitfs feature file
 #
 configure_mkinitfs_feature_vm_virtualbox() {

@@ -10,8 +10,8 @@
 ##
 #############################################################################
 
-readonly CONSTANT_APK_STATIC_VERSION="2.10.4"
-readonly CONSTANT_APK_STATIC_URL="https://github.com/alpinelinux/apk-tools/releases/download/v${CONSTANT_APK_STATIC_VERSION}"
+readonly CONSTANT_APK_STATIC_VERSION="2.12.9"
+readonly CONSTANT_APK_STATIC_URL="https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic//v${CONSTANT_APK_STATIC_VERSION}"
 readonly CONSTANT_RAMDISK_SIZE=3G
 
 # Defaults
@@ -19,7 +19,6 @@ readonly CONSTANT_DEFAULT_ALPINE_RELEASE="edge"
 readonly CONSTANT_DEFAULT_ARCH="x86_64"
 readonly CONSTANT_DEFAULT_BOOT_DEVICE_TYPE="sata"
 readonly CONSTANT_DEFAULT_CHROOT_DIRECTORY="./chroot"
-readonly CONSTANT_DEFAULT_CONSOLE_NAME="tty0"
 readonly CONSTANT_DEFAULT_IMAGES_DIRECTORY="./alpine-images"
 readonly CONSTANT_DEFAULT_IPV6_TYPE="dhcp"
 readonly CONSTANT_DEFAULT_KEYMAP="us us"

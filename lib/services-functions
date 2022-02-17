@@ -170,26 +170,22 @@ EOF
       cat <<'EOF' >> "$run_script"
       # Debug
       {
-        cp /etc/conf.d/crond /etc/conf.d/crond-orig
+        cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
       }
 
 EOF
     fi
 
-    :
+    cat <<'EOF' >> "$run_script"
+      :
+
+EOF
 
   fi
 
 
   cat <<'EOF' >> "$run_script"
-      write_log "Enable Busybox cron init.d service" 6
-      {
-EOF
-
-  add_init_d_service "crond" "default" 8
-
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
+      :
 EOF
 
 
@@ -200,8 +196,9 @@ EOF
 
       # Debug
       {
-        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
-        rm /etc/conf.d/crond-orig
+        diff /usr/share/udhcpc/default.script-orig \
+          /usr/share/udhcpc/default.script >> /chroot.log || true
+        rm /usr/share/udhcpc/default.script-orig
       }
 EOF
     fi
@@ -257,7 +254,7 @@ EOF
       {
         echo
         echo "# For Virtual/Cloud machines use the host machine's clock as reference"
-        echo "# clock. This only works when ptp_kvm or ptp_vmw or (for" Azure/Hyper-v)"
+        echo "# clock. This only works when ptp_kvm or ptp_vmw or (for Azure/Hyper-V)"
         echo "# hv_utils kernel modules are loaded, and host machine hypervisor"
         echo "# supports this."
         echo "#"
@@ -378,6 +375,7 @@ EOF
 #
 configure_dhcp_client() {
   cat <<'EOF' >> "$run_script"
+
   write_log "Configuring DHCP client" 2
   {
 EOF
@@ -421,6 +419,54 @@ EOF
 EOF
 }
 
+
+#
+# Configure Dropbear server daemon
+#
+configure_dropbear() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring Dropbear SSH server" 4
+    {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      # Debug
+      {
+        cp /etc/conf.d/dropbear /etc/conf.d/dropbear-orig
+      }
+
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+      write_log "Enable Dropbear init.d service" 6
+      {
+EOF
+
+  add_init_d_service "dropbear" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+      # Debug
+      {
+        diff /etc/conf.d/dropbear-orig /etc/conf.d/dropbear >> /chroot.log || true
+        rm /etc/conf.d/dropbear-orig
+      }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
 
 
 #
@@ -709,6 +755,106 @@ EOF
   cat <<'EOF' >> "$run_script"
       } >> /chroot.log 2>&1
     }
+EOF
+}
+
+
+#
+# Configure getty daemons
+#
+configure_gettys() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring getty daemons" 2
+  {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      cp /etc/inittab /etc/inittab-orig
+    }
+
+EOF
+  fi
+
+
+  cat <<EOF >> "$run_script"
+    write_log "Enable ${image_console_type} console" 4
+    {
+EOF
+
+  if [ "$image_console_type" = "normal" ]; then
+      _getty_port_name="tty1"
+      _getty_options="38400 ${_getty_port_name}"
+
+    cat <<EOF >> "$run_script"
+      write_log "Enabling getty on normal console" 6
+      sed -i -E -e 's|^${_getty_port_name}|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
+    }
+EOF
+  else
+
+    cat <<EOF >> "$run_script"
+      write_log "Disabling getty on normal console" 6
+      sed -i -E -e 's|^tty1:|#tty1:|g' /etc/inittab
+EOF
+
+    case $image_console_type in
+      hypervisor )
+        _getty_port_name="hvc0"
+        _getty_options="38400 ${_getty_port_name}"
+        ;;
+      serial )
+        _getty_port_name="${serial_port_name}"
+        _getty_options=" -L ${serial_port_name} ${serial_port_speed} vt100"
+        ;;
+    esac
+
+    cat <<EOF >> "$run_script"
+
+      write_log "Enabling getty on ${_getty_port_name} for ${image_console_type} console" 6
+      sed -i \\
+        -e 's|^[#]*ttyS0::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
+        /etc/inittab
+    }
+EOF
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Disabling unused gettys" 4
+EOF
+
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Only have 1 console getty for cloud/virtual machines
+    _first_getty_to_disable="2"
+  else
+    # Keep 2 console gettys for physical machines
+    _first_getty_to_disable="3"
+  fi
+
+  cat <<EOF >> "$run_script"
+    sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
+EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
+      rm /etc/inittab-orig
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
 EOF
 }
 
@@ -1134,6 +1280,7 @@ EOF
   fi
   configure_cron
   configure_dhcp_client
+	configure_gettys
   configure_ntpd
   configure_rngd
   configure_syslogd
@@ -1169,7 +1316,9 @@ configure_sshd() {
   {
 EOF
 
-  if [ "$image_ssh_server" = "openssh" ]; then
+  if [ "$image_ssh_server" = "dropbear" ]; then
+    configure_dropbear
+  elif [ "$image_ssh_server" = "openssh" ]; then
     configure_opensshd
   elif [ "$image_ssh_server" = "tinyssh" ]; then
     configure_tinysshd
@@ -1557,6 +1706,11 @@ EOF
 EOF
 
   add_init_d_service "utmp-init" "boot" 6
+  if [ "$image_alpine_release" != "v3.13" ] && \
+     [ "$image_alpine_release" != "v3.14" ] && \
+     [ "$image_alpine_release" != "v3.15" ]; then
+    add_init_d_service "btmpd" "boot" 6
+  fi
   add_init_d_service "utmpd" "boot" 6
   add_init_d_service "wtmpd" "boot" 6
 
