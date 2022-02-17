@@ -159,10 +159,14 @@ if [ -n "${local_repo_signature_file+x}" ]; then
 fi
 install_alpine_base
 cat <<EOF >> "$run_script"
-rm -Rf \$TMPDIR/apk-tools-$apk_static_version
+rm -Rf \$TMPDIR/apk.static
 EOF
 
 mount_host_special_fs_in_chroot
+
+if [ -n "${extra_files_directory+x}" ]; then
+  install_extra_files
+fi
 
 # shellcheck disable=SC2129
 cat <<'EOF' >> "$run_script"
@@ -211,7 +215,6 @@ add_additional_repos
 update_upgrade_packages
 basic_os_configuration
 setup_etc_modules
-disable_extra_getty
 add_base_init_d
 install_additional_packages
 additional_os_configuration
@@ -220,11 +223,6 @@ if [ -z "${image_without_cloud_init+x}" ]; then
   configure_cloud_init
 else
   configure_non_cloud_init
-fi
-
-if [ "$image_console_type" = "serial" ] || \
-   [ "$image_console_type" = "both" ]; then
-  enable_serial_console
 fi
 
 if [ -n "${image_optimise+x}" ]; then
@@ -289,11 +287,11 @@ EOF
 fi
 
 if [ "$image_mdev" = true ]; then
-  # Hack for grub-probe problems - it will use "udevadm info" to determine
-  # info related to the boot device/fs if eudev package is installed, if not
-  # then it falls back to its own way of figuring stuff out which does not
-  # work for filesystems on a loopback device, so let's temporarily install
-  # eudev to let it use udevadm.
+  # Hack/kludge for grub-probe problems - it will use "udevadm info" to
+  # determine info related to the boot device/fs if eudev package is
+  # installed, if not then it falls back to its own way of figuring stuff out
+  # which does not work for filesystems on a loopback device, so let's
+  # temporarily install eudev to let it use udevadm.
   cat <<EOF >> "$run_script"
 
 write_log "Temporarily installing eudev so that grub-probe can use it"
@@ -376,10 +374,6 @@ configure_services
 
 if [ -n "${extra_packages_list+x}" ]; then
   install_extra_packages
-fi
-
-if [ -n "${extra_files_directory+x}" ]; then
-  install_extra_files
 fi
 
 

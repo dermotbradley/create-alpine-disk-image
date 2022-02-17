@@ -302,135 +302,67 @@ EOF
 download_static_apk() {
   cat <<EOF >> "$run_script"
 
-write_log "Downloading statically built APK tool"
+_host_arch="\$(detect_host_arch)"
+write_log "Downloading statically built APK tool for \${_host_arch} arch"
 {
-  wget -q -O $TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz \\
-    ${apk_static_url}/apk-tools-${apk_static_version}-x86_64-linux.tar.gz \\
+  wget -q -O $TMPDIR/apk.static \\
+    ${apk_static_url}/\${_host_arch}/apk.static \\
     2>> "\$logfile"
-  tar --extract -C \$TMPDIR -z \\
-    -f \$TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz >> "\$logfile"
-  rm -f $TMPDIR/apk-tools-${apk_static_version}-x86_64-linux.tar.gz
+  chmod +x $TMPDIR/apk.static
 }
 EOF
 }
 
 
 #
-# Enable getty for serial console
+# Enable serial console for Grub
 #
-enable_serial_console() {
+enable_grub_serial_console() {
   cat <<EOF >> "$run_script"
-{
+    {
+      write_log "Configure GRUB serial command" 4
+      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} \\
+        --speed=${serial_port_speed}"' >> /etc/default/grub
+      write_log "Configure GRUB for serial console" 4
 EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ "$image_console_type" = "both" ]; then
     cat <<'EOF' >> "$run_script"
-
-  # Debug
-  cp /etc/inittab /etc/inittab-orig
+      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial console"/' \
+        /etc/default/grub
 EOF
-
-    if [ "$image_bootloader" = "grub" ]; then
-      # GRUB
-      cat <<'EOF' >> "$run_script"
-  cp /etc/default/grub /etc/default/grub-orig
-EOF
-    elif [ "$image_bootloader" = "syslinux" ]; then
-      # Syslinux
-      cat <<'EOF' >> "$run_script"
-  cp /etc/update-extlinux.conf /etc/update-extlinux.conf-orig
-EOF
-    fi
-
-  fi
-
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Enable serial console"
-EOF
-
-  cat <<EOF >> "$run_script"
-  write_log "Enabling getty on ${serial_port_name} for serial console" 2
-  sed -i \\
-    -e 's|^[#]*ttyS0::.*$|${serial_port_name}::respawn:/sbin/getty -L ${serial_port_name} ${serial_port_speed} vt100|g' \\
-    /etc/inittab
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
+  else
     cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
-    rm /etc/inittab-orig
-  }
+      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial"/' \
+        /etc/default/grub
 EOF
-  fi
-
-  if [ "$image_bootloader" = "grub" ]; then
-    # GRUB
-    cat <<EOF >> "$run_script"
-
-  write_log "Configure GRUB serial command" 2
-  echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} --speed=${serial_port_speed}"' \\
-    >> /etc/default/grub
-  write_log "Configure GRUB for serial console" 2
-EOF
-
-    if [ "$image_console_type" = "both" ]; then
-      cat <<EOF >> "$run_script"
-  echo 'GRUB_TERMINAL="serial console"' >> /etc/default/grub
-EOF
-    else
-      cat <<EOF >> "$run_script"
-  echo 'GRUB_TERMINAL="serial"' >> /etc/default/grub
-EOF
-    fi
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-  # Debug
-  {
-    diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
-    rm /etc/default/grub-orig
-  }
-EOF
-    fi
-
-  elif [ "$image_bootloader" = "syslinux" ]; then
-    # Syslinux
-    cat <<EOF >> "$run_script"
-
-  write_log "Configure Syslinux serial port and speed" 2
-  sed -i \\
-    -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
-    -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
-    /etc/update-extlinux.conf
-EOF
-
-    if [ "$image_console_type" = "serial" ]; then
-      cat <<EOF >> "$run_script"
-  write_log "Disable normal Syslinux console" 2
-  sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
-EOF
-    fi
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \
-      >> /chroot.log || true
-    rm /etc/update-extlinux.conf-orig
-  }
-EOF
-    fi
   fi
 
   cat <<EOF >> "$run_script"
+    }
+EOF
 }
+
+
+#
+# Enable serial console for Syslinux
+#
+enable_syslinux_serial_console() {
+  cat <<EOF >> "$run_script"
+
+    write_log "Configure Syslinux serial port and speed" 4
+    sed -i -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
+      -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
+      /etc/update-extlinux.conf
 EOF
+
+  if [ "$image_console_type" = "serial" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    write_log "Disable normal Syslinux console" 4
+    sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
+EOF
+  fi
 }
 
 
@@ -666,7 +598,7 @@ check_binfmt_packages() {
 
   local _binfmt_arch_enabled _binfmt_file _host_arch _host_os _required_packages
 
-  _host_arch=$(uname -m)
+  _host_arch=$(detect_host_arch)
 
   if [ "$_host_arch" != "$_arch" ]; then
     _host_os=$(detect_host_os)
@@ -853,6 +785,22 @@ EOF
       exit 1
       ;;
   esac
+}
+EOF
+}
+
+
+#
+# Insert function detect_host_arch into the run script
+#
+insert_runscript_function_detect_host_arch() {
+  cat <<'EOF' >> "$run_script"
+
+#
+# Determine the host architecture that this script is being run on
+#
+detect_host_arch() {
+  uname -m
 }
 EOF
 }
@@ -1123,6 +1071,7 @@ EOF
 
   insert_runscript_function_check_binfmt_packages
 
+  insert_runscript_function_detect_host_arch
   insert_runscript_function_detect_host_os
   insert_runscript_function_error_cleanup
   insert_runscript_function_get_uuid_from_device
@@ -1216,12 +1165,12 @@ _extra_contents="$extra_files_directory"
 EOF
 
   cat <<'EOF' >> "$run_script"
-write_log "Installing contents of specified directory \$_extra_contents into image"
+write_log "Installing contents of specified directory '$_extra_contents' into image"
 {
-  if [ -d "\$_extra_contents" ]; then
-    cp -vr "\$_extra_contents"/ / >> /chroot.log 2>&1
+  if [ -d "$_extra_contents" ]; then
+    cp -vpr "$_extra_contents"/* $chroot_dir/ >> $logfile 2>&1
   else
-    write_log "NOTE: directory \$_extra_contents is missing, unable to copy files from there!"
+    write_log "NOTE: directory $_extra_contents is missing, unable to copy files from there!"
   fi
 }
 EOF
@@ -1338,13 +1287,12 @@ boottype:,\
 chroot-directory:,\
 cloud:,\
 cloud-seed-url:,\
+console-type:,\
 cpu-vendor:,\
 create-boot-partition,\
 cron:,\
 debug,\
 dhcp-client:,\
-disable-normal-console,\
-disable-serial-console,\
 disk-resize-free-percent:,\
 enable-utmp,\
 encrypt,\
@@ -1540,6 +1488,19 @@ without-cloud-init \
         fi
         shift 2
         ;;
+      --console-type )
+			  if [ "$script_type" = "creator" ]; then
+          case $2 in
+            hypervisor | normal | serial )
+              image_console_type="$2" ;;
+            * )
+              cli_option_unknown_value "console type '$2'" ;;
+          esac
+				else
+				  cli_option_not_handled
+        fi
+        shift 2
+        ;;
       --cpu-vendor )
 			  if [ "$script_type" = "creator" ]; then
           image_cpu_vendor="$2"
@@ -1580,14 +1541,6 @@ without-cloud-init \
 				  cli_option_not_handled
         fi
         shift 2
-        ;;
-      --disable-normal-console )
-        image_console_type="serial"
-        shift
-        ;;
-      --disable-serial-console )
-        image_console_type="normal"
-        shift
         ;;
       --disk-resize-free-percent )
 			  if [ "$script_type" = "creator" ]; then
@@ -2166,13 +2119,12 @@ usage() {
   option_help "--chroot-directory < directory >" "Temporary directory to use for building the Alpine image. Defaults to './chroot'."
   option_help "--cloud <cloud type>" "Valid values are: generic aliyun aws azure bigstep brightbox digitalocean e24 exoscale gce hetzner hyperone ibmcloud oracle rootbox scaleway tencent upcloud vultr"
   option_help "--cloud-seed-url < url >" "Base url for cloud-init NoCloud DataSource to download configuration from."
+  option_help "--console-type < hypervisor | normal | serial >" "The type of device the console is on."
   option_help "--cpu_vendor < amd | intel >" "Used to decide if only AMD or Intel relevant microcode is installed and whether vendor-specific kernel modules are included in the initramfs."
   option_help "--create-boot-partition" "Create a separate /boot partition, even if not required."
   option_help "--cron < busybox | ??? >" "Cron daemon software to use."
   option_help "--debug" "Enable debug-specific logging."
   option_help "--dhcp-client < dhclient | dhcpcd | udhcpc >" "Specify the DHCP Client software to use. Defaults to 'udhcpc'."
-  option_help "--disable-normal-console" "Disable normal display-based Linux console. Can be used when serial console is enabled if only serial is required."
-  option_help "--disable-serial-console" "Disable serial-based Linux console."
   option_help "--disk-resize-free-percent < percent >" "For Flash/SSDs/SDcard devices the percent of disk to leave unallocated when root is resized."
   option_help "--ethernet-module < module-name >" "When remote unlocking of encrypted filesystem is enabled this parameter is also required to specific the relevant kernel module for the ethernet device as the driver must be included in the initramfs as (obviously) it cannot be loaded from the (still encrypted at that point) rootfs."
   option_help "--encrypt" "Enable LUKS encryption of the rootfs."
@@ -2289,7 +2241,14 @@ validate_cli_options() {
 
   # If console name not specified then assume default
   if [ -z ${image_console_name+x} ]; then
-    image_console_name=$CONSTANT_DEFAULT_CONSOLE_NAME
+    case $image_console_type in
+      hypervisor )
+        image_console_name="hvc0" ;;
+      normal )
+        image_console_name="tty0" ;;
+      serial )
+        image_console_name="ttyS0" ;;
+    esac
   fi
 
   # If keyboard type not specified then assume default
