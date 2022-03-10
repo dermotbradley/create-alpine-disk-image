@@ -1,0 +1,579 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  grub-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure Grub
+#
+configure_bootloader_grub() {
+  local _cmdline _modules
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring Grub"
+{
+  mkdir -p /boot/grub
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "Root fs partition device is $root_part_device" 2
+    write_debug_log "Loopback device is $loop_device" 2
+  }
+EOF
+  fi
+
+  # Busybox's losetup is not suitable when installing Grub on a loopback
+  # device as it may truncate the name of the underlying filename.
+  case $image_alpine_release in
+    v3.13 | v3.14 )
+      losetup_package="util-linux" ;;
+    v3.15 )
+      losetup_package="util-linux-misc" ;;
+    * )
+      losetup_package="losetup" ;;
+  esac
+  cat <<EOF >> "$run_script"
+
+  # If relevant package is not already installed then install it
+  if [ ! \\\$(apk info -e $losetup_package) ]; then
+    write_log "Installing $losetup_package package for losetup" 2
+    apk add $losetup_package >> /chroot.log 2>&1
+    losetup_package_installed=true
+  fi
+EOF
+
+  if [ "$image_boot_reference" = "label" ]; then
+    patch_grub_for_label
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    ###write_debug_log "Contents of /etc/grub.d/10_linux:" 2
+    ###cat /etc/grub.d/10_linux >> /chroot.log
+    cp /etc/default/grub /etc/default/grub-orig
+  }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Updating /etc/default/grub" 2
+  {
+    sed -i \
+      -e 's|^GRUB_DISABLE_RECOVERY=.*$|GRUB_DISABLE_RECOVERY=false|g' \
+      -e 's|^GRUB_TIMEOUT=.*$|GRUB_TIMEOUT=5|g' \
+      -e '/^GRUB_CMDLINE_LINUX_DEFAULT=.*$/d' \
+      /etc/default/grub
+EOF
+
+  _cmdline="rootfstype=$image_fs_type"
+  # Add modules list
+  _modules="$(define_cmdline_for_modules)"
+  if [ -n "${_modules}" ]; then
+    _cmdline="$_cmdline modules=$_modules"
+  fi
+  if [ "$image_console_type" = "serial" ]; then
+    # Serial console
+    _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
+  fi
+  if [ "$image_console_type" = "normal" ]; then
+    # Normal console
+    _cmdline="$_cmdline console=$image_console_name"
+  fi
+  if [ "$image_boot_type" = "bios" ] && \
+     [ -z "${debug_enabled+x}" ]; then
+    # With BIOS can disable graphics as "standard" VGA provides text output
+    _cmdline="$_cmdline nomodeset"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+    _cmdline="$_cmdline ipv6.disable=1"
+  fi
+  if [ "$image_class" = "cloud" ] || \
+     [ "$image_class" = "virtual" ]; then
+    # Using tiny-power-button for Cloud/VMs but Busybox init doesn't
+    # handle the usual signal this sends, so specify USR2 which Busybox
+    # accepts for "poweroff" situations.
+    _cmdline="$_cmdline tiny_power_button.power_signal=12"
+  fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart rootflags=rw"
+  fi
+  if [ -z "${debug_enabled+x}" ]; then
+    _cmdline="$_cmdline quiet"
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    # Add other LUKS-related cmdline entries
+    if [ -z "${image_lvm_rootfs+x}" ]; then
+      _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
+    fi
+    _cmdline="$_cmdline \\\$(define_cmdline_for_encryption)"
+
+    if [ "$image_bootloader" = "grub" ] && \
+       { [ -z "${image_experimental+x}" ] || \
+         [ -z "${remote_unlock_enabled+x}" ]; } && \
+       [ -z "${image_no_grub_encryption+x}" ] && \
+       [ -z "${needs_boot_partition+x}" ]; then
+      # Cryptkey is used for unlock rootfs without 2nd password prompt.
+      # It applies only when:
+      #  - disk image is encrypted, AND
+      #  - bootloader is Grub, AND
+      #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+      #  - Grub LUKS encryption support is not disabled, AND
+      #  - /boot is not a separate partition.
+      _cmdline="$_cmdline cryptkey"
+    fi
+###  elif [ -n "${image_lvm_rootfs+x}" ]; then
+###    # Add LVM-specific cmdline entry
+###    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  fi
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  cat <<EOF >> "$run_script"
+
+    cmdline="$_cmdline"
+    {
+      echo "GRUB_CMDLINE_LINUX_DEFAULT=\"\\\$cmdline\""
+EOF
+
+  if [ "$image_boot_reference" = "label" ]; then
+    cat <<'EOF' >> "$run_script"
+      echo 'GRUB_ENABLE_LINUX_LABEL=true'
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+      echo 'GRUB_ENABLE_LINUX_LABEL=false'
+EOF
+  fi
+
+  if [ "$image_boot_type" = "bios" ]; then
+    cat <<'EOF' >> "$run_script"
+      echo 'GRUB_GFXPAYLOAD_LINUX=text'
+EOF
+  fi
+
+  if [ -n "${image_encrypted+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      echo 'GRUB_DISABLE_LINUX_UUID=true'
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+      echo 'GRUB_DISABLE_LINUX_UUID=false'
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+      echo 'GRUB_DISABLE_OS_PROBER=true'
+      echo 'GRUB_RECORDFAIL_TIMEOUT=20'
+    } >> /etc/default/grub
+EOF
+
+  cat <<'EOF' >> "$run_script"
+    if ! grep -q "^GRUB_TERMINAL=" /etc/default/grub; then
+      echo 'GRUB_TERMINAL=console' >> /etc/default/grub
+    fi
+EOF
+
+  if [ -n "${image_encrypted+x}" ] && \
+     { [ -z "${image_experimental+x}" ] || \
+       [ -z "${remote_unlock_enabled+x}" ]; } && \
+     [ -z "${image_no_grub_encryption+x}" ] && \
+		 [ -z "${needs_boot_partition+x}" ]; then
+    # Enable Grub LUKS encryption support when:
+    #  - disk image is encrypted, AND
+    #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+    #  - Grub LUKS encryption support is not disabled, AND
+    #  - /boot is not a separate partition.
+    cat <<'EOF' >> "$run_script"
+    echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+    echo 'GRUB_ENABLE_CRYPTODISK=n' >> /etc/default/grub
+EOF
+  fi
+
+  case $image_console_type in
+    serial | both )
+      enable_grub_serial_console ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
+    ###chmod g=,o= /etc/default/grub
+  }
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
+    rm /etc/default/grub-orig
+
+    # Fudge to see what is going on inside grub-mkconfig
+    ###sed -i -e 's|^set -e$|set -ex|' /usr/sbin/grub-mkconfig
+  }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Generating GRUB config" 2
+  grub-mkconfig -o /boot/grub/grub.cfg >> /chroot.log 2>&1
+
+  write_log "Checking GRUB config" 2
+  grub-script-check /boot/grub/grub.cfg >> /chroot.log
+
+  chmod g=,o= /boot/grub/grub.cfg
+}
+EOF
+}
+
+
+#
+# Install GRUB onto disk
+#
+install_grub() {
+  local _grub_options _grub_efi_options _grub_modules_list
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+# Debug
+{
+  write_debug_log "grub.cfg contents:"
+  cat /boot/grub/grub.cfg >> /chroot.log || true
+}
+EOF
+  fi
+
+  ###_grub_efi_options="--bootloader-id=alpine --efi-directory=/efi --no-nvram"
+  _grub_efi_options="--removable --efi-directory=/efi --no-nvram"
+
+  if [ -n "${image_optimise+x}" ]; then
+    _grub_modules_list="acpi disk echo elf gzio linux loadenv minicmd normal probe search test video_colors video_fb"
+
+    # Filesystem
+    if [ "$image_fs_type" = "ext4" ]; then
+      _grub_modules_list="$_grub_modules_list ext2"
+    else
+      _grub_modules_list="$_grub_modules_list $image_fs_type"
+    fi
+
+    # Encryption
+    if [ -n "${image_encrypted+x}" ] && \
+       { [ -z "${image_experimental+x}" ] || \
+         [ -z "${remote_unlock_enabled+x}" ]; } && \
+       [ -z "${image_no_grub_encryption+x}" ] && \
+       [ -z "${needs_boot_partition+x}" ]; then
+      # Grub LUKS encryption support only applies when:
+      #  - bootloader is Grub, AND
+      #  - disk image is encrypted, AND
+      #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+      #  - Grub LUKS encryption support is not disabled AND
+      #  - /boot is not a separate partition.
+      _grub_modules_list="$_grub_modules_list cryptodisk gcry_rijndael gcry_sha256"
+      if [ "$image_luks_version" = 1 ]; then
+        _grub_modules_list="$_grub_modules_list luks"
+      else
+        _grub_modules_list="$_grub_modules_list luks2"
+      fi
+    fi
+
+    # LVM
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      _grub_modules_list="$_grub_modules_list lvm"
+    fi
+
+    # Bootloader Password
+    if [ -n "${image_bootloader_password+x}" ]; then
+      _grub_modules_list="$_grub_modules_list password_pbkdf2"
+    fi
+
+    # Serial
+    if [ "$image_console_type" = "serial" ] || \
+       [ "$image_console_type" = "both" ]; then
+      _grub_modules_list="$_grub_modules_list serial"
+    fi
+
+    # USB
+    if [ "$image_arch" != "aarch64" ] && \
+       [ "$keyboard_type" = "usb" ] || \
+       [ "$keyboard_type" = "both" ]; then
+      _grub_modules_list="$_grub_modules_list ehci usb usb_keyboard"
+
+      if [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "amd" ]; then
+        _grub_modules_list="$_grub_modules_list ohci"
+      fi
+      if [ -z "${image_cpu_vendor+x}" ] || \
+         [ "$image_cpu_vendor" = "intel" ]; then
+        _grub_modules_list="$_grub_modules_list uhci"
+      fi
+    fi
+
+    # PS/2 keyboard
+    if { [ "$image_arch" = "x86" ] || \
+         [ "$image_arch" = "x86_64" ]; } && \
+       { [ "$keyboard_type" = "ps2" ] || \
+         [ "$keyboard_type" = "both" ]; }; then
+      _grub_modules_list="$_grub_modules_list at_keyboard"
+    fi
+
+    # Storage
+    if [ "$image_class" = "physical" ] && \
+       [ "$image_physical_type" = "pc" ]; then
+      case $image_os_device_type in
+        nvme | sata )
+          _grub_modules_list="$_grub_modules_list ahci" ;;
+        scsi | sd | usb )
+          _grub_modules_list="$_grub_modules_list scsi" ;;
+      esac
+    fi
+  fi
+
+  if [ "$image_arch" = "aarch64" ] && [ "$image_boot_type" = "uefi" ]; then
+    _grub_options="--target=arm64-efi $_grub_efi_options"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+    fi
+  elif [ "$image_arch" = "x86" ]; then
+    _grub_options="--target=i386-pc"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+      if [ "$image_class" = "cloud" ]; then
+        _grub_modules_list="$_grub_modules_list video_bochs"
+      elif [ "$image_class" = "virtual" ]; then
+        case $image_vm_type in
+          libvirtd | lxd | proxmox | qemu | generic )
+            _grub_modules_list="$_grub_modules_list video_bochs"
+            ;;
+        esac
+      fi
+    fi
+  elif [ "$image_arch" = "x86_64" ] && [ "$image_boot_type" = "bios" ]; then
+    _grub_options="--target=i386-pc"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+      if [ "$image_class" = "cloud" ]; then
+        _grub_modules_list="$_grub_modules_list video_bochs"
+      elif [ "$image_class" = "virtual" ]; then
+        case £image_vm_type in
+          libvirtd | lxd | proxmox | qemu | generic )
+            _grub_modules_list="$_grub_modules_list video_bochs"
+            ;;
+        esac
+      fi
+    fi
+  else
+    _grub_options="--target=x86_64-efi $_grub_efi_options"
+    if [ -n "${image_optimise+x}" ]; then
+      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+    fi
+  fi
+
+  if [ "$image_boot_type" = "uefi" ]; then
+    cat <<'EOF' >> "$run_script"
+
+mkdir -p /efi/EFI
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    _grub_options="${_grub_options} --verbose"
+  fi
+
+  if [ -n "${image_optimise+x}" ]; then
+    _grub_options=$(printf '%s \\\n  %s' "$_grub_options" \
+      "--install-modules=\"$_grub_modules_list\"")
+  fi
+
+  cat <<EOF >> "$run_script"
+
+{
+  write_log "Temporarily creating a dummy device.map file for GRUB" 2
+  touch /boot/grub/device.map
+
+  write_log "Installing GRUB bootloader" 2
+  grub-install $_grub_options \\
+    \$loop_device >> /chroot.log 2>&1
+EOF
+
+  cat <<EOF >> "$run_script"
+
+  write_log "Deleting temporary Grub device.map file" 2
+  rm /boot/grub/device.map
+
+  if [ -n "\\\${losetup_package_installed+x}" ]; then
+    write_log "Removing $losetup_package package that was temporarily installed" 2
+    apk del $losetup_package >> /chroot.log 2>&1
+  fi
+EOF
+
+  if [ "$image_mdev" = true ]; then
+    # Remove the eudev package that was temporarily installed
+    # so that grub-probe could use udevadm.
+    cat <<EOF >> "$run_script"
+
+  write_log "Removing eudev package that was temporarily installed"
+  apk del eudev >> /chroot.log 2>&1
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+}
+EOF
+}
+
+
+#
+# Patch Grub to support specifying rootfs by label
+#
+patch_grub_for_label() {
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+# Debug
+{
+  cp /etc/grub.d/10_linux /etc/grub.d/10_linux-orig
+	cp /usr/share/grub/grub-mkconfig_lib /usr/share/grub/grub-mkconfig_lib-orig
+	cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
+}
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+write_log "Temporarily installing patch program" 2
+apk add --quiet patch >> $logfile
+
+write_log "Patching /etc/grub.d/10_linux" 2
+cat <<-'_SCRIPT_' | patch /etc/grub.d/10_linux >> $logfile
+	--- /etc/grub.d/10_linux
+	+++ /etc/grub.d/10_linux-label
+	@@ -44,7 +44,8 @@
+	 # the initrds that Linux uses don't like that.
+	 case ${GRUB_DEVICE} in
+	   /dev/loop/*|/dev/loop[0-9])
+	-    GRUB_DEVICE=`losetup ${GRUB_DEVICE} | sed -e "s/^[^(]*(\([^)]\+\)).*/\1/"`
+	+    # Work with both Busybox and util-linux versions of losetup
+	+    GRUB_DEVICE=`losetup ${GRUB_DEVICE} | sed -e "s/^[^:]*: []0-9[\:]* [\(]*\([^)]\+\)[\)]*$/\1/"`
+	   ;;
+	 esac
+	
+	@@ -64,6 +65,10 @@
+	   LINUX_ROOT_DEVICE=PARTUUID=${GRUB_DEVICE_PARTUUID}
+	 else
+	   LINUX_ROOT_DEVICE=UUID=${GRUB_DEVICE_UUID}
+	+  GRUB_DEVICE_LABEL="$(blkid | grep "UUID=\"${GRUB_DEVICE_UUID}\"" | sed -e 's|^.* LABEL="||g' -e 's|".*||g' | head -1)"
+	+  if [ "x${GRUB_ENABLE_LINUX_LABEL}" = "xtrue" ] ; then
+	+    LINUX_ROOT_DEVICE=LABEL=${GRUB_DEVICE_LABEL}
+	+  fi
+	 fi
+	
+	 case x"$GRUB_FS" in
+	_SCRIPT_
+
+write_log "Patching /usr/share/grub/grub-mkconfig_lib" 2
+cat <<-'_SCRIPT_' | patch /usr/share/grub/grub-mkconfig_lib >> $logfile
+	--- grub-mkconfig_lib-stock
+	+++ grub-mkconfig_lib-custom
+	@@ -156,7 +156,9 @@
+	   if [ "x$fs_hint" != x ]; then
+	     echo "set root='$fs_hint'"
+	   fi
+	-  if fs_uuid="`"${grub_probe}" --device $@ --target=fs_uuid 2> /dev/null`" ; then
+	+  if label="`${grub_probe} --device $@ --target=fs_label 2> /dev/null`" ; then
+	+    echo "search --no-floppy --label --set=root ${label}"
+	+  elif fs_uuid="`"${grub_probe}" --device $@ --target=fs_uuid 2> /dev/null`" ; then
+	     hints="`"${grub_probe}" --device $@ --target=hints_string 2> /dev/null`" || hints=
+	     echo "if [ x\$feature_platform_search_hint = xy ]; then"
+	     echo "  search --no-floppy --fs-uuid --set=root ${hints} ${fs_uuid}"
+	_SCRIPT_
+
+write_log "Patching /usr/sbin/grub-mkconfig" 2
+cat <<-'_SCRIPT_' | patch /usr/sbin/grub-mkconfig >> $logfile
+	--- grub-mkconfig-stock
+	+++ grub-mkconfig-custom
+	@@ -135,10 +135,12 @@
+	 GRUB_DEVICE="`${grub_probe} --target=device /`"
+	 GRUB_DEVICE_UUID="`${grub_probe} --device ${GRUB_DEVICE} --target=fs_uuid 2> /dev/null`" || true
+	 GRUB_DEVICE_PARTUUID="`${grub_probe} --device ${GRUB_DEVICE} --target=partuuid 2> /dev/null`" || true
+	+GRUB_DEVICE_LABEL="`${grub_probe} --device ${GRUB_DEVICE} --target=fs_label 2> /dev/null`" || true
+	 
+	 # Device containing our /boot partition.  Usually the same as GRUB_DEVICE.
+	 GRUB_DEVICE_BOOT="`${grub_probe} --target=device /boot`"
+	 GRUB_DEVICE_BOOT_UUID="`${grub_probe} --device ${GRUB_DEVICE_BOOT} --target=fs_uuid 2> /dev/null`" || true
+	+GRUB_DEVICE_BOOT_LABEL="`${grub_probe} --device ${GRUB_DEVICE_BOOT} --target=fs_label 2> /dev/null`" || true
+	 
+	 # Filesystem for the device containing our userland.  Used for stuff like
+	 # choosing Hurd filesystem module.
+	@@ -190,8 +192,10 @@
+	 export GRUB_DEVICE \
+	   GRUB_DEVICE_UUID \
+	   GRUB_DEVICE_PARTUUID \
+	+  GRUB_DEVICE_LABEL \
+	   GRUB_DEVICE_BOOT \
+	   GRUB_DEVICE_BOOT_UUID \
+	+  GRUB_DEVICE_BOOT_LABEL \
+	   GRUB_FS \
+	   GRUB_FONT \
+	   GRUB_PRELOAD_MODULES \
+	@@ -226,6 +230,7 @@
+	   GRUB_SERIAL_COMMAND \
+	   GRUB_DISABLE_LINUX_UUID \
+	   GRUB_DISABLE_LINUX_PARTUUID \
+	+  GRUB_ENABLE_LINUX_LABEL \
+	   GRUB_DISABLE_RECOVERY \
+	   GRUB_VIDEO_BACKEND \
+	   GRUB_GFXMODE \
+	_SCRIPT_
+
+write_log "Uninstalling patch program" 2
+apk del --quiet patch >> $logfile
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+# Debug
+{
+	write_debug_log "Diff 10_linux:" 2
+  diff -aur /etc/grub.d/10_linux-orig /etc/grub.d/10_linux >> $logfile || true
+  rm /etc/grub.d/10_linux-orig
+
+  write_debug_log "Diff grub-mkconfig_lib:" 2
+  diff -aur \
+    /usr/share/grub/grub-mkconfig_lib-orig /usr/share/grub/grub-mkconfig_lib \\
+    >> $logfile || true
+  rm /usr/share/grub/grub-mkconfig_lib-orig
+
+  write_debug_log "Diff grub-mkconfig:" 2
+  diff -aur /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+    >> $logfile || true
+  rm /usr/sbin/grub-mkconfig-orig
+
+}
+EOF
+  fi
+}

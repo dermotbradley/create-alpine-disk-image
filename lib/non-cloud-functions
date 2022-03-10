@@ -264,14 +264,13 @@ setup_init_d_for_growing_root_partition() {
   local _resize_logs_fs_part _resize_logs_lv _resize_pv_device _resize_pv_part
   local _resize_root_lv _resize_roof_fs_part _resize_vg
 
-  if [ "$image_boot_device_media" = "flash" ] || \
-     [ "$image_boot_device_media" = "sd" ] || \
-     [ "$image_boot_device_media" = "ssd" ]; then
-    # Leave a percentage of disk unallocated for "overprovisioning"
-    _disk_leave_free_percent=$image_resize_free_percent
-  else
-    _disk_leave_free_percent="0"
-  fi
+  case $image_os_device_media in
+    flash | sd | ssd )
+      # Leave a percentage of disk unallocated for "overprovisioning"
+      _disk_leave_free_percent=$image_resize_free_percent ;;
+    * )
+      _disk_leave_free_percent="0" ;;
+  esac
   _part_grow_size="$((100-$_disk_leave_free_percent))%"
 
   if [ -n "${image_encrypted+x}" ]; then
@@ -287,10 +286,10 @@ setup_init_d_for_growing_root_partition() {
 
   if [ "$image_class"  = "physical" ] && \
      { [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] || \
-       [ "$image_boot_device_type" = "sd" ]; }; then
+       [ "$image_os_device_type" = "sd" ]; }; then
     # RPI or PC with SDcard
     _grow_device="/dev/mmcblk0"
-  elif [ "$image_boot_device_type" = "nvme" ]; then
+  elif [ "$image_os_device_type" = "nvme" ]; then
     # NVME
     _grow_device="/dev/nvme0n1"
   else
@@ -320,9 +319,9 @@ EOF
 
   if [ -n "${image_encrypted+x}" ] || \
      [ -n "${image_lvm_rootfs+x}" ] || \
-     { [ "$image_boot_device_media" = "flash" ] || \
-       [ "$image_boot_device_media" = "sd" ] || \
-       [ "$image_boot_device_media" = "ssd" ]; }; then
+     { [ "$image_os_device_media" = "flash" ] || \
+       [ "$image_os_device_media" = "sd" ] || \
+       [ "$image_os_device_media" = "ssd" ]; }; then
     # growpart does not handle these situations
 
     if [ -n "${image_encrypted+x}" ]; then
@@ -366,7 +365,7 @@ EOF
 
       if { [ "$image_class" = "physical" ] && \
            [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-         [ "$image_boot_device_type" = "nvme" ]; then
+         [ "$image_os_device_type" = "nvme" ]; then
         _resize_pv_part="${_grow_device}p${lvm_part_num}"
       else
         _resize_pv_part="${_grow_device}${lvm_part_num}"
@@ -434,7 +433,7 @@ EOF
 
       if { [ "$image_class" = "physical" ] && \
            [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-         [ "$image_boot_device_type" = "nvme" ]; then
+         [ "$image_os_device_type" = "nvme" ]; then
         _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
       else
         _resize_root_fs_part="${_grow_device}${_grow_part_num}"
@@ -464,7 +463,7 @@ EOF
 
     if { [ "$image_class" = "physical" ] && \
          [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-       [ "$image_boot_device_type" = "nvme" ]; then
+       [ "$image_os_device_type" = "nvme" ]; then
       _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
     else
       _resize_root_fs_part="${_grow_device}${_grow_part_num}"

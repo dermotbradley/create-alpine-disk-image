@@ -1,0 +1,548 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  cloud-init-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Create network configuration for seed/url-based cloud-init configuration
+#
+add_seed_network_config_file() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Creating seed network configuration file" 2
+  mkdir -p /var/lib/cloud/seed/nocloud
+  cat <<-_SCRIPT_ > /var/lib/cloud/seed/nocloud/network-config
+	version: 2
+	ethernets:
+	  eth0:
+EOF
+
+  if [ -z "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	    dhcp4: True
+EOF
+  fi
+
+  if [ -z "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	    dhcp6: True
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+EOF
+}
+
+
+#
+# Configure cloud-init
+#
+configure_cloud_init() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Configuring cloud-init"
+{
+  write_log "Running setup-cloud-init" 2
+  setup-cloud-init >> /chroot.log 2>&1
+
+  write_log "Precompiling cloud-init python files" 2
+  _python_dir=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
+  python3 -OO -m compileall \
+    -q /usr/lib/\${_python_dir}/site-packages/cloudinit >> /chroot.log 2>&1
+EOF
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    define_cloud_settings
+  elif [ "$image_class" = "physical" ]; then
+    # Physical
+    datasource_list="'NoCloud'"
+  else
+    # VM
+    define_virtual_settings
+  fi
+
+  if [ -n "${cloud_seed_url+x}" ]; then
+		datasource_list="'NoCloud'"
+    add_seed_network_config_file
+  fi
+
+  if [ -z "${datasource_list+x}" ]; then
+    datasource_list="'None'"
+  else
+    datasource_list="$datasource_list,'None'"
+  fi
+
+  # Need to sort out serial console settings at this stage, after specific
+  # clouds/VM types may/may not have overriden the defaults.
+  if [ "$image_console_type" = "serial" ]; then
+    if [ -z "${serial_port_number+x}" ]; then
+      serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
+      serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
+    fi
+    if [ -z "${serial_port_speed+x}" ]; then
+      serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
+    fi
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg-orig
+  }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg
+	# Tailored config file
+	
+	users:
+	   - default
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Unlocking the root account" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	   - name: root
+	     lock_passwd: False
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Locking the root account" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	   - name: root
+	     lock_passwd: True
+EOF
+  fi
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+  write_log "Setting the default user's password" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	
+	# The password for the default user account, changing it is forced on login.
+	password: $default_user_password
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	mount_default_fields: [~, ~, 'auto', 'defaults,nofail', '0', '2']
+	resize_rootfs_tmp: /dev
+	
+	preserve_hostname: False
+	
+	# Modules that run in 'init' stage
+	cloud_init_modules:
+	  - migrator
+	  - seed_random
+	  - bootcmd
+	  - write-files
+	  - growpart
+	  - resizefs
+	  - disk_setup
+	  - mounts
+	  - set_hostname
+	  - update_hostname
+	  - update_etc_hosts
+	  - resolv_conf
+	  - ca-certs
+	  - rsyslog
+	  - users-groups
+	  - ssh
+
+	# Modules that run in 'config' stage
+	cloud_config_modules:
+	  - locale
+	  - set-passwords
+	  - apk-configure
+	  - ntp
+	  - timezone
+	  - disable-ec2-metadata
+	  - runcmd
+	
+	# Modules that run in 'final' stage
+	cloud_final_modules:
+	  - package-update-upgrade-install
+	  - write-files-deferred
+	  - scripts-vendor
+	  - scripts-per-once
+	  - scripts-per-boot
+	  - scripts-per-instance
+	  - scripts-user
+	  - ssh-authkey-fingerprints
+	  - keys-to-console
+	  - install-hotplug
+	  - phone-home
+	  - final-message
+	  - power-state-change
+
+	system_info:
+	  distro: alpine
+	  default_user:
+EOF
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+  write_log "Setting the default username to '$image_admin_username'" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    name: $image_admin_username
+EOF
+
+  if [ "$image_auth_control" = "doas" ] || \
+     [ "$image_auth_control" = "both" ]; then
+  cat <<EOF >> "$run_script"
+	    doas: ["permit nopass $image_admin_username"]
+EOF
+  fi
+
+  if [ -n "${image_default_user_password+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+  write_log "Ensure default user's account is not locked as password is set" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    lock_passwd: False
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+  write_log "Ensure default user's account is locked (for password access)" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	    lock_passwd: True
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	    gecos: Default cloud-init user
+EOF
+
+  if [ "$image_auth_control" = "sudo" ] || \
+     [ "$image_auth_control" = "both" ]; then
+  cat <<'EOF' >> "$run_script"
+	    groups: [adm, sudo, wheel]
+	    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+EOF
+  else
+  cat <<'EOF' >> "$run_script"
+	    groups: [adm, wheel]
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	    shell: /bin/ash
+	  paths:
+	    cloud_dir: /var/lib/cloud/
+	    templates_dir: /etc/cloud/templates/
+EOF
+
+  if [ "$image_ssh_server" = "openssh" ]; then
+  cat <<'EOF' >> "$run_script"
+	  ssh_svcname: sshd
+EOF
+  elif [ "$image_ssh_server" = "tinyssh" ]; then
+  cat <<'EOF' >> "$run_script"
+	  ssh_svcname: tinysshd
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+  write_log "Setting up DataSources list" 2
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	
+	datasource_list: [$datasource_list]
+EOF
+
+  if [ -n "${datasource_settings+x}" ]; then
+    cat <<EOF >> "$run_script"
+	datasource:
+$datasource_settings
+EOF
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    case $image_cloud_type in
+      # Enable network interface hotplug for supported DataSources
+      aws )
+        cat <<'EOF' >> "$run_script"
+	
+	updates:
+	  network:
+	    when: ["boot","hotplug"]
+EOF
+        ;;
+    esac
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	###################################################################
+	#                     NTP settings
+	###################################################################
+	
+EOF
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+
+    cat <<EOF >> "$run_script"
+	ntp:
+	  enabled: True
+EOF
+
+	  case $image_cloud_type in
+		  aws )
+        # Sync with AWS' internal NTP server(s)
+        cat <<EOF >> "$run_script"
+	  servers:
+EOF
+        if [ -z "${image_disable_ipv4+x}" ]; then
+          cat <<EOF >> "$run_script"
+	  - $CONSTANT_AWS_NTP_IPV4ADDRESS
+EOF
+        fi
+        if [ -z "${image_disable_ipv6+x}" ]; then
+          cat <<EOF >> "$run_script"
+	  - $CONSTANT_AWS_NTP_IPV6ADDRESS
+EOF
+        fi
+        ;;
+
+        azure )
+          if [ -n "${image_experimental+x}" ]; then
+            # Sync with host machine's clock (using PTP)
+            cat <<'EOF' >> "$run_script"
+	  hypervisor_clock: True
+	    device: /dev/ptp_hyperv
+	    dpoll: -2
+	    poll: 3
+	    offset: "0.0"
+	    stratum: 2
+EOF
+          else
+            :
+          fi
+        ;;
+
+		  gce )
+        # Sync with GCE' internal NTP server(s)
+        cat <<EOF >> "$run_script"
+	  servers:
+	  - $CONSTANT_GCE_NTP_INTERNAL_SERVER
+EOF
+        ;;
+    esac
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual
+
+	  case $image_vm_type in
+      hyperv )
+        if [ -n "${image_experimental+x}" ]; then
+          # Sync with host machine's clock (using PTP)
+          cat <<'EOF' >> "$run_script"
+	  hypervisor_clock: True
+	    device: /dev/ptp_hyperv
+EOF
+        else
+          :
+        fi
+        ;;
+			libvirtd | lxd | proxmox | qemu )
+        cat <<'EOF' >> "$run_script"
+	ntp:
+	  enabled: True
+EOF
+
+        if [ -n "${image_experimental+x}" ]; then
+          # Sync with host machine's clock (using PTP)
+          cat <<'EOF' >> "$run_script"
+	  hypervisor_clock: True
+	    device: /dev/ptp_kvm
+EOF
+        else
+          :
+        fi
+        ;;
+      vmware )
+        if [ -n "${image_experimental+x}" ]; then
+          # Sync with host machine's clock (using PTP)
+          cat <<'EOF' >> "$run_script"
+	  hypervisor_clock: True
+	    device: /dev/ptp_vmw
+EOF
+        else
+          :
+        fi
+        ;;
+    esac
+	fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	###################################################################
+	#                     SSH settings
+	###################################################################
+	
+	# Prevent SSH access to root user
+	disable_root: True
+	
+	# Delete any pre-existing SSH hosts keys
+	ssh_deletekeys: True
+EOF
+
+  if [ "$image_ssh_keytypes" = "ed25519" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Only create ED25519 SSH host key
+	ssh_genkeytypes: ["ed25519"]
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	
+	# Only create ED25519 and RSA SSH host keys
+	ssh_genkeytypes: ["ed25519","rsa"]
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	# Disable SSH password authentication
+	ssh_pwauth: False
+	
+	# SSH host key settings
+	#-----------------------
+	ssh:
+	  # Show SSH host keys and their fingerprints on console
+	  emit_keys_to_console: True
+	#
+	# Don't show these SSH host key types on console (DSA is never shown)
+	ssh_key_console_blacklist: ["ssh-ecdsa","ssh-ed25519","ssh-rsa"]
+	#
+	# Don't display SSH host keygen output including VisualArt
+	ssh_quiet_keygen: True
+	
+	# Don't display users' SSH key fingerprints on console.
+	no_ssh_fingerprints: True
+	
+	###################################################################
+	
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    cp /etc/cloud/templates/hosts.alpine.tmpl \
+      /etc/cloud/templates/hosts.alpine.tmpl-orig
+  }
+EOF
+  fi
+
+  if [ -n "${image_disable_ipv4+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  sed -i \
+    -e '/^# The following lines are desirable for IPv4.*$/d' \
+    -e '/^127\.0.*$/d' \
+    /etc/cloud/templates/hosts.alpine.tmpl
+EOF
+  elif [ -n "${image_disable_ipv6+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  sed -i \
+    -e '/^# The following lines are desirable for IPv6.*$/d' \
+    -e '/^::1.*$/d' \
+    -e '/^ff02::.*$/d' \
+    /etc/cloud/templates/hosts.alpine.tmpl
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    diff /etc/cloud/cloud.cfg-orig /etc/cloud/cloud.cfg >> /chroot.log || true
+    rm /etc/cloud/cloud.cfg-orig
+
+    diff etc/cloud/templates/hosts.alpine.tmpl-orig \
+      etc/cloud/templates/hosts.alpine.tmpl \
+      >> /chroot.log || true
+    rm etc/cloud/templates/hosts.alpine.tmpl-orig
+
+    cp /etc/cloud/cloud.cfg.d/05_logging.cfg \
+      /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+  }
+
+  write_log "Enabling cloud-init debugging" 2
+  sed -i \
+    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
+    /etc/cloud/cloud.cfg.d/05_logging.cfg
+
+  # Debug
+  {
+    diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
+      /etc/cloud/cloud.cfg.d/05_logging.cfg \
+      >> /chroot.log || true
+    rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+  }
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Disabling cloud-init debugging" 2
+  sed -i \
+    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=DEBUG/\1level=INFO/g ;P;D' \
+    /etc/cloud/cloud.cfg.d/05_logging.cfg
+EOF
+  fi
+
+  if [ "$image_class" = "cloud" ]; then
+    # Cloud
+    case $image_cloud_type in
+      azure )
+        create_etc_filesystems "ISO" ;;
+    esac
+  elif [ "$image_class" = "virtual" ]; then
+    # Virtual machine
+    create_etc_filesystems "ISO"
+  else
+    # Physical
+    create_etc_filesystems "VFAT"
+  fi
+
+  if [ "$image_class" = "physical" ]; then
+    # Physical
+    create_physical_machine_cloud_init_yaml_files
+  fi
+
+  cat <<EOF >> "$run_script"
+}
+EOF
+}

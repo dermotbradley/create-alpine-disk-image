@@ -1,0 +1,901 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  physical-functions
+##
+##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Add RPI-specific /boot fstab entries
+#
+add_rpi_boot_fstab_entries() {
+  local _mount_options="$1"
+
+  cat <<EOF >> "$run_script"
+  mkdir /media/sdcard
+  add_fstab_entry LABEL "RPIBOOT" "/media/sdcard" "vfat" "${_mount_options}" "/media/sdcard"
+  add_fstab_entry BIND "/media/sdcard" "/boot" "none" "${_mount_options}" "/boot bind-mount"
+EOF
+}
+
+
+#
+# Setup the config files used by Raspberry Pi bootloader
+#
+configure_bootloader_rpi() {
+  local _cmdline _extra_modules _modules
+
+  ###_modules="sd-mod,usb-storage"
+  _modules=""
+  _extra_modules="$(define_cmdline_for_modules)"
+  if [ -n "${_extra_modules}" ]; then
+    if [ -z "${_modules}" ]; then
+      _modules="$_extra_modules"
+    else
+      _modules="$_modules,$_extra_modules"
+    fi
+  fi
+  _cmdline="rootfstype=$image_fs_type ro"
+  if [ -n "${_modules}" ]; then
+    _cmdline="$_cmdline modules=$_modules"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME} \\\$(define_cmdline_for_encryption)"
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  else
+    _cmdline="$_cmdline root=/dev/mmcblk0p${root_part_num}"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+	  _cmdline="$_cmdline ipv6.disable=1"
+	fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart"
+  fi
+  _cmdline="$_cmdline console=${image_console_name} quiet"
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  create_rpi_bootloader_cmdline_file "$_cmdline"
+  create_rpi_bootloader_config_file
+  create_rpi_bootloader_usercfg_file
+
+  cat <<'EOF' >> "$run_script"
+}
+EOF
+}
+
+
+#
+# For physical machines create the cloud-init YAML config files
+#
+create_physical_machine_cloud_init_yaml_files() {
+  local _grow_device _grow_device_short _grow_part_num _part_grow_message
+  local _part_grow_size _resize_command _resize_logs_fs_part _resize_logs_lv
+  local _resize_luks_device _resize_pv_device _resize_pv_part
+  local _resize_root_fs_part _resize_root_lv _resize_vg
+
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Creating cloud-init YAML files for physical machine"
+  {
+    write_log "Create example YAML files" 2
+    mkdir /cidata/examples
+
+    cat <<-_SCRIPT_ > /cidata/examples/meta-data
+	instance-id: iid-local0
+	_SCRIPT_
+
+    cat <<-_SCRIPT_ > /cidata/examples/network-dhcp
+	version: 2
+	ethernets:
+	  eth0:
+	    dhcpv4: yes
+	    dhcpv6: yes
+	_SCRIPT_
+
+    cat <<-_SCRIPT_ > /cidata/examples/network-static
+	version: 2
+	ethernets:
+	  eth0:
+	    addresses:
+	      - 192.168.0.2/24
+	    gateway4: 192.168.0.1
+	_SCRIPT_
+
+    cat <<-_SCRIPT_ > /cidata/examples/user-data
+	#cloud-config
+	
+	apk_repos:
+	  preserve_repositories: False
+	  alpine_repo:
+EOF
+
+  cat <<EOF >> "$run_script"
+	    version: '$image_alpine_release'
+	    base_url: $alpine_mirror_site
+	    community_enabled: True
+EOF
+
+  if [ "$image_alpine_release" = "edge" ]; then
+    cat <<'EOF' >> "$run_script"
+	    testing_enabled: True
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	    testing_enabled: False
+EOF
+  fi
+
+  if [ -n "${local_alpine_repository+x}" ]; then
+    cat <<EOF >> "$run_script"
+	  local_repo_base_url: $local_alpine_repository
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	package_reboot_if_required: False
+	package_update: False
+	package_upgrade: False
+	
+	debug:
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	  verbose: True
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+	  verbose: False
+EOF
+  fi
+
+  if [ -n "${image_full_hostname+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Hostname including domain
+	fqdn: $full_hostname
+EOF
+  elif [ -n "${image_short_hostname+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Hostname without domain
+	hostname: \$short_hostname
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	locale: \$locale
+	timezone: \$timezone
+	
+	ntp:
+	  enabled: True
+	  servers:
+	    - pool.ntp.org
+EOF
+
+  if [ -n "${image_encrypted+x}" ] || \
+     [ -n "${image_lvm_rootfs+x}" ] || \
+     { [ "$image_os_device_media" = "flash" ] || \
+       [ "$image_os_device_media" = "sd" ] || \
+       [ "$image_os_device_media" = "ssd" ]; }; then
+
+    # Cannot use cloud-init's growpart and resize_rootfs
+    cat <<EOF >> "$run_script"
+	
+	# Growpart & resize does not work for LUKS or LVM currently
+	# so this will be handled via runcmd instead.
+	growpart:
+	  mode: False
+	resize_rootfs: False
+EOF
+
+    case $image_os_device_media in
+      flash | sd | ssd )
+        # Leave a percentage of disk unallocated for "overprovisioning"
+        _disk_leave_free_percent=$image_resize_free_percent
+        _part_grow_message=" leaving ${_disk_leave_free_percent}% of device unused"
+        ;;
+      *)
+        _disk_leave_free_percent="0" ;;
+    esac
+    _part_grow_size="$((100-$_disk_leave_free_percent))%"
+
+    if [ -n "${image_encrypted+x}" ]; then
+      # LUKS or LVM-on-LUKS
+
+      _grow_part_num="$luks_part_num"
+      _resize_luks_device="$CONSTANT_LUKS_DEVICE_NAME"
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
+         [ "$image_os_device_type" = "sd" ]; then
+        # RPI or PC with SDcard boot device
+        _grow_device_short="mmcblk0"
+      elif [ "$image_os_device_type" = "nvme" ]; then
+        # PC with NVME boot device
+        _grow_device_short="nvme0n1"
+      else
+        # SATA, SCSI, or USB boot device
+        _grow_device_short="sda"
+      fi
+      _grow_device="/dev/${_grow_device_short}"
+      _resize_root_fs_part="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+
+      cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the LUKS partition${_part_grow_message:-}
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+	  # Grow LUKS to fill the partition
+	  - cryptsetup resize ${_resize_luks_device}
+EOF
+
+      if [ -n "${image_lvm_rootfs+x}" ]; then
+        # LVM-on-LUKS
+        _resize_pv_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
+        _resize_vg="$CONSTANT_LVM_VG_NAME"
+        _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+        _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+        _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+        _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+        cat <<EOF >> "$run_script"
+	  # Grow the LVM PV to fill the LUKS partition
+	  - pvresize resize ${_resize_pv_device}
+	  # Don't resize the root LV at all
+	  #
+	  # Grow the logs LV by 10M
+	  - lvextend -L +10m $_resize_logs_lv
+EOF
+      fi
+
+    elif [ -n "${image_lvm_rootfs+x}" ]; then
+
+      # LVM
+      _grow_part_num="$lvm_part_num"
+      _resize_vg="$CONSTANT_LVM_VG_NAME"
+      _resize_logs_lv="$CONSTANT_LVM_LOGS_LV_NAME"
+      _resize_root_lv="$CONSTANT_LVM_ROOT_LV_NAME"
+      _resize_logs_fs_part="/dev/mapper/${_resize_vg}-${_resize_logs_lv}"
+      _resize_root_fs_part="/dev/mapper/${_resize_vg}-${_resize_root_lv}"
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
+         [ "$image_os_device_type" = "sd" ]; then
+        # RPI or PC with SDcard boot device
+        _grow_device_short="mmcblk0"
+        _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}"
+      elif [ "$image_os_device_type" = "nvme" ]; then
+        # PC with NVME boot device
+        _grow_device_short="nvme0n1"
+        _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}"
+      else
+        # SATA, SCSI, or USB boot device
+        _grow_device_short="sda"
+        _resize_pv_part="/dev/${_grow_device_short}${lvm_part_num}"
+      fi
+      _grow_device="/dev/${_grow_device_short}"
+
+      cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the LVM partition${_part_grow_message:-}
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+	  # Grow the LVM PV to fill the partition
+	  - pvresize $_resize_pv_part
+	  # Don't resize the root LV at all
+	  #
+	  # Grow the logs LV by 10M
+	  - lvextend -L +10m $_resize_logs_lv
+EOF
+    else
+      # Neither LUKS nor LVM
+
+      _grow_part_num="$root_part_num"
+
+      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
+         [ "$image_os_device_type" = "sd" ]; then
+        # RPI or PC with SDcard boot device
+        _grow_device_short="mmcblk0"
+        _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}"
+      elif [ "$image_os_device_type" = "nvme" ]; then
+        # PC with NVME boot device
+        _grow_device_short="nvme0n1"
+        _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}"
+      else
+        # SATA, SCSI, or USB boot device
+        _grow_device_short="sda"
+        _resize_root_fs_part="/dev/${_grow_device_short}${root_part_num}"
+      fi
+      _grow_device="/dev/${_grow_device_short}"
+
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 )
+          # growpart with no overprovisioning support
+          cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the root partition${_part_grow_message:-}
+	  - parted --machine --script --align=optimal $_grow_device resizepart $_grow_part_num $_part_grow_size
+EOF
+          ;;
+        * )
+          # growpart version that does support overprovisioning
+          cat <<EOF >> "$run_script"
+	
+	runcmd:
+	  # Grow the root partition${_part_grow_message:-}
+	  - growpart --free-percent=$_disk_leave_free_percent $_grow_device $_grow_part_num
+EOF
+          ;;
+      esac
+    fi
+
+    if [ -z "${image_lvm_rootfs+x}" ]; then
+      # root is not on LVM so resize it
+
+      cat <<EOF >> "$run_script"
+	  # Resize the underlying root filesystem
+EOF
+
+      case $image_fs_type in
+        btrfs )
+          _resize_command="btrfs filesystem resize max $_resize_root_fs_part" ;;
+        ext4 )
+          _resize_command="resize2fs $_resize_root_fs_part" ;;
+        f2fs )
+          _resize_command="resize.f2fs $_resize_root_fs_part" ;;
+        xfs )
+          _resize_command="xfs_growfs $_resize_root_fs_part" ;;
+      esac
+
+      cat <<EOF >> "$run_script"
+	  - $_resize_command
+EOF
+    fi
+
+    if [ -n "${image_lvm_rootfs+x}" ]; then
+      cat <<EOF >> "$run_script"
+	  # Resize the underlying logs filesystem
+EOF
+      case $image_fs_type in
+        btrfs )
+          _resize_command="btrfs filesystem resize max $_resize_logs_fs_part" ;;
+        ext4 )
+          _resize_command="resize2fs $_resize_logs_fs_part" ;;
+        f2fs )
+          _resize_command="resize.f2fs $_resize_logs_fs_part" ;;
+        xfs )
+          _resize_command="xfs_growfs $_resize_logs_fs_part" ;;
+      esac
+      cat <<EOF >> "$run_script"
+	  - $_resize_command
+EOF
+    fi
+  else
+    cat <<'EOF' >> "$run_script"
+	
+	# Grow the root partition and resize rootfs to fill it
+	growpart:
+	  mode: auto
+	resize_rootfs: True
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	ssh:
+	  # Whether to show either host keys or their fingerprints on console
+	  emit_keys_to_console: False
+EOF
+
+  if [ -n "${ssh_public_key+x}" ]; then
+    cat <<EOF >> "$run_script"
+	
+	users:
+	  - default
+	  - name: $image_admin_username
+	    ssh_authorized_keys:
+EOF
+    # shellcheck disable=SC2028
+    echo "\t      - '$ssh_public_key'" >> "$run_script"
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	
+	_SCRIPT_
+
+    write_log "Creating meta-data" 2
+    cp /cidata/examples/meta-data /cidata/meta-data
+
+    write_log "Creating network-config" 2
+    cp /cidata/examples/network-dhcp /cidata/network-config
+
+    write_log "Creating user-data" 2
+    cp /cidata/examples/user-data /cidata/user-data
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      write_debug_log "meta-data contents:" 2
+      cat /cidata/meta-data >> /chroot.log
+
+      write_debug_log "network-config contents:" 2
+      cat /cidata/network-config >> /chroot.log
+
+      write_debug_log "user-data contents:" 2
+      cat /cidata/user-data >> /chroot.log
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create a single entry for RPI config.txt bootloader file
+#
+create_rpi_bootloader_config_entry() {
+  local _entry_name="$1"
+  local _entry_suffix="$2"
+
+	cat <<EOF >> "$run_script"
+	[${_entry_name}]
+EOF
+
+  if [ "$_entry_name" = "pi4" ]; then
+	  cat <<EOF >> "$run_script"
+	enable_gic=1
+EOF
+  fi
+
+	cat <<EOF >> "$run_script"
+	kernel=vmlinuz-${_entry_suffix}
+	initramfs initramfs-${_entry_suffix}
+EOF
+}
+
+
+#
+# Create RPI cmdline.txt bootloader file
+#
+create_rpi_bootloader_cmdline_file() {
+  local _cmdline="$1"
+
+  cat <<EOF >> "$run_script"
+
+write_log "Create RPI bootloader configuration"
+{
+  write_log "Creating /boot/cmdline.txt" 2
+  cat <<-_SCRIPT_ > /boot/cmdline.txt
+	$_cmdline
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "/boot/cmdline.txt contents:" 2
+    cat /boot/cmdline.txt >> /chroot.log
+  }
+EOF
+  fi
+}
+
+
+#
+# Create RPI config.txt bootloader file
+#
+create_rpi_bootloader_config_file() {
+  local _filename_suffix
+
+  cat <<EOF >> "$run_script"
+
+  write_log "Creating /boot/config.txt" 2
+  cat <<-_SCRIPT_ > /boot/config.txt
+EOF
+
+  if [ "$image_physical_type" = "rpi2" ]; then
+	  # RPI 2
+    case $image_arch in
+      aarch64 )
+        _filename_suffix="rpi"
+        ;;
+      armv7 )
+        _filename_suffix="rpi2"
+        ;;
+    esac
+
+    create_rpi_bootloader_config_entry "pi2" "$_filename_suffix"
+  fi
+
+  if [ "$image_physical_type" = "rpi3" ]; then
+	  # RPI 3
+    case $image_arch in
+      aarch64 )
+        _filename_suffix="rpi"
+        ;;
+      armv7 )
+        _filename_suffix="rpi2"
+        ;;
+    esac
+
+    create_rpi_bootloader_config_entry "pi3" "$_filename_suffix"
+    create_rpi_bootloader_config_entry "pi3+" "$_filename_suffix"
+  fi
+
+  if [ "$image_physical_type" = "rpi4" ]; then
+	  # RPI 4
+    _filename_suffix="rpi4"
+
+    create_rpi_bootloader_config_entry "pi4" "$_filename_suffix"
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	[all]
+EOF
+
+  if [ "$image_arch" = "aarch64" ]; then
+	  cat <<'EOF' >> "$run_script"
+	arm_64bit=1
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	# Set GPU memory to 16MB when using cutdown bootloader
+	gpu_mem=16
+	include usercfg.txt
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "/boot/config.txt contents:" 2
+    cat /boot/config.txt >> /chroot.log
+  }
+EOF
+  fi
+}
+
+
+#
+# Create RPI usercfg.txt bootloader file
+#
+create_rpi_bootloader_usercfg_file() {
+  local _fixup_file _start_file
+
+  case $image_physical_type in
+    rpi4 )
+      _fixup_file="fixup4cd.dat"
+      _start_file="start4cd.elf"
+      ;;
+    * )
+      _fixup_file="fixup_cd.dat"
+      _start_file="start_cd.elf"
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+
+  write_log "Creating /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ > /boot/usercfg.txt
+	fixup_file=${_fixup_file}
+	start_file=${_start_file}
+	
+	# Default is 1
+	boot_delay=1
+	
+	# Do not display rainbow screen.
+	disable_splash=1
+	
+	# Prevent GPU ever going into turbo mode
+	disable_auto_turbo=1
+	
+	# Rotate HDMI output 90 degrees clockwise
+	###display_hdmi_rotate=1
+	
+	# Don't send CEC message during boot
+	hdmi_ignore_cec_init=1
+	
+	# Enable I2C
+	dtparam=i2c_arm=on
+	
+	# Disable Bluetooth
+	dtoverlay=disable-bt
+	# Disable Wifi
+	dtoverlay=disable-wifi
+	
+	# Disable audio
+	dtparam=audio=off
+	
+	# Disable I2S
+	dtparam=i2s=off
+	
+	# Disable SPI
+	dtparam=spi=off
+	
+	# Disable UART
+	enable_uart=0	
+	_SCRIPT_
+EOF
+
+  if [ -n "${rpi_use_rtc+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Adding RTC configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	
+	# Enable hardware I2C-based RTC
+	dtoverlay=i2c-rtc,ds1307
+	_SCRIPT_
+EOF
+  fi
+
+  if [  -n "${rpi_use_poe_hat+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+  write_log "Adding PoE HAT configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	# PoE Hat Fan Speeds - start at 50, full speed by 80
+	dtparam=poe_fan_temp0=50000
+	dtparam=poe_fan_temp1=60000
+	dtparam=poe_fan_temp2=70000
+	dtparam=poe_fan_temp3=80000
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    write_debug_log "/boot/usercfg.txt contents:" 2
+    cat /boot/usercfg.txt >> /chroot.log
+  }
+EOF
+  fi
+}
+
+
+#
+# Add physical machine related entries to /etc/modules
+#
+etc_modules_list_for_physical() {
+  if [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    # Physical machine except RPIs
+
+    cat <<'EOF' >> "$run_script"
+	
+	button
+EOF
+
+    if [ -n "${image_hwrng+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+	rng-core
+EOF
+    fi
+
+    if [ "$image_os_device_type" = "nvme" ]; then
+      cat <<'EOF' >> "$run_script"
+	nvme
+EOF
+    fi
+
+  else
+    # Raspberry Pi
+
+    cat <<'EOF' >> "$run_script"
+	
+	rng-core
+EOF
+
+  fi
+}
+
+
+#
+# Define physical machine specific packages
+#
+define_physical_machine_packages() {
+  local _physical_pkgs
+
+  # Packages for all types of physical machines
+  _physical_pkgs="cpufrequtils ethtool hd-idle irqbalance lm-sensors"
+  _physical_pkgs="$_physical_pkgs lm-sensors-sensord smartmontools"
+
+  if [ "$image_physical_type" = "pc" ]; then
+    # PC
+    _physical_pkgs="${_physical_pkgs} nvme-cli"
+    if [ "$image_os_device_type" = "sd" ]; then
+      _physical_pkgs="${_physical_pkgs} mmc-utils"
+    fi
+  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    # RPI
+	  _physical_pkgs="${_physical_pkgs} raspberrypi"
+    case $image_alpine_release in
+      v3.13 | v3.14 )
+        # These releases do not have the mmc-utils package
+        : ;;
+      * )
+  	  	_physical_pkgs="${physical_pkgs} mmc-utils" ;;
+    esac
+  fi
+
+  # Require fstrim command, so install relevant package
+  case $image_alpine_release in
+    v3.13 | v3.14 )
+      _physical_pkgs="$_physical_pkgs util-linux" ;;
+    v3.15 )
+      _physical_pkgs="$_physical_pkgs util-linux-misc" ;;
+    * )
+      _physical_pkgs="$_physical_pkgs fstrim" ;;
+  esac
+
+  echo "$_physical_pkgs"
+}
+
+
+#
+# Disable unrequired kernel modules on a physical machine
+#
+disable_kernel_modules_on_physical() {
+  local _disable_list=""
+
+  if [ "$(expr "$image_physical_type" : '.*rpi.*')" -ne 0 ]; then
+    # Raspberry Pi
+
+    # RPI has no ACPI so neither 'button' nor 'tiny-power-button' are used
+    _disable_list="$_disable_list button tiny-power-button"
+    # RPI as server does not need multimedia-related modules
+    _disable_list="$_disable_list bcm2835_codec bcm2835_isp"
+		_disable_list="$_disable_list bcm2835_mmal_vchiq bcm2835_v4l2"
+    _disable_list="$_disable_list backlight cec drm drm_kms_helper"
+		_disable_list="$_disable_list drm_panel_orientiation_quirks"
+    _disable_list="$_disable_list fb_sys_fops i2c-bcm2708 input_leds mc"
+    _disable_list="$_disable_list snd snd-pcm snd-pcm-dmaengine"
+		_disable_list="$_disable_list snd-soc-core snd-timer"
+    _disable_list="$_disable_list syscopyarea sysfillrect sysimgblt"
+    _disable_list="$_disable_list uio uio_pdrv_genirq"
+    _disable_list="$_disable_list vc_sm_cma vc4"
+    _disable_list="$_disable_list videobuf2_common videobuf2_dma_contig"
+		_disable_list="$_disable_list videobuf2_memops videobuf2_vmalloc"
+		_disable_list="$_disable_list videobuf2_v4l2 videodev v4l2_mem2mem"
+  else
+    # x86/x86_64 physical machine
+
+    # 'button' is instead used on PC Physical machines
+    _disable_list="$_disable_list tiny-power-button"
+
+    # Disable all cloud provider and virtual modules
+    _disable_list="$_disable_list $CONSTANT_CLOUD_KERNEL_MODULES"
+    _disable_list="$_disable_list $CONSTANT_VIRTUAL_KERNEL_MODULES"
+    _disable_list="$_disable_list $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
+  fi
+
+  echo "$_disable_list"
+}
+
+
+#
+# Determine firmware packages for physical machine
+#
+firmware_list_for_physical() {
+  local _firmware_list=""
+
+  if [ "$image_physical_type" = "pc" ]; then
+    # PC
+    if [ -n "${image_optimise+x}" ] && \
+       [ -n "${image_graphics_vendor+x}" ] && \
+       [ "$image_graphics_vendor" = "amd" ]; then
+      cat <<'EOF' >> "$run_script"
+  write_log "Selecting AMD graphics firmware" 2
+EOF
+      if [ -n "${image_graphics_vendor_driver+x}" ] && \
+         [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
+        _firmware_list="linux-firmware-amdgpu"
+      elif [ -n "${image_graphics_vendor_driver+x}" ] && \
+           [ "$image_graphics_vendor_driver" = "radeon" ]; then
+        _firmware_list="linux-firmware-radeon"
+      else
+        _firmware_list="linux-firmware-amdgpu linux-firmware-radeon"
+      fi
+    elif [ -n "${image_optimise+x}" ] && \
+         [ -n "${image_graphics_vendor+x}" ] && \
+         [ "$image_graphics_vendor" = "intel" ]; then
+      cat <<'EOF' >> "$run_script"
+  write_log "Selecting Intel graphics firmware" 2
+EOF
+      _firmware_list="linux-firmware-i915"
+    else
+      cat <<'EOF' >> "$run_script"
+  write_log "Selecting AMD and Intel graphics firmware" 2
+EOF
+      _firmware_list="linux-firmware-amdgpu linux-firmware-radeon linux-firmware-i915"
+    fi
+  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    # No RPI firmware used currently
+    :
+  fi
+
+  echo "$_firmware_list"
+}
+
+
+#
+# Determine microcode packages for physical machine
+#
+install_microcode_for_physical() {
+  local _microcode_list=""
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+  # Debug
+  {
+    cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
+  }
+
+EOF
+  fi
+
+  if [ -n "${image_cpu_vendor+x}" ] && \
+     [ "$image_cpu_vendor" = "amd" ]; then
+    cat <<'EOF' >> "$run_script"
+  write_log "Selecting AMD CPU microcode" 2
+EOF
+    _microcode_list="amd-ucode"
+  elif [ -n "${image_cpu_vendor+x}" ] && \
+       [ "$image_cpu_vendor" = "intel" ]; then
+    cat <<'EOF' >> "$run_script"
+  write_log "Selecting Intel CPU microcode" 2
+EOF
+      _microcode_list="intel-ucode"
+  else
+    cat <<'EOF' >> "$run_script"
+  write_log "Selecting AMD and Intel microcode" 2
+EOF
+    _microcode_list="amd-ucode intel-ucode"
+  fi
+
+  cat <<EOF >> "$run_script"
+  write_log "Installing microcode" 2
+  apk add $_microcode_list >> /chroot.log 2>&1
+
+  write_log "Removing microcode module from modprobe blacklist" 2
+  sed -i -E -e 's/^(blacklist microcode)$/#\1/' \\
+    /etc/modprobe.d/blacklist.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  # Debug
+  {
+    diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
+      >> /chroot.log || true
+    rm /etc/modprobe.d/blacklist.conf-orig
+  }
+EOF
+  fi
+}
+

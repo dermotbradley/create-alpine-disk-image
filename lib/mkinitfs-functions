@@ -32,6 +32,9 @@ EOF
   fi
 
   configure_mkinitfs_feature_base
+  if [ -n "${image_bootchart+x}" ]; then
+    configure_mkinitfs_feature_bootchart
+  fi
   configure_mkinitfs_feature_keymap
   configure_mkinitfs_feature_network
 
@@ -105,23 +108,23 @@ EOF
 
 		if [ "$image_physical_type" = "pc" ]; then
       # PC
-      if [ "$image_boot_device_type" = "nvme" ]; then
-        configure_mkinitfs_feature_nvme
-      elif [ "$image_boot_device_type" = "scsi" ]; then
-        configure_mkinitfs_feature_scsi
-      elif [ "$image_boot_device_type" = "sd" ]; then
-        configure_mkinitfs_feature_mmc
-      else
-        configure_mkinitfs_feature_ata
-      fi
+      case $image_os_device_type in
+        nvme )
+          configure_mkinitfs_feature_nvme ;;
+        scsi )
+          configure_mkinitfs_feature_scsi ;;
+        sd )
+          configure_mkinitfs_feature_mmc ;;
+        * )
+          configure_mkinitfs_feature_ata ;;
+      esac
 	  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
       # RPI
       configure_mkinitfs_feature_mmc
     fi
 
-    if [ "$image_boot_device_type" = "usb" ] || \
-       [ "$keyboard_type" = "usb" ] || \
-       [ "$keyboard_type" = "both" ]; then
+    if [ "$image_os_device_type" = "usb" ] || \
+       [ "$keyboard_type" = "usb" ] || [ "$keyboard_type" = "both" ]; then
       # USB for keyboard
       configure_mkinitfs_feature_usb
     fi
@@ -233,8 +236,7 @@ EOF
       _features_list="$_features_list ${image_fs_type}" ;;
   esac
 
-  if [ -n "${image_experimental+x}" ] && \
-	   [ -n "${image_bootchart+x}" ]; then
+  if [ -n "${image_bootchart+x}" ]; then
     _features_list="$_features_list ${_optimise:-}bootchart"
   fi
 
@@ -294,13 +296,13 @@ EOF
     if [ "$image_physical_type" = "pc" ]; then
       # PC
 
-      if [ "$image_boot_device_type" = "scsi" ]; then
+      if [ "$image_os_device_type" = "scsi" ]; then
         # SCSI boot device type
         _features_list="$_features_list ${_optimise:-}scsi"
-      elif [ "$image_boot_device_type" = "nvme" ]; then
+      elif [ "$image_os_device_type" = "nvme" ]; then
         # NVME boot device type, assume use of additional SATA devices
         _features_list="$_features_list ${_optimise:-}nvme"
-      elif [ "$image_boot_device_type" = "sd" ]; then
+      elif [ "$image_os_device_type" = "sd" ]; then
         # SDcard
         _features_list="$_features_list ${_optimise:-}mmc"
       else
@@ -308,9 +310,8 @@ EOF
         _features_list="$_features_list ${_optimise:-}ata"
       fi
 
-      if [ "$image_boot_device_type" = "usb" ] || \
-         [ "$keyboard_type" = "usb" ] || \
-         [ "$keyboard_type" = "both" ]; then
+      if [ "$image_os_device_type" = "usb" ] || \
+         [ "$keyboard_type" = "usb" ] || [ "$keyboard_type" = "both" ]; then
         # USB boot and/or USB keyboard
         _features_list="$_features_list ${_optimise:-}usb"
       fi
@@ -320,13 +321,14 @@ EOF
 
       _features_list="$_features_list ${_optimise:-}usb"
 
-      if [ "$image_boot_device_type" = "sd" ]; then
-        # MMC boot
-        _features_list="$_features_list ${_optimise:-}mmc"
-      elif [ "$image_boot_device_type" = "usb" ]; then
-        # USB boot
-        _features_list="$_features_list ${_optimise:-}scsi"
-      fi
+      case $image_os_device_type in
+        sd)
+          # MMC boot
+          _features_list="$_features_list ${_optimise:-}mmc" ;;
+        usb )
+          # USB boot
+          _features_list="$_features_list ${_optimise:-}scsi" ;;
+      esac
     fi
   elif [ "$image_class" = "virtual" ]; then
     # Virtual Machine
@@ -424,14 +426,7 @@ EOF
 
     # ata.modules
 
-###      cat <<'EOF' >> "$run_script"
-###
-###  write_log "Setting up features.d/ata.modules" 2
-###EOF
-###
-###      initramfs_entry_initialise "ata" "append"
-###      initramfs_entry_add "kernel/drivers/ata"
-###      initramfs_entry_finish
+    :
 
     if [ -n "${debug_enabled+x}" ]; then
       cat <<'EOF' >> "$run_script"
@@ -498,7 +493,22 @@ EOF
 EOF
 
     initramfs_entry_initialise "optimise-base"
-    initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
+    if [ "$image_class" = "virtual" ] && [ "$image_vm_type" = "rhvm" ]; then
+      initramfs_entry_add "kernel/drivers/block/floppy.ko*"
+    fi
+    if [ -n "${image_hwrng+x}" ] && [ "$image_class" = "physical" ]; then
+      initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
+      case $image_physical_vendor in
+        amd )
+          initramfs_entry_add "kernel/drivers/char/hw_random/amd-rng.ko*" ;;
+        intel )
+          initramfs_entry_add "kernel/drivers/char/hw_random/intel-rng.ko*" ;;
+        * )
+          initramfs_entry_add "kernel/drivers/char/hw_random/amd-rng.ko*"
+          initramfs_entry_add "kernel/drivers/char/hw_random/intel-rng.ko*"
+          ;;
+      esac
+    fi
     if [ "$image_alpine_release" = "v3.13" ] || \
        [ "$image_alpine_release" = "v3.14" ]; then
       # FBdev
@@ -507,8 +517,7 @@ EOF
       # DRM
       initramfs_entry_add "kernel/drivers/gpu/drm/tiny/simpledrm.ko*"
     fi
-    if [ "$image_arch" != "aarch86" ] || \
-       [ "$image_class" != "virtual" ]; then
+    if [ "$image_arch" != "aarch86" ] || [ "$image_class" != "virtual" ]; then
       # jitterentropy_rng is a module for all machines except for
       # aarch64 VMs where it is compiled into the linux-virt kernel.
       ###initramfs_entry_add "base" "kernel/crypto/jitterentropy_rng.ko*"
@@ -516,8 +525,7 @@ EOF
     fi
 
     if [ "$image_class" = "physical" ] && \
-       { [ "$image_arch" = "x86" ] || \
-         [ "$image_arch" = "x86_64" ]; }; then
+       { [ "$image_arch" = "x86" ] || [ "$image_arch" = "x86_64" ]; }; then
       # x86 and x86_64 Physical machines use the normal button module
       initramfs_entry_add "kernel/drivers/acpi/button.ko*"
     fi
@@ -557,10 +565,14 @@ EOF
 EOF
 
     initramfs_entry_initialise "base" "append"
-    initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
+    if [ "$image_class" = "virtual" ] && [ "$image_vm_type" = "rhvm" ]; then
+      initramfs_entry_add "kernel/drivers/block/floppy.ko*"
+    fi
+    if [ -n "${image_hwrng+x}" ] && [ "$image_class" = "physical" ]; then
+      initramfs_entry_add "kernel/drivers/char/hw_random/*.ko*"
+    fi
     ###initramfs_entry_add "kernel/drivers/gpu/drm/tiny/simpledrm.ko*"
-    if [ "$image_arch" != "aarch86" ] || \
-       [ "$image_class" != "virtual" ]; then
+    if [ "$image_arch" != "aarch86" ] || [ "$image_class" != "virtual" ]; then
       # jitterentropy_rng is a module for all machines except for
       # aarch64 VMs where it is compiled into the linux-virt kernel.
       ###initramfs_entry_add "base" "kernel/crypto/jitterentropy_rng.ko*"
@@ -568,8 +580,7 @@ EOF
     fi
 
     if [ "$image_class" = "physical" ] && \
-       { [ "$image_arch" = "x86" ] || \
-         [ "$image_arch" = "x86_64" ]; }; then
+       { [ "$image_arch" = "x86" ] || [ "$image_arch" = "x86_64" ]; }; then
       # x86 and x86_64 Physical machines use the normal button module
       initramfs_entry_add "kernel/drivers/acpi/button.ko*"
     fi
@@ -586,6 +597,59 @@ EOF
 EOF
     fi
 
+  fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Create/modify bootchart mkinitfs feature files
+#
+configure_mkinitfs_feature_bootchart() {
+  cat <<'EOF' >> "$run_script"
+
+  # Bootchart
+  {
+EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+    # optimise-bootchart.files
+
+    cat <<'EOF' >> "$run_script"
+    write_log "Setting up features.d/optimise-bootchart.files" 2
+    {
+      echo "/sbin/bootchartd"
+      echo "/usr/sbin/accton"
+    } > /etc/mkinitfs/features.d/optimise-bootchart.files
+
+EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      write_debug_log "optimise-bootchart.files contents:" 2
+      cat /etc/mkinitfs/features.d/optimise-bootchart.files >> /chroot.log
+    }
+
+EOF
+    fi
+  else
+    # bootchart.files
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      write_debug_log "bootchart.files contents:" 2
+      cat /etc/mkinitfs/features.d/bootchart.files >> /chroot.log
+    }
+
+EOF
+    fi
   fi
 
   cat <<'EOF' >> "$run_script"
@@ -713,7 +777,7 @@ EOF
           initramfs_entry_add "kernel/crypto/chacha_generic.ko*"
           initramfs_entry_add "kernel/crypto/chacha_x86_64.ko*"
           initramfs_entry_add "kernel/crypto/nhpoly1305.ko*"
-        elif [ -z ${image_cpu_vendor+X} ] || \
+        elif [ -z "${image_cpu_vendor+x}" ] || \
              [ "$image_cpu_vendor" = "intel" ]; then
           initramfs_entry_add "kernel/arch/x86/crypto/aesni-intel.ko*"
         fi
@@ -867,7 +931,7 @@ EOF
       # PC
 
       initramfs_entry_add "kernel/drivers/char/agp/agpgart.ko*"
-      if [ -z ${image_graphics_vendor+x} ] || \
+      if [ -z "${image_graphics_vendor+x}" ] || \
          [ "$image_graphics_vendor" = "amd" ]; then
         initramfs_entry_add "kernel/drivers/char/agp/amd64-agp.ko*"
         if [ "$image_alpine_release" = "v3.13" ] || \
@@ -876,10 +940,10 @@ EOF
           initramfs_entry_add "kernel/drivers/video/fbdev/aty/radeonfb.ko*"
         else
           # DRM
-          if [ -z ${image_graphics_vendor_driver+x} ] || \
+          if [ -z "${image_graphics_vendor_driver+x}" ] || \
              [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
             initramfs_entry_add "kernel/drivers/gpu/drm/amd"
-          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+          elif [ -z "${image_graphics_vendor_driver+x}" ] || \
                [ "$image_graphics_vendor_driver" = "radeon" ]; then
             initramfs_entry_add "kernel/drivers/gpu/drm/radeon"
           else
@@ -888,7 +952,7 @@ EOF
           fi
         fi
       fi
-      if [ -z ${image_graphics_vendor+x} ] || \
+      if [ -z "${image_graphics_vendor+x}" ] || \
          [ "$image_graphics_vendor" = "intel" ]; then
         initramfs_entry_add "kernel/drivers/char/agp/intel-agp.ko*"
         initramfs_entry_add "kernel/drivers/char/agp/intel-gtt.ko*"
@@ -898,10 +962,10 @@ EOF
           initramfs_entry_add "kernel/drivers/video/fbdev/intelfb"
         else
           # DRM
-          if [ -z ${image_graphics_vendor_driver+x} ] || \
+          if [ -n "${image_graphics_vendor_driver+x}" ] && \
              [ "$image_graphics_vendor_driver" = "gma500" ]; then
             initramfs_entry_add "kernel/drivers/gpu/drm/gma500"
-          elif [ -z ${image_graphics_vendor_driver+x} ] || \
+          elif [ -n "${image_graphics_vendor_driver+x}" ] && \
                [ "$image_graphics_vendor_driver" = "i915" ]; then
             initramfs_entry_add "kernel/drivers/gpu/drm/i915"
           else
@@ -910,7 +974,7 @@ EOF
           fi
         fi
       fi
-      if [ -z ${image_graphics_vendor+x} ] || \
+      if [ -z "${image_graphics_vendor+x}" ] || \
          [ "$image_graphics_vendor" = "nvidia" ]; then
         if [ "$image_alpine_release" = "v3.13" ] || \
            [ "$image_alpine_release" = "v3.14" ]; then
@@ -1371,17 +1435,17 @@ EOF
     initramfs_entry_initialise "optimise-scsi"
 
     if [ "$image_physical_type" = "pc" ]; then
-      if [ "$image_boot_device_type" = "scsi" ] || \
-         [ "$image_boot_device_type" = "usb" ]; then
+      if [ "$image_os_device_type" = "scsi" ] || \
+         [ "$image_os_device_type" = "usb" ]; then
         initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       fi
-      if [ "$image_boot_device_type" = "usb" ]; then
+      if [ "$image_os_device_type" = "usb" ]; then
         initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
       fi
       ###initramfs_entry_add "kernel/drivers/scsi/sg.ko*"
       ###initramfs_entry_add "kernel/drivers/scsi/sr_mod.ko*"
     elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] && \
-         [ "$image_boot_device_type" = "usb" ]; then
+         [ "$image_os_device_type" = "usb" ]; then
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
     fi
@@ -1491,7 +1555,7 @@ EOF
       fi
       initramfs_entry_add "kernel/drivers/usb/host/xhci-hcd.ko*"
       initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
-      if [ "$image_boot_device_type" = "usb" ]; then
+      if [ "$image_os_device_type" = "usb" ]; then
         initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
         initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
       fi

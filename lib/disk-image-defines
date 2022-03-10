@@ -98,8 +98,8 @@ readonly CONSTANT_GENERAL_NTP_SERVER="pool.ntp.org"
 
 ###########################################################################
 
-# Modules shared between Cloud and VMs, i.e. Azure/Hyper-V
-readonly CONSTANT_CLOUD_VIRTUAL_COMMON_KERNEL_MODULES="hid-hyperv \
+# Modules shared between Azure Cloud & Hyper-V VMs
+readonly CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES="hid-hyperv \
            hv_netvsc hv_storvsc hv_utils hv_vmbus hyperv-keyboard \
            hyperv_drm hyperv_fb pci-hyperv pci-hyperv-intf"
 
@@ -113,13 +113,13 @@ readonly CONSTANT_AWS_NTP_IPV6ADDRESS="fd00:ec2::123"
 readonly CONSTANT_CLOUD_AWS_KERNEL_MODULES="ena"
 
 # Azure-specific defines
-readonly CONSTANT_CLOUD_AZURE_KERNEL_MODULES=""
+readonly CONSTANT_CLOUD_AZURE_KERNEL_MODULES="mana"
 
 # GCE-specific defines
 #
 # https://morganpeat.github.io/cloudmigration/2019/02/01/time-sync-on-cloud-vms-2.html
 readonly CONSTANT_GCE_NTP_INTERNAL_SERVER="metadata.google.internal"
-readonly CONSTANT_CLOUD_GCE_KERNEL_MODULES=""
+readonly CONSTANT_CLOUD_GCE_KERNEL_MODULES="gve"
 
 # General Cloud defines
 readonly CONSTANT_CLOUD_KERNEL_MODULES="${CONSTANT_CLOUD_AWS_KERNEL_MODULES} \

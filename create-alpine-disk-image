@@ -34,13 +34,20 @@ script_dir="$(dirname "$0")"
 
 
 # Source functions, some shared with create-alpine-disk-installer
+. ${script_dir}/lib/cli-functions
 . ${script_dir}/lib/common-functions
 . ${script_dir}/lib/disk-image-functions
 . ${script_dir}/lib/mkinitfs-functions
 . ${script_dir}/lib/services-functions
 
-. ${script_dir}/lib/cloud-functions
+. ${script_dir}/lib/grub-functions
+. ${script_dir}/lib/syslinux-functions
+
+. ${script_dir}/lib/cloud-init-functions
 . ${script_dir}/lib/non-cloud-functions
+
+. ${script_dir}/lib/cloud-functions
+. ${script_dir}/lib/physical-functions
 . ${script_dir}/lib/vm-functions
 
 #############################################################################
@@ -158,9 +165,6 @@ if [ -n "${local_repo_signature_file+x}" ]; then
   copy_local_repo_key_to_chroot
 fi
 install_alpine_base
-cat <<EOF >> "$run_script"
-rm -Rf \$TMPDIR/apk.static
-EOF
 
 mount_host_special_fs_in_chroot
 

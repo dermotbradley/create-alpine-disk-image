@@ -37,12 +37,12 @@ EOF
   fi
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
   initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
-  if [ "$image_alpine_release" = "v3.13" ] || \
-     [ "$image_alpine_release" = "v3.14" ]; then
-    initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*"
-  else
-    initramfs_entry_add "kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*"
-  fi
+  case $image_alpine_release in
+    v3.13 | v3.14 )
+      initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*" ;;
+    * )
+      initramfs_entry_add "kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*" ;;
+  esac
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -85,17 +85,19 @@ EOF
   else
     initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
   fi
+  initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
   initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
   initramfs_entry_add "kernel/drivers/crypto/virtio"
-  if [ "$image_boot_device_type" = "nvme" ]; then
-    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-  fi
-  if [ "$image_boot_device_type" = "sata" ] || \
-     [ "$image_boot_device_type" = "scsi" ]; then
-    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-  fi
+  case $image_os_device_type in
+    nvme )
+      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+      ;;
+    sata | scsi )
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+      ;;
+  esac
   initramfs_entry_add "kernel/drivers/virtio"
   initramfs_entry_finish
 
@@ -139,17 +141,19 @@ EOF
   else
     initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
   fi
+  initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
   initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
   initramfs_entry_add "kernel/drivers/crypto/virtio"
-  if [ "$image_boot_device_type" = "nvme" ]; then
-    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-  fi
-  if [ "$image_boot_device_type" = "sata" ] || \
-     [ "$image_boot_device_type" = "scsi" ]; then
-    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-  fi
+  case $image_os_device_type in
+    nvme )
+      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+      ;;
+    sata | scsi )
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+      ;;
+  esac
   initramfs_entry_add "kernel/drivers/virtio"
   initramfs_entry_finish
 
@@ -183,27 +187,26 @@ EOF
   initramfs_entry_initialise "vm-virtualbox"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   if [ -n "${image_optimise+x}" ]; then
-    ###initramfs_entry_add "kernel/drivers/gpu/drm/vboxvideo/vboxvideo.ko*"
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
     initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
     initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
     initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
     initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
   else
-    ###initramfs_entry_add "kernel/drivers/gpu/drm/vboxvideo"
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
     initramfs_entry_add "kernel/drivers/virt/vboxguest"
     initramfs_entry_add "kernel/drivers/virtio"
   fi
   initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
-  if [ "$image_boot_device_type" = "nvme" ]; then
-    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-  fi
-  if [ "$image_boot_device_type" = "sata" ] || \
-     [ "$image_boot_device_type" = "scsi" ]; then
-    initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-    initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-  fi
+  case $image_os_device_type in
+    nvme )
+      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+      ;;
+    sata | scsi )
+      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+      ;;
+  esac
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -262,4 +265,119 @@ EOF
   cat <<'EOF' >> "$run_script"
   }
 EOF
+}
+
+
+#
+# Define virtual machine specific packages
+#
+define_virtual_machine_packages() {
+  local _virtual_pkgs=""
+
+  case $image_vm_type in
+    hyperv )
+      _virtual_pkgs="hvtools" ;;
+    libvirtd | lxd | proxmox | qemu )
+      _virtual_pkgs="qemu-guest-agent" ;;
+    virtualbox )
+      _virtual_pkgs="virtualbox-guest-additions" ;;
+    vmware )
+      _virtual_pkgs="open-vm-tools open-vm-tools-guestinfo"
+      _virtual_pkgs="${_virtual_pkgs} open-vm-tools-timesync open-vm-tools-vix"
+      ;;
+  esac
+
+  echo "$_virtual_pkgs"
+}
+
+
+#
+# Define the cloud-init DataSource(s) to enable for the relevant VM type
+#
+define_virtual_settings() {
+  case $image_vm_type in
+    hyperv )
+      datasource_list="'NoCloud'" ;;
+    libvirtd | lxd | proxmox | qemu )
+      datasource_list="'NoCloud'"
+      if [ "$image_console_type" = "serial" ] && \
+         { [ "$image_arch" = "armv7" ] || \
+           [ "$image_arch" = "aarch64" ]; }; then
+        serial_port_number="0"
+        serial_port_name="ttyAMA${serial_port_number}"
+      fi
+      ;;
+    opennebula )
+      datasource_list="'Opennebula'" ;;
+    openstack )
+      datasource_list="'Openstack'" ;;
+    rhvm )
+      datasource_list="'AltCloud','Openstack'" ;;
+    virtualbox )
+      datasource_list="'NoCloud'" ;;
+    vmware )
+      datasource_list="'OVF'" ;;
+    vsphere )
+      datasource_list="'AltCloud'" ;;
+    generic )
+      datasource_list="'AltCloud','ConfigDrive','Opennebula','Openstack','NoCloud','OVF'" ;;
+  esac
+  if [ "$datasource_list" = "'NoCloud'" ] && \
+     [ -n "${cloud_seed_url+x}" ]; then
+    datasource_settings="$(printf \\t%s\\n "  NoCloud:" "    seedfrom: $cloud_seed_url")"
+  fi
+}
+
+
+#
+# Add virtual machine related entries to /etc/modules
+#
+etc_modules_list_for_virtual() {
+  cat <<'EOF' >> "$run_script"
+	
+	# VM-specific modules
+	tiny-power-button
+EOF
+
+  case $image_vm_type in
+    hyperv )
+      cat <<'EOF' >> "$run_script"
+	hv_utils
+EOF
+      ;;
+    libvirtd | lxd | proxmox | qemu | generic )
+      if [ "$image_os_device_type" = "nvme" ]; then
+        cat <<'EOF' >> "$run_script"
+	nvme
+EOF
+      fi
+      cat <<'EOF' >> "$run_script"
+	ptp_kvm
+	virtio-rng
+EOF
+      ;;
+    virtualbox )
+      if [ "$image_os_device_type" = "nvme" ]; then
+        cat <<'EOF' >> "$run_script"
+	nvme
+EOF
+      fi
+      ;;
+    vmware )
+      cat <<'EOF' >> "$run_script"
+	ptp_vmw
+EOF
+      ;;
+  esac
+
+  case $image_vm_type in
+    hyperv | vmware )
+      # Do not add virtio_net module for Hyper-V or VMware
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
+	virtio_net
+EOF
+    ;;
+  esac
 }
