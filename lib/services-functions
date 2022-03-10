@@ -13,6 +13,50 @@
 
 
 #
+# Add a crontab entry to run fstrim
+#
+add_fstrim_cronjob() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Setting up weekly fstrim cronjob" 4
+    {
+      cat <<-'_SCRIPT_' >> /etc/periodic/weekly/fstrim
+	#!/bin/sh
+	
+	# Trim all suitable fs listed in /etc/fstab
+	_trim_options="-A -v"
+	
+	fstrim \$_trim_options >> /var/log/trim.log
+	
+	_SCRIPT_
+    }
+EOF
+}
+
+
+#
+# Configure acct
+#
+configure_acct() {
+  cat <<'EOF' >> "$run_script"
+    write_log "Configuring acct" 4
+    {
+      write_log "Enable acct init.d service" 6
+      {
+EOF
+
+  add_init_d_service "acct" "default" 8
+
+  cat <<'EOF' >> "$run_script"
+      } >> /chroot.log 2>&1
+EOF
+
+  cat <<'EOF' >> "$run_script"
+    }
+EOF
+}
+
+
+#
 # Configure ACPI daemon
 #
 configure_acpid() {
@@ -216,6 +260,10 @@ EOF
 # Configure Chrony server daemon
 #
 configure_chronyd() {
+  local _init_threshold _makestep_limit _makestep_threshold
+  local _ntp_pool_list _ntp_pool_options _ntp_server_list _ntp_server_options
+  local _phc_dpoll _phc_offset _phc_poll _phc_ptp_device _phc_stratum
+
   cat <<'EOF' >> "$run_script"
     write_log "Configuring Chrony NTP server" 4
     {
@@ -245,51 +293,137 @@ EOF
       } > /etc/chrony/chrony.conf
 EOF
 
-    if [ -n "${image_ntp_from_host+x}" ]; then
-      # Sync with host
+    _init_threshold="10"
 
-      cat <<'EOF' >> "$run_script"
+    if [ "${image_ntp_use_host+x}" = "true" ]; then
+      # Sync with hypervisor host's clock
+
+      _makestep_threshold="0.1"
+      _makestep_limit="3"
+      _phc_ptp_device="/dev/ptp0"
+      _phc_poll="4"
+      _phc_dpoll="0"
+      _phc_offset="0.0"
+      _phc_stratum="0"
+
+      if [ "$image_class" = "cloud" ]; then
+        case $image_cloud_type in
+          azure )
+            _makestep_threshold="1.0"
+            _makestep_limit="-1"
+            _phc_ptp_device="/dev/ptp_hyperv"
+            _phc_poll="3"
+            _phc_dpoll="-2"
+            _phc_offset="0.0"
+            _phc_stratum="2"
+            ;;
+        esac
+      elif [ "$image_class" = "virtual" ]; then
+        case $image_vm_type in
+          hyperv )
+            _phc_ptp_device="/dev/ptp_hyperv" ;;
+          libvirtd | lxd | proxmox | qemu )
+            _phc_ptp_device="/dev/ptp_kvm" ;;
+          vmware )
+            _phc_ptp_device="/dev/ptp_vmw" ;;
+        esac
+      fi
+
+      _phc_options_list="poll ${_phc_poll} dpoll ${_phc_dpoll} offset ${_phc_offset} stratum ${_phc_stratum}"
+
+      cat <<EOF >> "$run_script"
 
       write_log "Configuring chrony for time-sync from hypervisor host" 8
       {
         echo
-        echo "# For Virtual/Cloud machines use the host machine's clock as reference"
-        echo "# clock. This only works when ptp_kvm or ptp_vmw or (for Azure/Hyper-V)"
-        echo "# hv_utils kernel modules are loaded, and host machine hypervisor"
-        echo "# supports this."
+        echo "# For Virtual/Cloud machines use the host machine's clock as the reference"
+        echo "# clock. This only works when ptp_kvm (for KVM) or ptp_vmw (for VMware) or"
+        echo "# hv_utils (for Azure/Hyper-V) kernel modules are loaded, and the host"
+        echo "# machine's hypervisor supports this."
         echo "#"
-        echo "refclock PHC /dev/ptp0 poll 3 dpoll -2 offset 0"
+        echo "refclock PHC ${_phc_ptp_device} ${_phc_options_list}"
+        echo "#"
+        echo "# Step the system clock if the adjustment is larger than X seconds, but"
+        echo "# only in the first Y clock updates (i.e. at system boot)."
+        echo "#"
+        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
       } >> /etc/chrony/chrony.conf
 
 EOF
     elif [ -n "${image_ntp_servers+x}" ]; then
     # Sync with specified NTP server(s)
 
+      _ntp_pool_list="$image_ntp_servers"
+      _ntp_pool_options="iburst"
+
       cat <<EOF >> "$run_script"
 
       write_log "Configuring chrony for specific NTP servers" 8
       {
         echo
-        echo "pool ${image_ntp_servers} iburst"
-        echo "initstepslew 10 ${image_ntp_servers}"
+        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
+        echo "#"
+        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
+        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
+        echo "#"
+        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
       } >> /etc/chrony/chrony.conf
 
 EOF
     else
       # Sync with default NTP servers
 
+      if [ "$image_class" = "cloud" ]; then
+        case $image_cloud_type in
+          aws )
+            if [ -n "${image_disable_ipv4+x}" ]; then
+              _ntp_server_list="$CONSTANT_AWS_NTP_IPV6ADDRESS"
+            elif [ -n "${image_disable_ipv4+x}" ]; then
+              _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS"
+            else
+              _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS $CONSTANT_AWS_NTP_IPV6ADDRESS"
+            fi
+            _ntp_server_options="prefer iburst minpoll 4 maxpoll 4"
+            ;;
+          gce )
+            _ntp_server_list="$CONSTANT_GCE_NTP_INTERNAL_SERVER"
+            _ntp_server_options="prefer iburst"
+            ;;
+        esac
+      else
+        _ntp_server_list=""
+      fi
+
       cat <<EOF >> "$run_script"
 
-      write_log "Configuring chrony for default NTP servers" 8
+      write_log "Configuring chrony for default NTP servers/pool" 8
       {
         echo
-        echo "pool ${CONSTANT_GENERAL_NTP_SERVER} iburst"
-        echo "initstepslew 10 ${CONSTANT_GENERAL_NTP_SERVER}"
+EOF
+
+      if [ -n "${_ntp_server_list}" ]; then
+        cat <<EOF >> "$run_script"
+        echo "server ${_ntp_server_list} ${_ntp_server_options}"
+EOF
+      else
+        _ntp_pool_list="$CONSTANT_GENERAL_NTP_SERVER"
+        _ntp_pool_options="iburst"
+
+        cat <<EOF >> "$run_script"
+        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
+        echo "#"
+        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
+        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
+        echo "#"
+        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
+EOF
+      fi
+
+      cat <<EOF >> "$run_script"
       } >> /etc/chrony/chrony.conf
 
 EOF
     fi
-
   fi
 
 
@@ -342,6 +476,11 @@ EOF
 ###  elif [ "$image_cron_daemon" = "??" ]; then
 ###    configure_??
   fi
+
+  case $image_os_device_media in
+    sd | ssd )
+      add_fstrim_cronjob ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
   }
@@ -779,7 +918,6 @@ EOF
 EOF
   fi
 
-
   cat <<EOF >> "$run_script"
     write_log "Enable ${image_console_type} console" 4
     {
@@ -787,11 +925,11 @@ EOF
 
   if [ "$image_console_type" = "normal" ]; then
       _getty_port_name="tty1"
-      _getty_options="38400 ${_getty_port_name}"
+      _getty_options=" 38400 ${_getty_port_name}"
 
     cat <<EOF >> "$run_script"
       write_log "Enabling getty on normal console" 6
-      sed -i -E -e 's|^${_getty_port_name}|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
+      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
     }
 EOF
   else
@@ -804,7 +942,7 @@ EOF
     case $image_console_type in
       hypervisor )
         _getty_port_name="hvc0"
-        _getty_options="38400 ${_getty_port_name}"
+        _getty_options=" 38400 ${_getty_port_name}"
         ;;
       serial )
         _getty_port_name="${serial_port_name}"
@@ -821,7 +959,6 @@ EOF
     }
 EOF
   fi
-
 
   cat <<'EOF' >> "$run_script"
 
@@ -841,6 +978,12 @@ EOF
     sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
 EOF
 
+#  cat <<'EOF' >> "$run_script"
+#
+#  write_log "Configuring /etc/securetty" 2
+#  {
+#  }
+#EOF
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<'EOF' >> "$run_script"
@@ -852,6 +995,39 @@ EOF
     }
 EOF
   fi
+
+  cat <<'EOF' >> "$run_script"
+  }
+EOF
+}
+
+
+#
+# Configure hd-idle
+#
+configure_hd_idle() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring hd-idle daemon" 2
+  {
+EOF
+
+
+  sed -i -e 's|[#]DISK=".*$|DISK="/dev/sda"|g' /etc/conf.d/hd-idle
+
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Enable hd-idle init.d service" 4
+    {
+EOF
+
+  add_init_d_service "hd-idle" "default" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+EOF
+
 
   cat <<'EOF' >> "$run_script"
   }
@@ -987,19 +1163,35 @@ EOF
       # - prevent keyboard-interactive logins
       # - prevent logins to accounts with empty passwords
       # - prevent root logins
-      # - prevent password-based logins
       # - use built-in SFTP server
-      write_log "Prevent root login, prevent password logins" 6
+      write_log "Prevent root logins" 6
       sed -i \
         -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
         -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
         -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
         -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
         -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
-        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
         -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
         /etc/ssh/sshd_config
 EOF
+
+  if [ -n "${image_insecure+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+      # - permit password-based logins
+      write_log "Permit password-based SSH logins" 6
+      sed -i \
+        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication yes|' \
+        /etc/ssh/sshd_config
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+      # - prevent password-based logins
+      write_log "Prevent password-based SSH logins" 6
+      sed -i \
+        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
+        /etc/ssh/sshd_config
+EOF
+  fi
 
   if [ -z "${image_without_cloud_init+x}" ] || \
      [ -n "${image_pam_enabled+x}" ]; then
@@ -1213,10 +1405,9 @@ EOF
 EOF
 
 
-  if [ "$image_boot_device_media" = "flash" ] || \
-     [ "$image_boot_device_media" = "sd" ] || \
-     [ "$image_boot_device_media" = "ssd" ]; then
-    cat <<'EOF' >> "$run_script"
+  case $image_os_device_media in
+    flash | sd | ssd )
+      cat <<'EOF' >> "$run_script"
 
       write_log "Disable routine 'mark' message on SSD/flash-based servers" 6
       {
@@ -1224,7 +1415,8 @@ EOF
         /etc/rsyslog.conf
       }
 EOF
-  fi
+      ;;
+  esac
 
 
   cat <<'EOF' >> "$run_script"
@@ -1274,15 +1466,33 @@ EOF
   # No acpid running on Cloud or Virtual machines as tiny-power-button
   # which does not require acpid. None on Raspberry Pi as it does not
   # support ACPI.
-  if [ "$image_class" = "physical" ] && \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-    configure_acpid
+  if [ "$image_class" = "physical" ]; then
+    if [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+      # Only for PCs, not Raspberry Pi
+      configure_acpid
+    fi
+  else
+    modprobe_enable_tiny_power_button
   fi
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 )
+      # These releases do not have suitable acct package
+      : ;;
+    * )
+      configure_acct ;;
+  esac
   configure_cron
   configure_dhcp_client
 	configure_gettys
   configure_ntpd
   configure_rngd
+  if [ "$image_class" = "physical" ]; then
+    case $image_os_device_media in
+      disk )
+        configure_hd_idle ;;
+    esac
+    configure_smartmontools
+  fi
   configure_syslogd
   configure_sshd
   configure_sshguard
@@ -1291,7 +1501,17 @@ EOF
   fi
 
   if [ -n "${image_lvm_rootfs+x}" ]; then
-    add_init_d_service "lvm" "boot" 2
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Enable lvm init.d service" 2
+  {
+EOF
+
+    add_init_d_service "lvm" "boot" 4
+
+    cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
   fi
 
   if [ "$image_class" = "cloud" ]; then
@@ -1302,6 +1522,39 @@ EOF
 
   cat <<'EOF' >> "$run_script"
 }
+EOF
+}
+
+
+#
+# Configure smartmontools
+#
+configure_smartmontools() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Configuring Smartmontools daemon" 2
+  {
+EOF
+
+
+  :
+
+
+  cat <<'EOF' >> "$run_script"
+
+    write_log "Enable smartd init.d service" 4
+    {
+EOF
+
+  add_init_d_service "smartd" "default" 6
+
+  cat <<'EOF' >> "$run_script"
+    } >> /chroot.log 2>&1
+EOF
+
+
+  cat <<'EOF' >> "$run_script"
+  }
 EOF
 }
 
@@ -1709,13 +1962,63 @@ EOF
   if [ "$image_alpine_release" != "v3.13" ] && \
      [ "$image_alpine_release" != "v3.14" ] && \
      [ "$image_alpine_release" != "v3.15" ]; then
-    add_init_d_service "btmpd" "boot" 6
+    ###add_init_d_service "btmpd" "boot" 6
+    :
   fi
   add_init_d_service "utmpd" "boot" 6
   add_init_d_service "wtmpd" "boot" 6
 
   cat <<'EOF' >> "$run_script"
     } >> /chroot.log 2>&1
+  }
+EOF
+}
+
+
+#
+# Ensure tiny-power-button is removed from modprobe blacklist and that
+# acpi is blacklisted instead
+#
+modprobe_enable_tiny_power_button() {
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Adjusting modprobe blacklist for tiny-power-button" 4
+  {
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+    # Debug
+    {
+      cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
+    }
+
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+    write_log "Removing tiny_power_button module from modprobe blacklist" 6
+    sed -i -E -e 's/^(blacklist tiny_power_button)$/#\1/' \\
+      /etc/modprobe.d/blacklist.conf
+
+    write_log "Adding acpi module to modprobe blacklist" 6
+    echo -e "\n# Using tiny_power_button instead\nblacklist button\n" \
+      >> /etc/modprobe.d/blacklist.conf
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+    # Debug
+    {
+      diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
+        >> /chroot.log || true
+      rm /etc/modprobe.d/blacklist.conf-orig
+    }
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
   }
 EOF
 }
