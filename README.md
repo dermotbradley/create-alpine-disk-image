@@ -32,7 +32,8 @@ that Cloud (although they can be).
 are stored in a small FAT partition).
 - resultant disk images are intended for server, rather than desktop, use.
 
-More information regarding specific features can be found here: (Features/)
+More information regarding specific features can be found here:
+[Features](https://github.com/dermotbradley/create-alpine-disk-image/blob/master/Features/)
 
 
 ## Host packages required

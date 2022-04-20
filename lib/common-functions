@@ -1,5 +1,5 @@
 #!/bin/sh -u
-# shellcheck disable=SC2039
+# shellcheck disable=SC1117,SC2039
 
 #############################################################################
 ##
@@ -15,11 +15,11 @@
 # Add more Alpine repos to the repositories file
 #
 add_additional_repos() {
-  cat <<EOF >> "$run_script"
-
-write_log "Adding additional repos"
-{
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Adding additional repos"
+	{
+	EOF
 
   add_alpine_repo "$alpine_mirror_site" "$image_alpine_release" "community"
 
@@ -31,9 +31,9 @@ EOF
     add_alpine_repo "$local_alpine_repository" "$image_alpine_release"
   fi
 
-  cat <<EOF >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -41,18 +41,18 @@ EOF
 # Enable base Alpine init.d services
 #
 add_base_init_d() {
-  cat <<'EOF' >> "$run_script"
-
-write_log "Enable init.d scripts"
-{
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Enable init.d scripts"
+	{
+	EOF
 
   add_init_d_service "devfs" "sysinit" 2
   add_init_d_service "dmesg" "sysinit" 2
 
-  cat <<EOF >> "$run_script"
-
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	EOF
 
   add_init_d_service "bootmisc" "boot" 2
   add_init_d_service "hostname" "boot" 2
@@ -78,23 +78,23 @@ EOF
     fi
   fi
 
-  cat <<EOF >> "$run_script"
-
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	EOF
 
   add_init_d_service "networking" "default" 2
 
-  cat <<EOF >> "$run_script"
-
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	EOF
 
   add_init_d_service "killprocs" "shutdown" 2
   add_init_d_service "mount-ro" "shutdown" 2
   add_init_d_service "savecache" "shutdown" 2
 
-  cat <<'EOF' >> "$run_script"
-} >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	} >> /chroot.log 2>&1
+	EOF
 }
 
 
@@ -108,21 +108,21 @@ add_alpine_repo() {
 
   cat <<EOF >> "$run_script"
 
-  write_log "Adding $_repo repo to /etc/apk/repositories" 2
+  write_log "Adding ${_repo} repo to /etc/apk/repositories" 2
   cat <<-_SCRIPT_ >> /etc/apk/repositories
 EOF
 
   if [ "$_repo" = "local" ]; then
     cat <<EOF >> "$run_script"
-	$_mirror/$_release
+	${_mirror}/${_release}
 EOF
   else
     cat <<EOF >> "$run_script"
-	$_mirror/$_release/$_repo
+	${_mirror}/${_release}/${_repo}
 EOF
   fi
 
-  cat <<EOF >> "$run_script"
+  cat <<'EOF' >> "$run_script"
 	_SCRIPT_
 EOF
 }
@@ -136,9 +136,9 @@ add_init_d_service() {
   local _run_level=$2
   local _indent=${3:-0}
 
-  cat <<EOF >> "$run_script"
-$(printf "%${_indent}s")rc-update add $_service_name $_run_level
-EOF
+  cat <<-EOF >> "$run_script"
+	$(printf "%${_indent}s")rc-update add ${_service_name} ${_run_level}
+	EOF
 }
 
 
@@ -146,7 +146,7 @@ EOF
 # Display error as command option is not supported, and exit
 #
 cli_option_not_handled() {
-	error_message "This option does not apply in this situation."
+  error_message "This option does not apply in this situation."
 }
 
 
@@ -164,25 +164,25 @@ cli_option_unknown_value() {
 # Copy /etc/resolv.conf from host system to chroot
 #
 copy_host_resolv_conf_to_chroot() {
-  cat <<EOF >> "$run_script"
-
-write_log "Copying system's /etc/resolv.conf into chroot filesystem"
-{
-  mkdir -p "\$chroot_dir"/etc
-  cp /etc/resolv.conf "\$chroot_dir"/etc/
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Copying system's /etc/resolv.conf into chroot filesystem"
+	{
+	  mkdir -p "$chroot_dir"/etc
+	  cp /etc/resolv.conf "$chroot_dir"/etc/
+	}
+	EOF
 }
 
 #
 # Copy local repository signing key to chroot
 #
 copy_local_repo_key_to_chroot() {
-  cat <<EOF >> "$run_script"
-
-write_log "Copy local repo key to /etc/apk/keys/ directory inside chroot"
-cp "$local_repo_signature_file" "\$chroot_dir"/etc/apk/keys/
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Copy local repo key to /etc/apk/keys/ directory inside chroot"
+	cp "${local_repo_signature_file}" "\$chroot_dir"/etc/apk/keys/
+	EOF
 }
 
 
@@ -192,11 +192,11 @@ EOF
 create_disk_label() {
   local label_type=$1
 
-  cat <<EOF >> "$run_script"
-  write_debug_log "Creating $label_type disk label" 2
-  parted --machine --script --align=optimal \$image_full_filename \\
-    mklabel $label_type >> "\$logfile" 2>&1
-EOF
+  cat <<-EOF >> "$run_script"
+	  write_debug_log "Creating ${label_type} disk label" 2
+	  parted --machine --script --align=optimal \$image_full_filename \\
+	    mklabel ${label_type} >> "\$logfile" 2>&1
+	EOF
 }
 
 
@@ -214,18 +214,18 @@ create_disk_partition() {
 
   local _flag
 
-  cat <<EOF >> "$run_script"
-  write_debug_log "Creating ${_size}MiB $_part_desc partition" 2
-  parted --machine --script --align=optimal \$image_full_filename \\
-    unit MiB mkpart primary ${_fs_type} ${_part_start} ${_part_end} >> "\$logfile" 2>&1
-EOF
+  cat <<-EOF >> "$run_script"
+	  write_debug_log "Creating ${_size}MiB ${_part_desc} partition" 2
+	  parted --machine --script --align=optimal \$image_full_filename \\
+	    unit MiB mkpart primary ${_fs_type} ${_part_start} ${_part_end} >> "\$logfile" 2>&1
+	EOF
 
   for _flag in $_flags; do
-    cat <<EOF >> "$run_script"
-  write_debug_log "Setting partition $_flag flag on" 2
-  parted --machine --script --align=optimal \$image_full_filename \\
-    set $_part_number $_flag on >> "\$logfile" 2>&1
-EOF
+    cat <<-EOF >> "$run_script"
+	  write_debug_log "Setting partition ${_flag} flag on" 2
+	  parted --machine --script --align=optimal \$image_full_filename \\
+	    set ${_part_number} ${_flag} on >> "\$logfile" 2>&1
+	EOF
   done
 }
 
@@ -234,15 +234,15 @@ EOF
 # Create basic /etc/apk/repositories file inside chroot
 #
 create_repositories_file_inside_chroot() {
-  cat <<EOF >> "$run_script"
-
-write_log "Creating /etc/apk/repositories file inside chroot"
-{
-  mkdir -p "\$chroot_dir"/etc/apk/keys
-  echo "$alpine_mirror_site/$image_alpine_release/main" \\
-    > "\$chroot_dir"/etc/apk/repositories
-}
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Creating /etc/apk/repositories file inside chroot"
+	{
+	  mkdir -p "\$chroot_dir"/etc/apk/keys
+	  echo "${alpine_mirror_site}/${image_alpine_release}/main" \\
+	    > "\$chroot_dir"/etc/apk/repositories
+	}
+	EOF
 }
 
 
@@ -256,11 +256,11 @@ options_wrap() {
 
   while [ ${#_options_list} -gt 0 ] && \
         [ "${_options_list#*--}" != "$_options_list" ]; do
-	  _options_list="${_options_list#*--}"
-		_option="${_options_list%% --*}"
-    cat <<EOF >> "$run_script"
-#   --$_option
-EOF
+    _options_list="${_options_list#*--}"
+    _option="${_options_list%% --*}"
+    cat <<-EOF >> "$run_script"
+	#   --${_option}
+	EOF
   done
 }
 
@@ -269,30 +269,30 @@ EOF
 # Create the comment block at the start of the runscript
 #
 create_runscript_header() {
-  cat <<EOF > "$run_script"
-#!/bin/sh -eu
-# shellcheck disable=SC2039
-
-#############################################################################
-# Generated on $(date +%c) by ${script_name}
-# version ${script_version} using the following options:
-#
-EOF
+  cat <<-EOF > "$run_script"
+	#!/bin/sh -eu
+	# shellcheck disable=SC2039
+	
+	#############################################################################
+	# Generated on $(date +%c) by ${script_name}
+	# version ${script_version} using the following options:
+	#
+	EOF
 
   options_wrap "$full_command_options"
 
-  cat <<EOF >> "$run_script"
-#
-#############################################################################
-
-if [ "\$(id -u)" -ne 0 ]; then
-  echo
-  echo "This script must be run as the root user!"
-  echo
-  exit 1
-fi
-
-EOF
+  cat <<-'EOF' >> "$run_script"
+	#
+	#############################################################################
+	
+	if [ "$(id -u)" -ne 0 ]; then
+	  echo
+	  echo "This script must be run as the root user!"
+	  echo
+	  exit 1
+	fi
+	
+	EOF
 }
 
 
@@ -300,17 +300,17 @@ EOF
 # Download tarball of statically compiled apk tool
 #
 download_static_apk() {
-  cat <<EOF >> "$run_script"
-
-_host_arch="\$(detect_host_arch)"
-write_log "Downloading statically built APK tool for \${_host_arch} arch"
-{
-  wget -q -O $TMPDIR/apk.static \\
-    ${apk_static_url}/"\${_host_arch}"/apk.static \\
-    2>> "\$logfile"
-  chmod +x $TMPDIR/apk.static
-}
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	_host_arch="\$(detect_host_arch)"
+	write_log "Downloading statically built APK tool for \${_host_arch} arch"
+	{
+	  wget -q -O ${TMPDIR}/apk.static \\
+	    ${apk_static_url}/"\${_host_arch}"/apk.static \\
+	    2>> "\$logfile"
+	  chmod +x ${TMPDIR}/apk.static
+	}
+	EOF
 }
 
 
@@ -318,29 +318,29 @@ EOF
 # Enable serial console for Grub
 #
 enable_grub_serial_console() {
-  cat <<EOF >> "$run_script"
-    {
-      write_log "Configure GRUB serial command" 4
-      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} \\
-        --speed=${serial_port_speed}"' >> /etc/default/grub
-      write_log "Configure GRUB for serial console" 4
-EOF
+  cat <<-EOF >> "$run_script"
+	    {
+	      write_log "Configure GRUB serial command" 4
+	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} \\
+	        --speed=${serial_port_speed}"' >> /etc/default/grub
+	      write_log "Configure GRUB for serial console" 4
+	EOF
 
   if [ "$image_console_type" = "both" ]; then
-    cat <<'EOF' >> "$run_script"
-      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial console"/' \
-        /etc/default/grub
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial console"/' \
+	        /etc/default/grub
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial"/' \
-        /etc/default/grub
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial"/' \
+	        /etc/default/grub
+	EOF
   fi
 
-  cat <<EOF >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -348,20 +348,20 @@ EOF
 # Enable serial console for Syslinux
 #
 enable_syslinux_serial_console() {
-  cat <<EOF >> "$run_script"
-
-    write_log "Configure Syslinux serial port and speed" 4
-    sed -i -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
-      -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
-      /etc/update-extlinux.conf
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	    write_log "Configure Syslinux serial port and speed" 4
+	    sed -i -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
+	      -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
+	      /etc/update-extlinux.conf
+	EOF
 
   if [ "$image_console_type" = "serial" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    write_log "Disable normal Syslinux console" 4
-    sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Disable normal Syslinux console" 4
+	    sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
+	EOF
   fi
 }
 
@@ -370,12 +370,12 @@ EOF
 # Display an error message and exit the script
 #
 error_message() {
-	local _error_message="$1"
+  local _error_message="$1"
 
   echo
   echo "${_error_message}"
   echo
-	exit 2
+  exit 2
 }
 
 
@@ -398,12 +398,12 @@ format_esp_fs() {
       ;;
   esac
 
-  cat <<EOF >> "$run_script"
-  write_log "Formatting $uefi_info_type filesystem on ESP partition" 2
-  mkfs.fat -v $uefi_mkfs_option -n $CONSTANT_ESP_FS_LABEL "\$uefi_part_device" \\
-    >> "\$logfile" 2>&1
-
-EOF
+  cat <<-EOF >> "$run_script"
+	  write_log "Formatting ${uefi_info_type} filesystem on ESP partition" 2
+	  mkfs.fat -v ${uefi_mkfs_option} -n ${CONSTANT_ESP_FS_LABEL} "\$uefi_part_device" \\
+	    >> "\$logfile" 2>&1
+	
+	EOF
 }
 
 
@@ -435,10 +435,10 @@ format_ext4_fs() {
     _fs_options="$_fs_options -O ^64bit"
   fi
 
-  cat <<EOF >> "$run_script"
-  write_log "Formatting Ext4 $fs_use filesystem on $formatting_where" 2
-  mkfs.ext4 -q -L $label $_fs_options "$device" >> "\$logfile" 2>&1
-EOF
+  cat <<-EOF >> "$run_script"
+	  write_log "Formatting Ext4 ${fs_use} filesystem on ${formatting_where}" 2
+	  mkfs.ext4 -q -L ${label} ${_fs_options} "${device}" >> "\$logfile" 2>&1
+	EOF
 }
 
 
@@ -446,39 +446,39 @@ EOF
 # Insert function add_fstab_entry into created script
 #
 insert_chroot_function_add_fstab_entry() {
-  cat <<'EOF' >> "$run_script"
-
-add_fstab_entry() {
-  local _entry_type=\$1
-  local _entry_value=\$2
-  local _mount_point=\$3
-  local _fs_type=\$4
-  local _fs_options=\$5
-  local _entry_log=\$6
-
-  local _fstab_entry
-  if [ "\$_entry_type" = "BIND" ]; then
-    _fs_options="bind,\${_fs_options}"
-    local _fs_passno="0"
-  elif [ "\$_mount_point" = "/" ]; then
-    local _fs_passno="1"
-  else
-    local _fs_passno="2"
-  fi
-
-  if [ "\$_entry_type" = "BIND" ] ||
-     [ "\$_entry_type" = "DEVICE" ]; then
-    _fstab_entry="\${_entry_value}"
-  else
-    _fstab_entry="\${_entry_type}=\${_entry_value}"
-  fi
-  _fstab_entry="\${_fstab_entry}\t\${_mount_point}\t\${_fs_type}\t\${_fs_options} 0 \${_fs_passno}"
-
-  write_log "Add \${_entry_log} entry" 2
-  # shellcheck disable=SC2169,SC3036
-  echo -e "\${_fstab_entry}" >> /etc/fstab
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	add_fstab_entry() {
+	  local _entry_type=\$1
+	  local _entry_value=\$2
+	  local _mount_point=\$3
+	  local _fs_type=\$4
+	  local _fs_options=\$5
+	  local _entry_log=\$6
+	
+	  local _fstab_entry
+	  if [ "\$_entry_type" = "BIND" ]; then
+	    _fs_options="bind,\${_fs_options}"
+	    local _fs_passno="0"
+	  elif [ "\$_mount_point" = "/" ]; then
+	    local _fs_passno="1"
+	  else
+	    local _fs_passno="2"
+	  fi
+	
+	  if [ "\$_entry_type" = "BIND" ] ||
+	     [ "\$_entry_type" = "DEVICE" ]; then
+	    _fstab_entry="\${_entry_value}"
+	  else
+	    _fstab_entry="\${_entry_type}=\${_entry_value}"
+	  fi
+	  _fstab_entry="\${_fstab_entry}\t\${_mount_point}\t\${_fs_type}\t\${_fs_options} 0 \${_fs_passno}"
+	
+	  write_log "Add \${_entry_log} entry" 2
+	  # shellcheck disable=SC2169,SC3036
+	  echo -e "\${_fstab_entry}" >> /etc/fstab
+	}
+	EOF
 }
 
 
@@ -488,10 +488,10 @@ EOF
 insert_chroot_function_get_kernel_version() {
   local _kernel_package
 
-  cat <<EOF >> "$run_script"
-
-get_kernel_version() {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	get_kernel_version() {
+	EOF
 
   case $image_class in
     cloud | virtual )
@@ -523,11 +523,11 @@ EOF
       ;;
   esac
 
-  cat <<EOF >> "$run_script"
-  echo "\\\$(apk info linux-$_kernel_package | head -n 1 | sed -e "s/^linux-$_kernel_package-//" \\
-    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-$_kernel_package/")"
-}
-EOF
+  cat <<-EOF >> "$run_script"
+	  echo "\\\$(apk info linux-${_kernel_package} | head -n 1 | sed -e "s/^linux-${_kernel_package}-//" \\
+	    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-${_kernel_package}/")"
+	}
+	EOF
 }
 
 
@@ -535,31 +535,31 @@ EOF
 # Insert function write_debug_log into created script
 #
 insert_chroot_function_write_debug_log() {
-  cat <<'EOF' >> "$run_script"
-
-write_debug_log() {
-  local _log_entry="\$1"
-  local _indent=\${2:-0}
-
-  local _current_time
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_debug_log() {
+	  local _log_entry="\$1"
+	  local _indent=\${2:-0}
+	
+	  local _current_time
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
-  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-  # Debug not enabled so do nothing
-  true
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  # Debug not enabled so do nothing
+	  true
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -567,19 +567,19 @@ EOF
 # Insert function write_log into created script
 #
 insert_chroot_function_write_log() {
-cat <<'EOF' >> "$run_script"
-
-write_log() {
-  local _log_entry="\$1"
-  local _indent=\${2:-0}
-
-  local _current_time
-
-  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
-  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
-  printf "chroot: %\${_indent}s\${_log_entry}\n"
-}
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	write_log() {
+	  local _log_entry="\$1"
+	  local _indent=\${2:-0}
+	
+	  local _current_time
+	
+	  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
+	  printf "chroot: %\${_indent}s\${_log_entry}\n"
+	}
+	EOF
 }
 
 
@@ -587,96 +587,96 @@ EOF
 # Insert function check_binfmt_packages into the run script
 #
 insert_runscript_function_check_binfmt_packages() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Check that the host OS has necessary packages installed for
-# running user-mode QEMU via binfmt and that it is configured.
-#
-check_binfmt_packages() {
-  local _arch=$1
-
-  local _binfmt_arch_enabled _binfmt_file _host_arch _host_os _required_packages
-
-  _host_arch=$(detect_host_arch)
-
-  if [ "$_host_arch" != "$_arch" ]; then
-    _host_os=$(detect_host_os)
-    case $_host_os in
-      alpine )
-        _required_packages="qemu-openrc"
-        case $_arch in
-          aarch64 )
-            _required_packages="$_required_packages qemu-aarch64" ;;
-          armv7 )
-            _required_packages="$_required_packages qemu-arm" ;;
-          x86 )
-            _required_packages="$_required_packages qemu-i386" ;;
-          x86_64 )
-            _required_packages="$_required_packages qemu-x86_64" ;;
-          * )
-            echo "Unsupported architecture: $_arch!"
-            exit 1
-            ;;
-        esac
-        # shellcheck disable=SC2086
-        if ! apk info -e -q $_required_packages; then
-          echo
-          echo "The following Alpine packages need to be installed:"
-          echo "  $_required_packages"
-          echo
-          exit 1
-        fi
-        ;;
-      debian | ubuntu )
-        _required_packages="binfmt-support qemu-user-static"
-        # shellcheck disable=SC2086
-        if ! dpkg-query -W -f='${Status}\n' $_required_packages 1>/dev/null 2>&1; then
-          echo
-          echo "The following packages need to be installed:"
-          echo "  $_required_packages"
-          echo
-          exit 1
-        fi
-        ;;
-      * )
-        echo
-        echo "Unsupported host OS!"
-        echo
-        exit 1
-        ;;
-    esac
-
-    # Is binfmt configured for this QEMU arch?
-    case $_arch in
-      aarch64 )
-        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-aarch64" ;;
-      armv7 )
-        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-arm" ;;
-      x86 )
-        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-i386" ;;
-      x86_64 )
-        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-x86_64" ;;
-    esac
-    if [ -e "$_binfmt_file" ]; then
-      _binfmt_arch_enabled=$(head -1 ${_binfmt_file})
-      if [ "$_binfmt_arch_enabled" = "enabled" ]; then
-        return
-      else
-        echo
-        echo "Binfmt is not enabled for $_arch"
-        echo
-        exit 1
-      fi
-    else
-      echo
-      echo "Binfmt and QEMU are not configured for $_arch"
-      echo
-      exit 1
-    fi
-  fi
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Check that the host OS has necessary packages installed for
+	# running user-mode QEMU via binfmt and that it is configured.
+	#
+	check_binfmt_packages() {
+	  local _arch=$1
+	
+	  local _binfmt_arch_enabled _binfmt_file _host_arch _host_os _required_packages
+	
+	  _host_arch=$(detect_host_arch)
+	
+	  if [ "$_host_arch" != "$_arch" ]; then
+	    _host_os=$(detect_host_os)
+	    case $_host_os in
+	      alpine )
+	        _required_packages="qemu-openrc"
+	        case $_arch in
+	          aarch64 )
+	            _required_packages="$_required_packages qemu-aarch64" ;;
+	          armv7 )
+	            _required_packages="$_required_packages qemu-arm" ;;
+	          x86 )
+	            _required_packages="$_required_packages qemu-i386" ;;
+	          x86_64 )
+	            _required_packages="$_required_packages qemu-x86_64" ;;
+	          * )
+	            echo "Unsupported architecture: $_arch!"
+	            exit 1
+	            ;;
+	        esac
+	        # shellcheck disable=SC2086
+	        if ! apk info -e -q $_required_packages; then
+	          echo
+	          echo "The following Alpine packages need to be installed:"
+	          echo "  $_required_packages"
+	          echo
+	          exit 1
+	        fi
+	        ;;
+	      debian | ubuntu )
+	        _required_packages="binfmt-support qemu-user-static"
+	        # shellcheck disable=SC2086
+	        if ! dpkg-query -W -f='${Status}\n' $_required_packages 1>/dev/null 2>&1; then
+	          echo
+	          echo "The following packages need to be installed:"
+	          echo "  $_required_packages"
+	          echo
+	          exit 1
+	        fi
+	        ;;
+	      * )
+	        echo
+	        echo "Unsupported host OS!"
+	        echo
+	        exit 1
+	        ;;
+	    esac
+	
+	    # Is binfmt configured for this QEMU arch?
+	    case $_arch in
+	      aarch64 )
+	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-aarch64" ;;
+	      armv7 )
+	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-arm" ;;
+	      x86 )
+	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-i386" ;;
+	      x86_64 )
+	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-x86_64" ;;
+	    esac
+	    if [ -e "$_binfmt_file" ]; then
+	      _binfmt_arch_enabled=$(head -1 ${_binfmt_file})
+	      if [ "$_binfmt_arch_enabled" = "enabled" ]; then
+	        return
+	      else
+	        echo
+	        echo "Binfmt is not enabled for $_arch"
+	        echo
+	        exit 1
+	      fi
+	    else
+	      echo
+	      echo "Binfmt and QEMU are not configured for $_arch"
+	      echo
+	      exit 1
+	    fi
+	  fi
+	}
+	EOF
 }
 
 
@@ -686,19 +686,19 @@ EOF
 insert_runscript_function_check_for_required_packages() {
   local _package_list
 
-  cat <<'EOF' >> "$run_script"
-
-#
-# Checks that the host OS has all necessary packages installed
-#
-check_for_required_packages() {
-  local _host_os _host_os_major_version _required_packages
-
-  _host_os=$(detect_host_os)
-  case $_host_os in
-    alpine )
-      _host_os_major_version="$(grep VERSION_ID /etc/os-release | sed -E -e 's/^VERSION_ID=([0-9]+\.[0-9]+).*/\1/g')"
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Checks that the host OS has all necessary packages installed
+	#
+	check_for_required_packages() {
+	  local _host_os _host_os_major_version _required_packages
+	
+	  _host_os=$(detect_host_os)
+	  case $_host_os in
+	    alpine )
+	      _host_os_major_version="$(grep VERSION_ID /etc/os-release | sed -E -e 's/^VERSION_ID=([0-9]+\.[0-9]+).*/\1/g')"
+	EOF
 
   # Select:
   #    coreutils for: truncate
@@ -721,36 +721,36 @@ EOF
     _package_list="$_package_list lvm2"
   fi
 
-  cat <<EOF >> "$run_script"
-      _required_packages="$_package_list"
-      case \$_host_os_major_version in
-        3.13 | 3.14 )
-          # Select:
-          #    util-linux for: losetup, mount (Busybox losetup is not suitable)
-          _required_packages="\$_required_packages util-linux"
-          ;;
-        3.15 )
-          # Select:
-          #    util-linux-misc for: losetup, mount (Busybox losetup is not suitable)
-          _required_packages="\$_required_packages util-linux-misc"
-          ;;
-        * )
-          # Select:
-          #    losetup & util-linux-misc for: losetup, mount (Busybox losetup is not suitable)
-          _required_packages="\$_required_packages losetup util-linux-misc"
-          ;;
-      esac
-      # shellcheck disable=SC2086
-      if ! apk info -e -q \$_required_packages; then
-        echo
-        echo "The following Alpine packages need to be installed:"
-        echo "  \$_required_packages"
-        echo
-        exit 1
-      fi
-      ;;
-    debian | ubuntu )
-EOF
+  cat <<-EOF >> "$run_script"
+	      _required_packages="${_package_list}"
+	      case \$_host_os_major_version in
+	        3.13 | 3.14 )
+	          # Select:
+	          #    util-linux for: losetup, mount (Busybox versions are not suitable)
+	          _required_packages="\$_required_packages util-linux"
+	          ;;
+	        3.15 )
+	          # Select:
+	          #    util-linux-misc for: losetup, mount (Busybox versions are not suitable)
+	          _required_packages="\$_required_packages util-linux-misc"
+	          ;;
+	        * )
+	          # Select:
+	          #    losetup & util-linux-misc for: losetup, mount (Busybox versions are not suitable)
+	          _required_packages="\$_required_packages losetup util-linux-misc"
+	          ;;
+	      esac
+	      # shellcheck disable=SC2086
+	      if ! apk info -e -q \$_required_packages; then
+	        echo
+	        echo "The following Alpine packages need to be installed:"
+	        echo "  \$_required_packages"
+	        echo
+	        exit 1
+	      fi
+	      ;;
+	    debian | ubuntu )
+	EOF
 
   _package_list="coreutils dosfstools mount parted wget util-linux"
   if [ "$image_fs_type" = "btrfs" ]; then
@@ -769,39 +769,39 @@ EOF
     _package_list="$_package_list lvm2"
   fi
 
-  cat <<EOF >> "$run_script"
-      _required_packages="$_package_list"
-      # shellcheck disable=SC2086
-      if ! dpkg-query -W -f='\${Status}\n' \$_required_packages 1>/dev/null 2>&1; then
-        echo
-        echo "The following packages need to be installed:"
-        echo "  \$_required_packages"
-        echo
-        exit 1
-      fi
-      # The apk.static package requires a CAs file to use for trusting HTTPS
-      # connections but it is hardcoded to look for /etc/apk/ca.pem, which is
-      # Alpine-specific. Create this directory on the host machine and copy
-      # the host's usual CA file there. This directory will be deleted when
-      # this script finishes.
-      if [ ! -d /etc/apk ]; then
-        mkdir -p /etc/apk
-        temp_ca_dir_created=true
-      fi
-      if [ ! -f /etc/apk/ca.pem ]; then
-        cp /etc/ssl/certs/ca-certificates.crt /etc/apk/ca.pem
-        temp_ca_file_created=true
-      fi
-      ;;
-    *)
-      echo
-      echo "Unsupported host OS!"
-      echo
-      exit 1
-      ;;
-  esac
-}
-EOF
+  cat <<-EOF >> "$run_script"
+	      _required_packages="${_package_list}"
+	      # shellcheck disable=SC2086
+	      if ! dpkg-query -W -f='\${Status}\n' \$_required_packages 1>/dev/null 2>&1; then
+	        echo
+	        echo "The following packages need to be installed:"
+	        echo "  \$_required_packages"
+	        echo
+	        exit 1
+	      fi
+	      # The apk.static package requires a CAs file to use for trusting HTTPS
+	      # connections but it is hardcoded to look for /etc/apk/ca.pem, which is
+	      # Alpine-specific. Create this directory on the host machine and copy
+	      # the host's usual CA file there. This directory will be deleted when
+	      # this script finishes.
+	      if [ ! -d /etc/apk ]; then
+	        mkdir -p /etc/apk
+	        temp_ca_dir_created=true
+	      fi
+	      if [ ! -f /etc/apk/ca.pem ]; then
+	        cp /etc/ssl/certs/ca-certificates.crt /etc/apk/ca.pem
+	        temp_ca_file_created=true
+	      fi
+	      ;;
+	    *)
+	      echo
+	      echo "Unsupported host OS!"
+	      echo
+	      exit 1
+	      ;;
+	  esac
+	}
+	EOF
 }
 
 
@@ -809,15 +809,15 @@ EOF
 # Insert function detect_host_arch into the run script
 #
 insert_runscript_function_detect_host_arch() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Determine the host architecture that this script is being run on
-#
-detect_host_arch() {
-  uname -m
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Determine the host architecture that this script is being run on
+	#
+	detect_host_arch() {
+	  uname -m
+	}
+	EOF
 }
 
 
@@ -825,18 +825,18 @@ EOF
 # Insert function detect_host_os into the run script
 #
 insert_runscript_function_detect_host_os() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Determine the Linux distro that this script is being run on
-#
-detect_host_os() {
-  local _os
-
-  _os=$(grep "^ID=" /etc/os-release | sed -e 's/^ID=//')
-  echo "$_os"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Determine the Linux distro that this script is being run on
+	#
+	detect_host_os() {
+	  local _os
+	
+	  _os=$(grep "^ID=" /etc/os-release | sed -e 's/^ID=//')
+	  echo "$_os"
+	}
+	EOF
 }
 
 
@@ -844,45 +844,37 @@ EOF
 # Insert function error_cleanup into the run script
 #
 insert_runscript_function_error_cleanup() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Unmount filesystems whenever an error occurs in the script
-#
-error_cleanup() {
-  local _rc
-
-  write_log "An error occurred, cleaning up before aborting!"
-
-  if [ -f "$chroot_dir"/chroot.log ]; then
-    cat "$chroot_dir"/chroot.log >> "$logfile"
-  fi
-
-  normal_cleanup
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Unmount filesystems whenever an error occurs in the script
+	#
+	error_cleanup() {
+	  local _rc
+	
+	  write_log
+	  write_log
+	  write_log "AN ERROR OCCURRED, cleaning up before aborting!"
+	  write_log
+	  write_log
+	
+	  if [ -f "$chroot_dir"/chroot.log ]; then
+	    cat "$chroot_dir"/chroot.log >> "$logfile"
+	  fi
+	
+	  normal_cleanup "error"
+	EOF
 
   if [ -n "${ramdisk_directory+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  sleep 5
-  if mount | grep -q "$ramdisk_dir" ; then
-    _rc=1
-    while [ $_rc -ne 0 ]; do
-      write_log "Unmounting ramdisk"
-      umount "$ramdisk_dir" >> "$logfile"
-      _rc=$?
-      sleep 5
-    done
-    # A small delay before rmdir as sometimes the umount is not immediate
-    sleep 5
-    rmdir "$ramdisk_dir"
-  fi
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  unmount_ramdisk
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -890,18 +882,18 @@ EOF
 # Insert function get_uuid_from_device into the run script
 #
 insert_runscript_function_get_uuid_from_device() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Get the UUID of the filesystem in the specified device
-#
-get_uuid_from_device() {
-  local _device=$1
-
-  # shellcheck disable=SC2005
-  echo "$(blkid -s UUID "$_device" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Get the UUID of the filesystem in the specified device
+	#
+	get_uuid_from_device() {
+	  local _device=$1
+	
+	  # shellcheck disable=SC2005
+	  echo "$(blkid -s UUID "$_device" | sed -E -e 's|^.*UUID="(.*)"|\1|')"
+	}
+	EOF
 }
 
 
@@ -909,75 +901,83 @@ EOF
 # Insert function normal_cleanup into the run script
 #
 insert_runscript_function_normal_cleanup() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Unmount filesystems mounted inside chroot directory
-#
-normal_cleanup() {
-  write_log "Normal cleanup"
-
-  unmount_chroot_fs "/dev"
-  unmount_chroot_fs "/sys"
-  unmount_chroot_fs "/proc"
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Unmount filesystems mounted inside chroot directory
+	#
+	normal_cleanup() {
+	  local _param="${1:-}"
+	
+	  # Clear exit trap function
+	  trap EXIT
+	
+	  if [ -z "$_param" ]; then
+	    write_log "Normal cleanup"
+	  fi
+	
+	  unmount_chroot_fs "/dev"
+	  unmount_chroot_fs "/sys"
+	  unmount_chroot_fs "/proc"
+	EOF
 
   if [ -n "${needs_boot_partition+x}" ] || \
      [ -n "${image_lvm_rootfs+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-  unmount_chroot_fs "/boot"
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  unmount_chroot_fs "/boot"
+	EOF
   elif [ "$image_boot_type" = "uefi" ] && \
        [ "$image_bootloader" = "syslinux" ]; then
-    cat <<'EOF' >> "$run_script"
-  unmount_chroot_fs "/boot" "bind-mounted from ESP filesystem"
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  unmount_chroot_fs "/boot" "bind-mounted from ESP filesystem"
+	EOF
   fi
 
   if [ "$image_boot_type" = "uefi" ]; then
-    cat <<'EOF' >> "$run_script"
-  unmount_chroot_fs "/efi"
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  unmount_chroot_fs "/efi"
+	EOF
   fi
 
-  if [ "$image_class" = "physical" ]; then
-    cat <<'EOF' >> "$run_script"
-  unmount_chroot_fs "/cidata"
-EOF
+  if [ "$image_class" = "physical" ] &&
+     [ "$image_cloud_software" = "cloud-init" ]; then
+    cat <<-'EOF' >> "$run_script"
+	  unmount_chroot_fs "/cidata"
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  unmount_chroot_fs "/"
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  unmount_chroot_fs "/"
+	EOF
 
   if [ -n "${image_encrypted+x}" ]; then
     if [ -n "${image_lvm_rootfs+x}" ]; then
       # LVM-on-LUKS
-      cat <<'EOF' >> "$run_script"
-
-  vgchange -an >> "$logfile"
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	  vgchange -an >> "$logfile"
+	EOF
     fi
 
-    cat <<EOF >> "$run_script"
-
-  cryptsetup close ${CONSTANT_LUKS_DEVICE_NAME} >> "\$logfile"
-EOF
+    cat <<-EOF >> "$run_script"
+	
+	  cryptsetup close ${CONSTANT_LUKS_DEVICE_NAME} >> "\$logfile"
+	EOF
   elif [ -n "${image_lvm_rootfs+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  vgchange -an >> "$logfile"
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  vgchange -an >> "$logfile"
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-  if [ -n "${loop_device+x}" ]; then
-    write_log "Freeing up loop device" 2
-    losetup -d "$loop_device" >> "$logfile"
-  fi
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  if [ -n "${loop_device+x}" ]; then
+	    write_log "Freeing up loop device" 2
+	    losetup -d "$loop_device" >> "$logfile"
+	  fi
+	}
+	EOF
 }
 
 
@@ -985,31 +985,63 @@ EOF
 # Insert function unmount_chroot_fs into the run script
 #
 insert_runscript_function_unmount_chroot_fs() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Unmount a filesystem inside chroot
-#
-unmount_chroot_fs() {
-  local _mountpoint="$1"
-  local _where_from="${2:-inside chroot}"
-
-  local _full_path _pseudo_path
-
-  if [ "$_mountpoint" = "/" ]; then
-    _full_path="$chroot_dir"
-    _pseudo_path="root filesystem"
-  else
-    _full_path="${chroot_dir}${_mountpoint}"
-    _pseudo_path="$_mountpoint"
-  fi
-
-  if mount | grep -q "$_full_path" ; then
-    write_log "Unmounting ${_pseudo_path} ${_where_from}" 2
-    umount -l -f "$_full_path" >> "$logfile"
-  fi
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Unmount a filesystem inside chroot
+	#
+	unmount_chroot_fs() {
+	  local _mountpoint="$1"
+	  local _where_from="${2:-inside chroot}"
+	
+	  local _full_path _pseudo_path
+	
+	  if [ "$_mountpoint" = "/" ]; then
+	    _full_path="$chroot_dir"
+	    _pseudo_path="root filesystem"
+	  else
+	    _full_path="${chroot_dir}${_mountpoint}"
+	    _pseudo_path="$_mountpoint"
+	  fi
+	
+	  if mount | grep -q "$_full_path" ; then
+	    write_log "Unmounting ${_pseudo_path} ${_where_from}" 2
+	    umount -l -f "$_full_path" >> "$logfile"
+	  fi
+	}
+	EOF
 }
-EOF
+
+
+#
+# Insert function unmount_ramdisk into the run script
+#
+insert_runscript_function_unmount_ramdisk() {
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Unmount ramdisk
+	#
+	unmount_ramdisk() {
+	  local _rc
+	
+	  # Give any previous operations on things using the ramdisk time to complete
+	  sleep 10
+	
+	  if mount | grep -q "$ramdisk_dir" ; then
+	    _rc=1
+	    while [ $_rc -ne 0 ]; do
+	      write_log "Unmounting ramdisk"
+	      umount "$ramdisk_dir" >> "$logfile"
+	      _rc=$?
+	      sleep 5
+	    done
+	
+	    write_log "Deleting ramdisk directory"
+	    rmdir "$ramdisk_dir" >> "$logfile"
+	  fi
+	}
+	EOF
 }
 
 
@@ -1017,34 +1049,34 @@ EOF
 # Insert function write_debug_log into the run script
 #
 insert_runscript_function_write_debug_log() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Write debug messages only to the log file
-#
-write_debug_log() {
-  local _log_entry="$1"
-  local _indent="${2:-0}"
-
-  local _current_time
-
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Write debug messages only to the log file
+	#
+	write_debug_log() {
+	  local _log_entry="$1"
+	  local _indent="${2:-0}"
+	
+	  local _current_time
+	
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-	  cat <<'EOF' >> "$run_script"
-  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
-  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
-EOF
+	  cat <<-'EOF' >> "$run_script"
+	  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-  # Debug not enabled so do nothing
-  true
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  # Debug not enabled so do nothing
+	  true
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -1052,22 +1084,22 @@ EOF
 # Insert function write_log into the run script
 #
 insert_runscript_function_write_log() {
-  cat <<'EOF' >> "$run_script"
-
-#
-# Write log messages to both the logfile (with timestamp) and stdout
-#
-write_log() {
-  local _log_entry="$1"
-  local _indent="${2:-0}"
-
-  local _current_time
-
-  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
-  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
-  printf "%${_indent}s$_log_entry\n"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#
+	# Write log messages to both the logfile (with timestamp) and stdout
+	#
+	write_log() {
+	  local _log_entry="${1:-}"
+	  local _indent="${2:-0}"
+	
+	  local _current_time
+	
+	  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
+	  printf "%${_indent}s$_log_entry\n"
+	}
+	EOF
 }
 
 
@@ -1075,12 +1107,12 @@ EOF
 # Insert required functions into the run script
 #
 insert_runscript_functions() {
-  cat <<'EOF' >> "$run_script"
-
-#############################################################################
-##   Functions
-#############################################################################
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	#############################################################################
+	##   Functions
+	#############################################################################
+	EOF
 
   insert_runscript_function_check_for_required_packages
 
@@ -1092,6 +1124,7 @@ EOF
   insert_runscript_function_get_uuid_from_device
   insert_runscript_function_normal_cleanup
   insert_runscript_function_unmount_chroot_fs
+  insert_runscript_function_unmount_ramdisk
   insert_runscript_function_write_debug_log
   insert_runscript_function_write_log
 }
@@ -1142,31 +1175,31 @@ EOF
 # Install additional packages
 #
 install_additional_packages() {
-  cat <<EOF >> "$run_script"
+  cat <<-EOF >> "$run_script"
+	
+	_initial_packages="$(define_additional_packages)"
+	EOF
 
-_initial_packages="$(define_additional_packages)"
-EOF
-
-  cat <<'EOF' >> "$run_script"
-write_log "Install additional packages: \$_initial_packages"
-{
-  apk add \$_initial_packages >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	write_log "Install additional packages: \$_initial_packages"
+	{
+	  apk add \$_initial_packages >> /chroot.log 2>&1
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    write_debug_log "Full installed packages list:"
-    apk info -v | sort >> /chroot.log
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Full installed packages list:"
+	    apk info -v | sort >> /chroot.log
+	  }
+	EOF
   fi
 
-  cat <<EOF >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -1174,21 +1207,21 @@ EOF
 # Install the contents of a user-specified directory into image
 #
 install_extra_files() {
-  cat <<EOF >> "$run_script"
+  cat <<-EOF >> "$run_script"
+	
+	_extra_contents="${extra_files_directory}"
+	EOF
 
-_extra_contents="$extra_files_directory"
-EOF
-
-  cat <<'EOF' >> "$run_script"
-write_log "Installing contents of specified directory '$_extra_contents' into image"
-{
-  if [ -d "$_extra_contents" ]; then
-    cp -vpr "$_extra_contents"/* $chroot_dir/ >> $logfile 2>&1
-  else
-    write_log "NOTE: directory $_extra_contents is missing, unable to copy files from there!"
-  fi
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	write_log "Installing contents of specified directory '$_extra_contents' into image"
+	{
+	  if [ -d "$_extra_contents" ]; then
+	    cp -vpr "$_extra_contents"/* $chroot_dir/ >> $logfile 2>&1
+	  else
+	    write_log "NOTE: directory $_extra_contents is missing, unable to copy files from there!"
+	  fi
+	}
+	EOF
 }
 
 
@@ -1196,17 +1229,17 @@ EOF
 # Install extra, user specified, packages
 #
 install_extra_packages() {
-  cat <<EOF >> "$run_script"
+  cat <<-EOF >> "$run_script"
+	
+	_extra_packages="${extra_packages_list}"
+	EOF
 
-_extra_packages="$extra_packages_list"
-EOF
-
-  cat <<'EOF' >> "$run_script"
-write_log "Installing extra packages: \$_extra_packages"
-{
-  apk add \$_extra_packages >> /chroot.log 2>&1
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	write_log "Installing extra packages: \$_extra_packages"
+	{
+	  apk add \$_extra_packages >> /chroot.log 2>&1
+	}
+	EOF
 }
 
 
@@ -1214,13 +1247,13 @@ EOF
 # Mount the ramdisk
 #
 mount_ramdisk() {
-  cat <<EOF >> "$run_script"
-write_log "Setting up ramdisk"
-{
-  mkdir -p \$ramdisk_dir
-  mount -t tmpfs -o size=$CONSTANT_RAMDISK_SIZE tmpfs \$ramdisk_dir >> \$logfile
-}
-EOF
+  cat <<-EOF >> "$run_script"
+	write_log "Setting up ramdisk"
+	{
+	  mkdir -p \$ramdisk_dir
+	  mount -t tmpfs -o size=${CONSTANT_RAMDISK_SIZE} tmpfs \$ramdisk_dir >> \$logfile
+	}
+	EOF
 }
 
 
@@ -1228,17 +1261,17 @@ EOF
 # Mount special filesystems from host inside chroot
 #
 mount_host_special_fs_in_chroot() {
-  cat <<EOF >> "$run_script"
-
-write_log "Mounting /proc, /sys, and /dev special filesystems in chroot"
-{
-  mount -v -t proc none \$chroot_dir/proc
-  mount -v -t none -o rbind /sys \$chroot_dir/sys
-  mount -v --make-rprivate \$chroot_dir/sys
-  mount -v -t none -o rbind /dev \$chroot_dir/dev
-  mount -v --make-rprivate \$chroot_dir/dev
-} >> \$logfile 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Mounting /proc, /sys, and /dev special filesystems in chroot"
+	{
+	  mount -v -t proc none $chroot_dir/proc
+	  mount -v -t none -o rbind /sys $chroot_dir/sys
+	  mount -v --make-rprivate $chroot_dir/sys
+	  mount -v -t none -o rbind /dev $chroot_dir/dev
+	  mount -v --make-rprivate $chroot_dir/dev
+	} >> $logfile 2>&1
+	EOF
 }
 
 
@@ -1281,19 +1314,19 @@ option_help() {
 # In the script, setup the loop device for the disk image
 #
 setup_loop_device() {
-  cat <<'EOF' >> "$run_script"
-
-write_log "Setting up loop device for disk image"
-{
-  loop_device=$(losetup -P --show -f $image_full_filename 2>> $logfile)
-  if [ -z "${loop_device+x}" ]; then
-    echo
-    echo "There was a problem creating the loop device. Aborting!"
-    echo
-    exit 1
-  fi
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Setting up loop device for disk image"
+	{
+	  loop_device=$(losetup -P --show -f $image_full_filename 2>> $logfile)
+	  if [ -z "${loop_device+x}" ]; then
+	    echo
+	    echo "There was a problem creating the loop device. Aborting!"
+	    echo
+	    exit 1
+	  fi
+	}
+	EOF
 }
 
 
@@ -1301,25 +1334,25 @@ EOF
 # Upgrade Alpine packages
 #
 update_upgrade_packages() {
-  cat <<'EOF' >> "$run_script"
-
-{
-  write_log "Updating package list"
-  apk update >> /chroot.log
-
-  write_log "Upgrading base packages if necessary"
-  apk -a upgrade >> /chroot.log
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	{
+	  write_log "Updating package list"
+	  apk update >> /chroot.log
+	
+	  write_log "Upgrading base packages if necessary"
+	  apk -a upgrade >> /chroot.log
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  apk info -v | sort > /base-packages.list
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  apk info -v | sort > /base-packages.list
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }

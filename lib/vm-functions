@@ -18,11 +18,11 @@
 configure_mkinitfs_feature_vm_hyperv() {
   # vm-hyperv.modules
 
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/vm-hyperv.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-hyperv.modules" 2
+	EOF
 
   initramfs_entry_initialise "vm-hyperv"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -46,19 +46,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "vm-hyperv.modules contents:" 2
-      cat /etc/mkinitfs/features.d/vm-hyperv.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-hyperv.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-hyperv.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -68,11 +68,11 @@ EOF
 configure_mkinitfs_feature_vm_qemu() {
   # vm-qemu.modules
 
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/vm-qemu.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-qemu.modules" 2
+	EOF
 
   initramfs_entry_initialise "vm-qemu"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -80,7 +80,6 @@ EOF
   initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
 
   if [ -n "${image_optimise+x}" ]; then
-    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
     :
   else
     initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
@@ -102,19 +101,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "vm-qemu.modules contents:" 2
-      cat /etc/mkinitfs/features.d/vm-qemu.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-qemu.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-qemu.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -124,11 +123,11 @@ EOF
 configure_mkinitfs_feature_vm_virtio() {
   # vm-virtio.modules
 
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/vm-virtio.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-virtio.modules" 2
+	EOF
 
   initramfs_entry_initialise "vm-virtio"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -136,7 +135,6 @@ EOF
   initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
 
   if [ -n "${image_optimise+x}" ]; then
-    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
     :
   else
     initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
@@ -158,19 +156,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "vm-virtio.modules contents:" 2
-      cat /etc/mkinitfs/features.d/vm-virtio.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-virtio.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-virtio.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -178,11 +176,11 @@ EOF
 # Create VM Virtualbox mkinitfs feature file
 #
 configure_mkinitfs_feature_vm_virtualbox() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/vm-virtualbox.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-virtualbox.modules" 2
+	EOF
 
   initramfs_entry_initialise "vm-virtualbox"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -210,19 +208,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "vm-virtualbox.modules contents:" 2
-      cat /etc/mkinitfs/features.d/vm-virtualbox.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-virtualbox.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-virtualbox.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -230,11 +228,11 @@ EOF
 # Create VM VMware mkinitfs feature file
 #
 configure_mkinitfs_feature_vm_vmware() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/vm-vmware.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-vmware.modules" 2
+	EOF
 
   initramfs_entry_initialise "vm-vmware"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -252,19 +250,140 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "vm-vmware.modules contents:" 2
-      cat /etc/mkinitfs/features.d/vm-vmware.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-vmware.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-vmware.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
+# Define default settings for Virtual
+#
+default_virtual_settings() {
+  if [ -z ${esp_type+x} ]; then
+    esp_type=$CONSTANT_VIRTUAL_ESP_TYPE
+  fi
+
+  if [ -z "${filename_for_image+x}" ]; then
+    filename_for_image="alpine-$image_alpine_release-$image_arch-$image_class-$image_vm_type.img"
+  fi
+
+  # Cloud software (cloud-init or tiny-cloud)
+  if [ -z "${image_cloud_software+x}" ]; then
+    image_cloud_software="cloud-init"
+  elif [ "$image_cloud_software" = "tiny-cloud" ]; then
+    error_message "tiny-cloud is not supported for virtual machines!"
+  fi
+
+  # NTP
+  if [ -z "${image_experimental+x}" ] && \
+     [ "${image_ntp_use_host+x}" = "true" ]; then
+    error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
+  fi
+  if [ -n "${image_ntp_servers+x}" ]; then
+    error_message "NTP servers can only be specified for physical servers, other servers obtain this information from user-data!"
+  fi
+
+  # Arch-specific settings
+  case $image_arch in
+    armv7 )
+      error_message "armv7 virtual machines are not supported!"
+      ;;
+    aarch64 )
+      if [ -z "${keyboard_type+x}" ]; then
+        # aarch64 VMs normally use USB keyboards
+        keyboard_type="usb"
+      fi
+      if [ -n "${image_bootloader+x}" ] && \
+         [ "$image_bootloader" = "syslinux" ]; then
+        error_message "aarch64 virtual machine can only use Grub bootloader!"
+      else
+        image_bootloader="grub"
+      fi
+      # aarch64 VMs always use UEFI
+      image_boot_type="uefi"
+
+      if [ "$image_vm_type" = "virtualbox" ]; then
+        error_message "aarch64 Virtualbox images cannot be created!"
+      fi
+      ;;
+    x86 )
+      case $image_vm_type in
+        virtualbox )
+          keyboard_type="ps2" ;;
+        * )
+          keyboard_type="${image_keyboard_type:-both}" ;;
+      esac
+      if [ -n "${image_boot_type+x}" ] && \
+         [ "$image_boot_type" = "uefi" ]; then
+        error_message "UEFI is not supported for x86!"
+      else
+        image_boot_type="bios"
+      fi
+      if [ -z "${image_bootloader+x}" ]; then
+        image_bootloader="syslinux"
+      fi
+      ;;
+    x86_64 )
+      case $image_vm_type in
+        virtualbox )
+          keyboard_type="ps2" ;;
+        * )
+          keyboard_type="${image_keyboard_type:-both}" ;;
+      esac
+      if [ -z ${image_boot_type+x} ]; then
+        image_boot_type="bios"
+        if [ -z ${image_bootloader+x} ]; then
+          image_bootloader="grub"
+        fi
+      elif [ "$image_boot_type" = "bios" ]; then
+        if [ -z ${image_bootloader+x} ]; then
+          image_bootloader="grub"
+        fi
+      elif [ "$image_boot_type" = "uefi" ]; then
+        if [ -z ${image_bootloader+x} ]; then
+          image_bootloader="grub"
+        elif [ "$image_bootloader" = "syslinux" ] && \
+             [ -z "${image_experimental+x}" ]; then
+          error_message "Syslinux UEFI is an experimental option!"
+        fi
+      fi
+      ;;
+  esac
+
+  if [ -z "${image_ntp_use_host+x}" ]; then
+    # The majority of VM hypervisors do not support PTP/NTP host time sync.
+    image_ntp_use_host=false
+  fi
+
+  # Sort out partition sizing
+  #---------------------------
+  case $image_arch in
+    aarch64 )
+      general_boot_part_size=$CONSTANT_VIRTUAL_AARCH64_BOOT_PART_SIZE ;;
+    x86 )
+      general_boot_part_size=$CONSTANT_VIRTUAL_X86_BOOT_PART_SIZE ;;
+    x86_64 )
+      general_boot_part_size=$CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE ;;
+  esac
+  if [ -z "${general_root_part_size+x}" ]; then
+    general_root_part_size=$CONSTANT_VIRTUAL_ROOT_PART_SIZE
+  fi
+  if [ -z "${esp_part_size+x}" ]; then
+    general_uefi_part_size=$CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE
+  else
+    general_uefi_part_size=$esp_part_size
+  fi
 }
 
 
@@ -316,7 +435,7 @@ define_virtual_settings() {
     virtualbox )
       datasource_list="'NoCloud'" ;;
     vmware )
-      datasource_list="'OVF'" ;;
+      datasource_list="'OVF','VMware'" ;;
     vsphere )
       datasource_list="'AltCloud'" ;;
     generic )

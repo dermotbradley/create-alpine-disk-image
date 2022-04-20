@@ -1,5 +1,5 @@
 #!/bin/sh -u
-# shellcheck disable=SC2039
+# shellcheck disable=SC1117,SC2039
 
 #############################################################################
 ##
@@ -17,6 +17,7 @@
 #
 add_fstrim_cronjob() {
   cat <<'EOF' >> "$run_script"
+
     write_log "Setting up weekly fstrim cronjob" 4
     {
       cat <<-'_SCRIPT_' >> /etc/periodic/weekly/fstrim
@@ -29,6 +30,20 @@ add_fstrim_cronjob() {
 	
 	_SCRIPT_
     }
+
+    write_log "Setting up logrotate for fstrim logfile" 4
+    {
+cat <<-'_SCRIPT_' >> /etc/logrotate.d/fstrim
+	/var/log/trim.log {
+		compress
+		delaycompress
+		missingok
+		monthly
+		notifempty
+		rotate 6
+	}
+	_SCRIPT_
+    }
 EOF
 }
 
@@ -37,22 +52,22 @@ EOF
 # Configure acct
 #
 configure_acct() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring acct" 4
-    {
-      write_log "Enable acct init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring acct" 4
+	    {
+	      write_log "Enable acct init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "acct" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -60,22 +75,22 @@ EOF
 # Configure ACPI daemon
 #
 configure_acpid() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring ACPI daemon" 4
-    {
-      write_log "Enable ACPI init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring ACPI daemon" 4
+	    {
+	      write_log "Enable ACPI init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "acpid" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -83,59 +98,56 @@ EOF
 # Configure Busybox cron daemon
 #
 configure_busybox_cron() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Busybox cron daemon" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Busybox cron daemon" 4
+	    {
+	EOF
 
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/conf.d/crond /etc/conf.d/crond-orig
-      }
-
-EOF
+      cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/crond /etc/conf.d/crond-orig
+	      }
+	
+	EOF
     fi
 
-    :
-
+    cat <<-'EOF' >> "$run_script"
+	      :
+	
+	EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-      write_log "Enable Busybox cron init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable Busybox cron init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "crond" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
-
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
-        rm /etc/conf.d/crond-orig
-      }
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
+	        rm /etc/conf.d/crond-orig
+	      }
+	EOF
     fi
-
   fi
 
-
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -143,59 +155,56 @@ EOF
 # Configure Busybox Syslog server daemon
 #
 configure_busybox_syslogd() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Busybox syslogd server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Busybox syslogd server" 4
+	    {
+	EOF
 
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
-      }
-
-EOF
+      cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
+	      }
+	
+	EOF
     fi
 
-    :
-
+    cat <<-'EOF' >> "$run_script"
+	    :
+	
+	EOF
   fi
 
-
-  cat <<'EOF' >> "$run_script"
-      write_log "Enable Busybox syslogd init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable Busybox syslogd init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "syslog" "boot" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/conf.d/syslog-orig /etc/conf.d/syslog >> /chroot.log || true
-        rm /etc/conf.d/syslog-orig
-      }
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/syslog-orig /etc/conf.d/syslog >> /chroot.log || true
+	        rm /etc/conf.d/syslog-orig
+	      }
+	EOF
     fi
-
   fi
 
-
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -203,56 +212,51 @@ EOF
 # Configure Busybox udhcpc
 #
 configure_busybox_udhcpc() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Busybox udhcpc" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Busybox udhcpc" 4
+	    {
+	EOF
 
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
-      }
-
-EOF
+      cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
+	      }
+	
+	EOF
     fi
 
-    cat <<'EOF' >> "$run_script"
-      :
-
-EOF
-
+    cat <<-'EOF' >> "$run_script"
+	      :
+	
+	EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-      :
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      :
+	EOF
 
 
-  if [ -z "${image_without_cloud_init+x}" ]; then
-
+  if [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /usr/share/udhcpc/default.script-orig \
-          /usr/share/udhcpc/default.script >> /chroot.log || true
-        rm /usr/share/udhcpc/default.script-orig
-      }
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /usr/share/udhcpc/default.script-orig \
+	          /usr/share/udhcpc/default.script >> /chroot.log || true
+	        rm /usr/share/udhcpc/default.script-orig
+	      }
+	EOF
     fi
-
   fi
 
-
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -264,34 +268,33 @@ configure_chronyd() {
   local _ntp_pool_list _ntp_pool_options _ntp_server_list _ntp_server_options
   local _phc_dpoll _phc_offset _phc_poll _phc_ptp_device _phc_stratum
 
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Chrony NTP server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Chrony NTP server" 4
+	    {
+	EOF
 
-  if [ -n "${image_without_cloud_init+x}" ]; then
+  if [ "$image_cloud_software" = "none" ]; then
 
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
-      }
-
-EOF
+      cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
+	      }
+	
+	EOF
     fi
 
-
-    cat <<'EOF' >> "$run_script"
-      write_log "Creating chrony.conf file" 6
-      {
-        echo "# /etc/chrony/chrony.conf"
-        echo
-        echo "driftfile /var/lib/chrony/chrony.drift"
-        echo "rtcsync"
-        echo "cmdport 0"
-      } > /etc/chrony/chrony.conf
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      write_log "Creating chrony.conf file" 6
+	      {
+	        echo "# /etc/chrony/chrony.conf"
+	        echo
+	        echo "driftfile /var/lib/chrony/chrony.drift"
+	        echo "rtcsync"
+	        echo "cmdport 0"
+	      } > /etc/chrony/chrony.conf
+	EOF
 
     _init_threshold="10"
 
@@ -331,45 +334,45 @@ EOF
 
       _phc_options_list="poll ${_phc_poll} dpoll ${_phc_dpoll} offset ${_phc_offset} stratum ${_phc_stratum}"
 
-      cat <<EOF >> "$run_script"
-
-      write_log "Configuring chrony for time-sync from hypervisor host" 8
-      {
-        echo
-        echo "# For Virtual/Cloud machines use the host machine's clock as the reference"
-        echo "# clock. This only works when ptp_kvm (for KVM) or ptp_vmw (for VMware) or"
-        echo "# hv_utils (for Azure/Hyper-V) kernel modules are loaded, and the host"
-        echo "# machine's hypervisor supports this."
-        echo "#"
-        echo "refclock PHC ${_phc_ptp_device} ${_phc_options_list}"
-        echo "#"
-        echo "# Step the system clock if the adjustment is larger than X seconds, but"
-        echo "# only in the first Y clock updates (i.e. at system boot)."
-        echo "#"
-        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
-      } >> /etc/chrony/chrony.conf
-
-EOF
+      cat <<-EOF >> "$run_script"
+	
+	      write_log "Configuring chrony for time-sync from hypervisor host" 8
+	      {
+	        echo
+	        echo "# For Virtual/Cloud machines use the host machine's clock as the reference"
+	        echo "# clock. This only works when ptp_kvm (for KVM) or ptp_vmw (for VMware) or"
+	        echo "# hv_utils (for Azure/Hyper-V) kernel modules are loaded, and the host"
+	        echo "# machine's hypervisor supports this."
+	        echo "#"
+	        echo "refclock PHC ${_phc_ptp_device} ${_phc_options_list}"
+	        echo "#"
+	        echo "# Step the system clock if the adjustment is larger than X seconds, but"
+	        echo "# only in the first Y clock updates (i.e. at system boot)."
+	        echo "#"
+	        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
+	      } >> /etc/chrony/chrony.conf
+	
+	EOF
     elif [ -n "${image_ntp_servers+x}" ]; then
     # Sync with specified NTP server(s)
 
       _ntp_pool_list="$image_ntp_servers"
       _ntp_pool_options="iburst"
 
-      cat <<EOF >> "$run_script"
-
-      write_log "Configuring chrony for specific NTP servers" 8
-      {
-        echo
-        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
-        echo "#"
-        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
-        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
-        echo "#"
-        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
-      } >> /etc/chrony/chrony.conf
-
-EOF
+      cat <<-EOF >> "$run_script"
+	
+	      write_log "Configuring chrony for specific NTP servers" 8
+	      {
+	        echo
+	        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
+	        echo "#"
+	        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
+	        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
+	        echo "#"
+	        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
+	      } >> /etc/chrony/chrony.conf
+	
+	EOF
     else
       # Sync with default NTP servers
 
@@ -385,8 +388,8 @@ EOF
             fi
             _ntp_server_options="prefer iburst minpoll 4 maxpoll 4"
             ;;
-          gce )
-            _ntp_server_list="$CONSTANT_GCE_NTP_INTERNAL_SERVER"
+          google )
+            _ntp_server_list="$CONSTANT_GOOGLE_NTP_INTERNAL_SERVER"
             _ntp_server_options="prefer iburst"
             ;;
         esac
@@ -394,71 +397,71 @@ EOF
         _ntp_server_list=""
       fi
 
-      cat <<EOF >> "$run_script"
-
-      write_log "Configuring chrony for default NTP servers/pool" 8
-      {
-        echo
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Configuring chrony for default NTP servers/pool" 8
+	      {
+	        echo
+	EOF
 
       if [ -n "${_ntp_server_list}" ]; then
-        cat <<EOF >> "$run_script"
-        echo "server ${_ntp_server_list} ${_ntp_server_options}"
-EOF
+        cat <<-EOF >> "$run_script"
+	        echo "server ${_ntp_server_list} ${_ntp_server_options}"
+	EOF
       else
         _ntp_pool_list="$CONSTANT_GENERAL_NTP_SERVER"
         _ntp_pool_options="iburst"
 
-        cat <<EOF >> "$run_script"
-        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
-        echo "#"
-        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
-        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
-        echo "#"
-        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
-EOF
+        cat <<-EOF >> "$run_script"
+	        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
+	        echo "#"
+	        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
+	        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
+	        echo "#"
+	        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
+	EOF
       fi
 
-      cat <<EOF >> "$run_script"
-      } >> /etc/chrony/chrony.conf
-
-EOF
+      cat <<-'EOF' >> "$run_script"
+	      } >> /etc/chrony/chrony.conf
+	
+	EOF
     fi
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-      write_log "Enable Chrony init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable Chrony init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "chronyd" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
-  if [ -n "${image_without_cloud_init+x}" ]; then
+  if [ "$image_cloud_software" = "none" ]; then
 
     if [ -n "${debug_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
-          /chroot.log || true
-        rm /etc/chrony/chrony.conf-orig
-      }
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
+	          /chroot.log || true
+	        rm /etc/chrony/chrony.conf-orig
+	      }
+	EOF
     fi
 
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -466,11 +469,11 @@ EOF
 # Configure the relevant Syslog daemon
 #
 configure_cron() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring Cron daemon" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring Cron daemon" 2
+	  {
+	EOF
   if [ "$image_cron_daemon" = "busybox" ]; then
     configure_busybox_cron
 ###  elif [ "$image_cron_daemon" = "??" ]; then
@@ -482,9 +485,9 @@ EOF
       add_fstrim_cronjob ;;
   esac
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -492,20 +495,20 @@ EOF
 # Configure dhclient
 #
 configure_dhclient() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring dhclient" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring dhclient" 4
+	    {
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-      :
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      :
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -513,10 +516,10 @@ EOF
 # Configure DHCP client
 #
 configure_dhcp_client() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring DHCP client" 2
-  {
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring DHCP client" 2
+	  {
 EOF
 
   if [ "$image_dhcp_client" = "busybox" ]; then
@@ -532,9 +535,9 @@ EOF
     configure_dhcpcd
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -542,20 +545,20 @@ EOF
 # Configure dhcpcd
 #
 configure_dhcpcd() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring dhcpcd" 4
-    {
-      :
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring dhcpcd" 4
+	    {
+	      :
+	EOF
 
   # ipv6ra_noautoconf
   # noipv6rs
 
 
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -563,48 +566,48 @@ EOF
 # Configure Dropbear server daemon
 #
 configure_dropbear() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Dropbear SSH server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Dropbear SSH server" 4
+	    {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/conf.d/dropbear /etc/conf.d/dropbear-orig
-      }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/dropbear /etc/conf.d/dropbear-orig
+	      }
+	
+	EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-      write_log "Enable Dropbear init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable Dropbear init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "dropbear" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/conf.d/dropbear-orig /etc/conf.d/dropbear >> /chroot.log || true
-        rm /etc/conf.d/dropbear-orig
-      }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/dropbear-orig /etc/conf.d/dropbear >> /chroot.log || true
+	        rm /etc/conf.d/dropbear-orig
+	      }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -685,7 +688,8 @@ add_firewall_rule() {
     _full_rule="$_full_rule $_rule"
   fi
 
-  _full_rule="$_full_rule -j $(echo $_action | tr '[a-z]' '[A-Z]')"
+  # shellcheck disable=SC2018,SC2019
+  _full_rule="$_full_rule -j $(echo "$_action" | tr 'a-z' 'A-Z')"
 
   cat <<EOF >> "$run_script"
 	$_full_rule
@@ -699,11 +703,11 @@ EOF
 configure_cloud_integration() {
   case $image_cloud_type in
     azure )
-      cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring cloud provider integration daemon(s)" 2
-  {
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring cloud provider integration daemon(s)" 2
+	  {
+	EOF
 
       case $image_cloud_type in
         azure )
@@ -713,9 +717,9 @@ EOF
           ;;
       esac
 
-      cat <<'EOF' >> "$run_script"
-  } >> /chroot.log 2>&1
-EOF
+      cat <<-'EOF' >> "$run_script"
+	  } >> /chroot.log 2>&1
+	EOF
     ;;
   esac
 }
@@ -725,11 +729,11 @@ EOF
 # Configure firewall using either iptables, nftables, or awall
 #
 configure_firewall() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring firewall" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring firewall" 2
+	  {
+	EOF
 
   if [ "$image_firewall" = "iptables" ]; then
     # IPtables
@@ -738,34 +742,34 @@ EOF
   elif [ "$image_firewall" = "nftables" ]; then
     # NFtables
 
-    cat <<'EOF' >> "$run_script"
-    write_log "Configuring NFtables" 4
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring NFtables" 4
+	EOF
 
     :
 
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
   else
     # Awall
 
-    cat <<'EOF' >> "$run_script"
-    write_log "Configuring Awall" 4
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Awall" 4
+	EOF
 
     :
 
 
-    cat <<'EOF' >> "$run_script"
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -878,11 +882,11 @@ EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-
-      write_log "Enable IPtables init.d services" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable IPtables init.d services" 6
+	      {
+	EOF
 
   if [ -z "${image_disable_ipv4+x}" ]; then
     add_init_d_service "iptables" "default" 8
@@ -891,10 +895,10 @@ EOF
     add_init_d_service "ip6tables" "default" 8
   fi
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	    }
+	EOF
 }
 
 
@@ -902,42 +906,42 @@ EOF
 # Configure getty daemons
 #
 configure_gettys() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring getty daemons" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring getty daemons" 2
+	  {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-    # Debug
-    {
-      cp /etc/inittab /etc/inittab-orig
-    }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/inittab /etc/inittab-orig
+	    }
+	
+	EOF
   fi
 
-  cat <<EOF >> "$run_script"
-    write_log "Enable ${image_console_type} console" 4
-    {
-EOF
+  cat <<-EOF >> "$run_script"
+	    write_log "Enable ${image_console_type} console" 4
+	    {
+	EOF
 
   if [ "$image_console_type" = "normal" ]; then
       _getty_port_name="tty1"
       _getty_options=" 38400 ${_getty_port_name}"
 
-    cat <<EOF >> "$run_script"
-      write_log "Enabling getty on normal console" 6
-      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
-    }
-EOF
+    cat <<-EOF >> "$run_script"
+	      write_log "Enabling getty on normal console" 6
+	      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
+	    }
+	EOF
   else
 
-    cat <<EOF >> "$run_script"
-      write_log "Disabling getty on normal console" 6
-      sed -i -E -e 's|^tty1:|#tty1:|g' /etc/inittab
-EOF
+    cat <<-EOF >> "$run_script"
+	      write_log "Disabling getty on normal console" 6
+	      sed -i -E -e 's|^tty1:|#tty1:|g' /etc/inittab
+	EOF
 
     case $image_console_type in
       hypervisor )
@@ -950,20 +954,20 @@ EOF
         ;;
     esac
 
-    cat <<EOF >> "$run_script"
-
-      write_log "Enabling getty on ${_getty_port_name} for ${image_console_type} console" 6
-      sed -i \\
-        -e 's|^[#]*ttyS0::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
-        /etc/inittab
-    }
-EOF
+    cat <<-EOF >> "$run_script"
+	
+	      write_log "Enabling getty on ${_getty_port_name} for ${image_console_type} console" 6
+	      sed -i \\
+	        -e 's|^[#]*ttyS0::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
+	        /etc/inittab
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Disabling unused gettys" 4
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Disabling unused gettys" 4
+	EOF
 
   if [ "$image_class" = "cloud" ] || \
      [ "$image_class" = "virtual" ]; then
@@ -974,9 +978,9 @@ EOF
     _first_getty_to_disable="3"
   fi
 
-  cat <<EOF >> "$run_script"
-    sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
-EOF
+  cat <<-EOF >> "$run_script"
+	    sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
+	EOF
 
 #  cat <<'EOF' >> "$run_script"
 #
@@ -986,19 +990,19 @@ EOF
 #EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
-      rm /etc/inittab-orig
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
+	      rm /etc/inittab-orig
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1006,32 +1010,29 @@ EOF
 # Configure hd-idle
 #
 configure_hd_idle() {
-  cat <<'EOF' >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring hd-idle daemon" 2
+	  {
+	    sed -i -e 's|[#]DISK=".*$|DISK="/dev/sda"|g' /etc/conf.d/hd-idle
+	EOF
 
-  write_log "Configuring hd-idle daemon" 2
-  {
-EOF
-
-
-  sed -i -e 's|[#]DISK=".*$|DISK="/dev/sda"|g' /etc/conf.d/hd-idle
-
-
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Enable hd-idle init.d service" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable hd-idle init.d service" 4
+	    {
+	EOF
 
   add_init_d_service "hd-idle" "default" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1041,11 +1042,11 @@ EOF
 configure_hypervisor_integration() {
   case $image_vm_type in
     hyperv | libvirtd | lxd | proxmox | qemu | virtualbox | vmware )
-      cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring hypervisor integration daemon(s)" 2
-  {
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring hypervisor integration daemon(s)" 2
+	  {
+	EOF
 
       case $image_vm_type in
         hyperv )
@@ -1061,11 +1062,44 @@ EOF
           add_init_d_service "open-vm-tools" "default" 4 ;;
       esac
 
-      cat <<'EOF' >> "$run_script"
-  } >> /chroot.log 2>&1
-EOF
+      cat <<-'EOF' >> "$run_script"
+	  } >> /chroot.log 2>&1
+	EOF
     ;;
   esac
+}
+
+
+#
+# Configure msmtp
+#
+configure_msmtp() {
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring msmtp daemon" 2
+	  {
+	EOF
+
+
+  :
+
+
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable msmtp init.d service" 4
+	    {
+	EOF
+
+  add_init_d_service "msmtp" "default" 6
+
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
+
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1073,17 +1107,17 @@ EOF
 # Configure the relevant NTP server
 #
 configure_ntpd() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring NTP server" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring NTP server" 2
+	  {
+	EOF
 
   configure_chronyd
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1093,238 +1127,237 @@ EOF
 configure_opensshd() {
   local _rsa_key_length=4096
 
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring OpenSSH server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring OpenSSH server" 4
+	    {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
-        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
-      }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
+	        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	      }
+	
+	EOF
   fi
 
 
   if [ -n "${image_harden+x}" ] || \
      [ "$image_ssh_keytypes" = "ed25519" ]; then
-    cat <<'EOF' >> "$run_script"
-      write_log "Only generate ED25519 host key" 6
-      sed -i \
-        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
-        /etc/conf.d/sshd
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      write_log "Only generate ED25519 host key" 6
+	      sed -i \
+	        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+	        /etc/conf.d/sshd
+	EOF
   else
     if [ -n "${remote_unlock_enabled+x}" ]; then
-      cat <<'EOF' >> "$run_script"
-
-      _rsa_key_length=4096
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      _rsa_key_length=4096
+	EOF
     else
       # Dropbear has shorter supported length of RSA key
-      cat <<'EOF' >> "$run_script"
-
-      _rsa_key_length=3072
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      _rsa_key_length=3072
+	EOF
     fi
 
-    cat <<'EOF' >> "$run_script"
-      write_log "Only generate ED25519 and \${_rsa_key_length}bit RSA host keys" 6
-      sed -i \\
-        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
-        -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
-        /etc/conf.d/sshd
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      write_log "Only generate ED25519 and \${_rsa_key_length}bit RSA host keys" 6
+	      sed -i \\
+	        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
+	        -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
+	        /etc/conf.d/sshd
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-      # Configure sshd to:
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      # Configure sshd to:
+	EOF
 
   if [ -n "${image_harden+x}" ] || \
      [ "$image_ssh_keytypes" = "ed25519" ]; then
-    cat <<'EOF' >> "$run_script"
-      # - only use ED25519 host key
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # - only use ED25519 host key
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-      # - only use ED25519 & RSA host keys
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # - only use ED25519 & RSA host keys
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-      # - enable ED25519 key use
-      # - prevent challenge-response logins
-      # - prevent keyboard-interactive logins
-      # - prevent logins to accounts with empty passwords
-      # - prevent root logins
-      # - use built-in SFTP server
-      write_log "Prevent root logins" 6
-      sed -i \
-        -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
-        -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
-        -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
-        -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
-        -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
-        -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
-        /etc/ssh/sshd_config
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      # - enable ED25519 key use
+	      # - prevent challenge-response logins
+	      # - prevent keyboard-interactive logins
+	      # - prevent logins to accounts with empty passwords
+	      # - prevent root logins
+	      # - use built-in SFTP server
+	      write_log "Prevent root logins" 6
+	      sed -i \
+	        -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
+	        -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
+	        -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
+	        -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
+	        -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
+	        -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
+	        /etc/ssh/sshd_config
+	EOF
 
   if [ -n "${image_insecure+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      # - permit password-based logins
-      write_log "Permit password-based SSH logins" 6
-      sed -i \
-        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication yes|' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # - permit password-based logins
+	      write_log "Permit password-based SSH logins" 6
+	      sed -i \
+	        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication yes|' \
+	        /etc/ssh/sshd_config
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-      # - prevent password-based logins
-      write_log "Prevent password-based SSH logins" 6
-      sed -i \
-        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # - prevent password-based logins
+	      write_log "Prevent password-based SSH logins" 6
+	      sed -i \
+	        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
+	        /etc/ssh/sshd_config
+	EOF
   fi
 
-  if [ -z "${image_without_cloud_init+x}" ] || \
-     [ -n "${image_pam_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      # - enable PAM
-      write_log "Enable PAM support" 6
-      sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
-EOF
+  if [ "$image_cloud_software" = "cloud-init" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	      # - enable PAM
+	      write_log "Enable PAM support" 6
+	      sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-
-      # - disable PAM
-      write_log "Disabling PAM support" 6
-      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      # - disable PAM
+	      write_log "Disabling PAM support" 6
+	      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-      #
-      # - ensure only key-based authentication is enabled
-      #
-      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
-      {
-        printf '\n'
-        printf 'AuthenticationMethods "publickey"\n'
-        printf '\n'
-      } >> /etc/ssh/sshd_config
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      #
+	      # - ensure only key-based authentication is enabled
+	      #
+	      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
+	      {
+	        printf '\n'
+	        printf 'AuthenticationMethods "publickey"\n'
+	        printf '\n'
+	      } >> /etc/ssh/sshd_config
+	EOF
 
   if [ "$image_ssh_keytypes" != "ed25519" ]; then
 		# Enable RSA key use
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Enable RSA key use" 6
-      sed -i \
-        -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable RSA key use" 6
+	      sed -i \
+	        -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
+	        /etc/ssh/sshd_config
+	EOF
   fi
 
   if [ -n "${image_disable_ipv4+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Enable only IPv6 access" 6
-      sed -i \
-        -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
-        -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable only IPv6 access" 6
+	      sed -i \
+	        -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
+	        -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
+	        /etc/ssh/sshd_config
+	EOF
   elif [ -n "${image_disable_ipv6+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Enable only IPv4 access" 6
-      sed -i \
-        -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
-        -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable only IPv4 access" 6
+	      sed -i \
+	        -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
+	        -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
+	        /etc/ssh/sshd_config
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Enable both IPv4 and IPv6 access" 6
-      sed -i \
-        -e 's/^[#]*AddressFamily .*$/AddressFamily any/g' \
-        -e 's/^[#]ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
-        -e 's/^[#]ListenAddress ::.*$/ListenAddress ::/g' \
-        /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable both IPv4 and IPv6 access" 6
+	      sed -i \
+	        -e 's/^[#]*AddressFamily .*$/AddressFamily any/g' \
+	        -e 's/^[#]ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
+	        -e 's/^[#]ListenAddress ::.*$/ListenAddress ::/g' \
+	        /etc/ssh/sshd_config
+	EOF
   fi
 
 
   if [ -n "${image_harden+x}" ]; then
-    cat <<'EOF' >> "$run_script"
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Further harden the configuration" 6
+	      # - limit Ciphers to single strong one
+	      # - limit KexAlgorithms to curve 25519
+	      # - limit MAC to single Encrypt-then-MAC version
+	      # - only accept the use of ED25519 public keys
+	      {
+	        printf 'CASignatureAlgorithms  ssh-ed25519\n'
+	        printf 'Ciphers chacha20-poly1305@openssh.com\n'
+	        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+	        printf 'MACS hmac-sha2-512-etm@openssh.com\n'
+	        printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
+	        printf '\n'
+	      } >> /etc/ssh/sshd_config
+	EOF
 
-      write_log "Further harden the configuration" 6
-      # - limit Ciphers to single strong one
-      # - limit KexAlgorithms to curve 25519
-      # - limit MAC to single Encrypt-then-MAC version
-      # - only accept the use of ED25519 public keys
-      {
-        printf 'CASignatureAlgorithms  ssh-ed25519\n'
-        printf 'Ciphers chacha20-poly1305@openssh.com\n'
-        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
-        printf 'MACS hmac-sha2-512-etm@openssh.com\n'
-        printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
-        printf '\n'
-      } >> /etc/ssh/sshd_config
-EOF
-
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Disable RSA key use" 6
-      sed -i \
-        -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey \
-        /etc/ssh/ssh_host_rsa_key|' /etc/ssh/sshd_config
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Disable RSA key use" 6
+	      sed -i \
+	        -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey \
+	        /etc/ssh/ssh_host_rsa_key|' /etc/ssh/sshd_config
+	EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-
-      write_log "Enable OpenSSH init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable OpenSSH init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "sshd" "default" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
-        rm /etc/conf.d/sshd-orig
-
-        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
-          || true
-        rm /etc/ssh/sshd_config-orig
-      }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+	        rm /etc/conf.d/sshd-orig
+	
+	        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
+	          || true
+	        rm /etc/ssh/sshd_config-orig
+	      }
+	EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -1332,51 +1365,51 @@ EOF
 # Configure rngd daemon
 #
 configure_rngd() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring rngd daemon" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring rngd daemon" 2
+	  {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-    # Debug
-    {
-      cp /etc/conf.d/rngd /etc/conf.d/rngd-orig
-    }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/conf.d/rngd /etc/conf.d/rngd-orig
+	    }
+	
+	EOF
   fi
 
   :
 
 
-  cat <<'EOF' >> "$run_script"
-    write_log "Enable rngd init.d service" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Enable rngd init.d service" 4
+	    {
+	EOF
 
   add_init_d_service "rngd" "boot" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      diff /etc/conf.d/rngd-orig /etc/conf.d/rngd >> /chroot.log || true
-      rm /etc/conf.d/rngd-orig
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/conf.d/rngd-orig /etc/conf.d/rngd >> /chroot.log || true
+	      rm /etc/conf.d/rngd-orig
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1384,68 +1417,68 @@ EOF
 # Configure Rsyslog server daemon
 #
 configure_rsyslog() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring Rsyslog server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Rsyslog server" 4
+	    {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/rsyslog.conf /etc/rsyslog.conf-orig
-      }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/rsyslog.conf /etc/rsyslog.conf-orig
+	      }
+	
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-      # Create empty file as rsyslog's logrotate config expects it
-      :> /var/log/mail.log
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      # Create empty file as rsyslog's logrotate config expects it
+	      :> /var/log/mail.log
+	EOF
 
 
   case $image_os_device_media in
     flash | sd | ssd )
-      cat <<'EOF' >> "$run_script"
-
-      write_log "Disable routine 'mark' message on SSD/flash-based servers" 6
-      {
-        sed -i -e "s/^[#]module(load=\"immark\")/module(load=\"immark\")/g" \
-        /etc/rsyslog.conf
-      }
-EOF
+      cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Disable routine 'mark' message on SSD/flash-based servers" 6
+	      {
+	        sed -i -e "s/^[#]module(load=\"immark\")/module(load=\"immark\")/g" \
+	        /etc/rsyslog.conf
+	      }
+	EOF
       ;;
   esac
 
 
-  cat <<'EOF' >> "$run_script"
-
-      write_log "Enable rsyslog init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable rsyslog init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "rsyslog" "boot" 8
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/rsyslog.conf-orig /etc/rsyslog.conf >> /chroot.log || true
-        rm /etc/rsyslog.conf-orig
-      }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/rsyslog.conf-orig /etc/rsyslog.conf >> /chroot.log || true
+	        rm /etc/rsyslog.conf-orig
+	      }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -1453,11 +1486,11 @@ EOF
 # Configure various services that will run on the server
 #
 configure_services() {
-  cat <<'EOF' >> "$run_script"
-
-write_log "Configuring various system services"
-{
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring various system services"
+	{
+	EOF
 
   configure_sysctl
   if [ -n "${image_harden+x}" ]; then
@@ -1484,12 +1517,17 @@ EOF
   configure_cron
   configure_dhcp_client
 	configure_gettys
+  ###configure_msmtp
   configure_ntpd
   configure_rngd
   if [ "$image_class" = "physical" ]; then
     case $image_os_device_media in
       disk )
-        configure_hd_idle ;;
+        case $image_alpine_release in
+          v3.16 | edge )
+            configure_hd_idle ;;
+        esac
+        ;;
     esac
     configure_smartmontools
   fi
@@ -1499,19 +1537,22 @@ EOF
   if [ -n "${image_enable_utmp+x}" ]; then
     configure_utmps
   fi
+  if [ -n "${image_enable_watchdog+x}" ]; then
+    configure_watchdog
+  fi
 
   if [ -n "${image_lvm_rootfs+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  write_log "Enable lvm init.d service" 2
-  {
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Enable lvm init.d service" 2
+	  {
+	EOF
 
     add_init_d_service "lvm" "boot" 4
 
-    cat <<'EOF' >> "$run_script"
-  } >> /chroot.log 2>&1
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  } >> /chroot.log 2>&1
+	EOF
   fi
 
   if [ "$image_class" = "cloud" ]; then
@@ -1520,9 +1561,9 @@ EOF
     configure_hypervisor_integration
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -1530,32 +1571,32 @@ EOF
 # Configure smartmontools
 #
 configure_smartmontools() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring Smartmontools daemon" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring Smartmontools daemon" 2
+	  {
+	EOF
 
 
   :
 
 
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Enable smartd init.d service" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable smartd init.d service" 4
+	    {
+	EOF
 
   add_init_d_service "smartd" "default" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1563,11 +1604,11 @@ EOF
 # Configure the relevant SSH server
 #
 configure_sshd() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring SSH server" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring SSH server" 2
+	  {
+	EOF
 
   if [ "$image_ssh_server" = "dropbear" ]; then
     configure_dropbear
@@ -1577,9 +1618,9 @@ EOF
     configure_tinysshd
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1587,19 +1628,19 @@ EOF
 # Configure sysctl file
 #
 configure_sysctl() {
-  cat <<'EOF' >> "$run_script"
-  write_log "Configuring sysctl file" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Configuring sysctl file" 2
+	  {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-    # Debug
-    {
-      cp /etc/sysctl.conf /etc/sysctl.conf-orig
-    }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/sysctl.conf /etc/sysctl.conf-orig
+	    }
+	
+	EOF
   fi
 
 
@@ -1711,35 +1752,35 @@ EOF
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Enable sysctl init.d service" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable sysctl init.d service" 4
+	    {
+	EOF
 
     add_init_d_service "sysctl" "boot" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      diff /etc/sysctl.conf-orig /etc/sysctl.conf >> /chroot.log || true
-      rm /etc/sysctl.conf-orig
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/sysctl.conf-orig /etc/sysctl.conf >> /chroot.log || true
+	      rm /etc/sysctl.conf-orig
+	    }
+	EOF
 
   fi
 
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1747,20 +1788,20 @@ EOF
 # Configure the relevant Syslog daemon
 #
 configure_syslogd() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Configuring Syslog server" 2
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring Syslog server" 2
+	  {
+	EOF
   if [ "$image_syslog_server" = "busybox" ]; then
     configure_busybox_syslogd
   elif [ "$image_syslog_server" = "rsyslog" ]; then
     configure_rsyslog
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1866,22 +1907,22 @@ EOF
 EOF
 
 
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Enable sshguard init.d service" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable sshguard init.d service" 4
+	    {
+	EOF
 
   add_init_d_service "sshguard" "default" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -1889,56 +1930,56 @@ EOF
 # Configure TinySSH server daemon
 #
 configure_tinysshd() {
-  cat <<'EOF' >> "$run_script"
-    write_log "Configuring TinySSH server" 4
-    {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring TinySSH server" 4
+	    {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      # Debug
-      {
-        cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
-      }
-
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
+	      }
+	
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-      write_log "Enable SFTP server" 6
-      sed -i \
-        -e 's|^# OPTIONS=.*|OPTIONS="-l -v -x sftp=/usr/lib/ssh/sftp-server"|' \
-        /etc/conf.d/tinysshd
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable SFTP server" 6
+	      sed -i \
+	        -e 's|^# OPTIONS=.*|OPTIONS="-l -v -x sftp=/usr/lib/ssh/sftp-server"|' \
+	        /etc/conf.d/tinysshd
+	EOF
 
 
-  cat <<'EOF' >> "$run_script"
-
-      write_log "Enable tinyssh init.d service" 6
-      {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable tinyssh init.d service" 6
+	      {
+	EOF
 
   add_init_d_service "tinyssh" "default" 6
 
-  cat <<'EOF' >> "$run_script"
-      } >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-      # Debug
-      {
-        diff /etc/conf.d/tinysshd-orig /etc/conf.d/tinysshd >> /chroot.log || true
-        rm /etc/conf.d/tinysshd-orig
-      }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/tinysshd-orig /etc/conf.d/tinysshd >> /chroot.log || true
+	        rm /etc/conf.d/tinysshd-orig
+	      }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-    }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -1946,32 +1987,90 @@ EOF
 # Configure utmps daemons
 #
 configure_utmps() {
-  cat <<'EOF' >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring UTMPS daemons" 4
+	  {
+	EOF
 
-  write_log "Configuring UTMPS daemons" 4
-  {
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Enable utmps init.d services" 6
+	    {
+	EOF
 
-  cat <<'EOF' >> "$run_script"
-
-    write_log "Enable utmps init.d services" 6
-    {
-EOF
-
+  add_init_d_service "utmp-prepare" "boot" 6
   add_init_d_service "utmp-init" "boot" 6
-  if [ "$image_alpine_release" != "v3.13" ] && \
-     [ "$image_alpine_release" != "v3.14" ] && \
-     [ "$image_alpine_release" != "v3.15" ]; then
-    ###add_init_d_service "btmpd" "boot" 6
-    :
-  fi
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 )
+      : ;;
+    * )
+      add_init_d_service "btmpd" "boot" 6 ;;
+  esac
   add_init_d_service "utmpd" "boot" 6
   add_init_d_service "wtmpd" "boot" 6
 
-  cat <<'EOF' >> "$run_script"
-    } >> /chroot.log 2>&1
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    } >> /chroot.log 2>&1
+	  }
+	EOF
+}
+
+
+#
+# Configure Watchdog daemon
+#
+configure_watchdog() {
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Watchdog daemon" 4
+	    {
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/watchdog /etc/conf.d/watchdog-orig
+	      }
+	
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Define watchdog device" 6
+	      sed -i \
+	        -e 's|^[#]WATCHDOG_DEV=.*|WATCHDOG_DEV="/dev/watchdog"|' \
+	        /etc/conf.d/watchdog
+	EOF
+
+
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable watchdog init.d service" 6
+	      {
+	EOF
+
+  add_init_d_service "watchdog" "default" 6
+
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
+
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/watchdog-orig /etc/conf.d/watchdog >> /chroot.log || true
+	        rm /etc/conf.d/watchdog-orig
+	      }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
 }
 
 
@@ -1980,45 +2079,45 @@ EOF
 # acpi is blacklisted instead
 #
 modprobe_enable_tiny_power_button() {
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Adjusting modprobe blacklist for tiny-power-button" 4
-  {
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-    # Debug
-    {
-      cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
-    }
-
-EOF
-  fi
-
-  cat <<'EOF' >> "$run_script"
-    write_log "Removing tiny_power_button module from modprobe blacklist" 6
-    sed -i -E -e 's/^(blacklist tiny_power_button)$/#\1/' \\
-      /etc/modprobe.d/blacklist.conf
-
-    write_log "Adding acpi module to modprobe blacklist" 6
-    echo -e "\n# Using tiny_power_button instead\nblacklist button\n" \
-      >> /etc/modprobe.d/blacklist.conf
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Adjusting modprobe blacklist for tiny-power-button" 4
+	  {
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
-        >> /chroot.log || true
-      rm /etc/modprobe.d/blacklist.conf-orig
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
+	    }
+	
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Removing tiny_power_button module from modprobe blacklist" 6
+	    sed -i -E -e 's/^(blacklist tiny_power_button)$/#\1/' \\
+	      /etc/modprobe.d/blacklist.conf
+	
+	    write_log "Adding acpi module to modprobe blacklist" 6
+	    echo -e "\n# Using tiny_power_button instead\nblacklist button\n" \
+	      >> /etc/modprobe.d/blacklist.conf
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
+	        >> /chroot.log || true
+	      rm /etc/modprobe.d/blacklist.conf-orig
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }

@@ -18,22 +18,22 @@
 configure_bootloader_grub() {
   local _cmdline _modules
 
-  cat <<'EOF' >> "$run_script"
-
-write_log "Configuring Grub"
-{
-  mkdir -p /boot/grub
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring Grub"
+	{
+	  mkdir -p /boot/grub
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    write_debug_log "Root fs partition device is $root_part_device" 2
-    write_debug_log "Loopback device is $loop_device" 2
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Root fs partition device is $root_part_device" 2
+	    write_debug_log "Loopback device is $loop_device" 2
+	  }
+	EOF
   fi
 
   # Busybox's losetup is not suitable when installing Grub on a loopback
@@ -46,57 +46,71 @@ EOF
     * )
       losetup_package="losetup" ;;
   esac
-  cat <<EOF >> "$run_script"
-
-  # If relevant package is not already installed then install it
-  if [ ! \\\$(apk info -e $losetup_package) ]; then
-    write_log "Installing $losetup_package package for losetup" 2
-    apk add $losetup_package >> /chroot.log 2>&1
-    losetup_package_installed=true
-  fi
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	  # If relevant package is not already installed then install it
+	  if [ ! \\\$(apk info -e ${losetup_package}) ]; then
+	    write_log "Installing ${losetup_package} package for losetup" 2
+	    apk add ${losetup_package} >> /chroot.log 2>&1
+	    losetup_package_installed=true
+	  fi
+	EOF
 
   if [ "$image_boot_reference" = "label" ]; then
     patch_grub_for_label
   fi
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    ###write_debug_log "Contents of /etc/grub.d/10_linux:" 2
-    ###cat /etc/grub.d/10_linux >> /chroot.log
-    cp /etc/default/grub /etc/default/grub-orig
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/default/grub /etc/default/grub-orig
+	  }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Updating /etc/default/grub" 2
+	  {
+	    sed -i \
+	      -e 's|^GRUB_DISABLE_RECOVERY=.*$|GRUB_DISABLE_RECOVERY=false|g' \
+	      -e 's|^GRUB_TIMEOUT=.*$|GRUB_TIMEOUT=5|g' \
+	      -e '/^GRUB_CMDLINE_LINUX_DEFAULT=.*$/d' \
+	      /etc/default/grub
+	EOF
 
-  write_log "Updating /etc/default/grub" 2
-  {
-    sed -i \
-      -e 's|^GRUB_DISABLE_RECOVERY=.*$|GRUB_DISABLE_RECOVERY=false|g' \
-      -e 's|^GRUB_TIMEOUT=.*$|GRUB_TIMEOUT=5|g' \
-      -e '/^GRUB_CMDLINE_LINUX_DEFAULT=.*$/d' \
-      /etc/default/grub
-EOF
+  # Increase the kernel message buffer so all messages during boot are retained
+  _cmdline="log_buf_len=32768"
 
-  _cmdline="rootfstype=$image_fs_type"
+  _cmdline="$_cmdline rootfstype=$image_fs_type"
   # Add modules list
   _modules="$(define_cmdline_for_modules)"
   if [ -n "${_modules}" ]; then
     _cmdline="$_cmdline modules=$_modules"
   fi
-  if [ "$image_console_type" = "serial" ]; then
-    # Serial console
-    _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}"
-  fi
-  if [ "$image_console_type" = "normal" ]; then
-    # Normal console
-    _cmdline="$_cmdline console=$image_console_name"
-  fi
+  case $image_fs_type in
+    btrfs | ext4 )
+      case $image_os_device_media in
+        flash | sd | ssd )
+          # For older Alpine releases add commit mount option for rootfs when
+          # on flash device as this is *not* read from /etc/fstab by
+          # initramfs' init when it mounts rootfs.
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 )
+            _cmdline="$_cmdline rootflags=commit=300" ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  case $image_console_type in
+    normal )
+      _cmdline="$_cmdline console=$image_console_name" ;;
+    serial )
+      _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}" ;;
+  esac
   if [ "$image_boot_type" = "bios" ] && \
      [ -z "${debug_enabled+x}" ]; then
     # With BIOS can disable graphics as "standard" VGA provides text output
@@ -105,13 +119,13 @@ EOF
   if [ -n "${image_disable_ipv6+x}" ]; then
     _cmdline="$_cmdline ipv6.disable=1"
   fi
-  if [ "$image_class" = "cloud" ] || \
-     [ "$image_class" = "virtual" ]; then
-    # Using tiny-power-button for Cloud/VMs but Busybox init doesn't
-    # handle the usual signal this sends, so specify USR2 which Busybox
-    # accepts for "poweroff" situations.
-    _cmdline="$_cmdline tiny_power_button.power_signal=12"
-  fi
+  case $image_class in
+    cloud | virtual )
+      # Using tiny-power-button for Cloud/VMs but Busybox init doesn't
+      # handle the usual signal this sends, so specify USR2 which Busybox
+      # accepts for "poweroff" situations.
+      _cmdline="$_cmdline tiny_power_button.power_signal=12" ;;
+  esac
   if [ -n "${image_bootchart+x}" ]; then
     _cmdline="$_cmdline chart rootflags=rw"
   fi
@@ -140,9 +154,6 @@ EOF
       #  - /boot is not a separate partition.
       _cmdline="$_cmdline cryptkey"
     fi
-###  elif [ -n "${image_lvm_rootfs+x}" ]; then
-###    # Add LVM-specific cmdline entry
-###    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
   fi
 
   if [ -n "${image_extra_cmdline_options+x}" ]; then
@@ -150,50 +161,50 @@ EOF
     _cmdline="$_cmdline $image_extra_cmdline_options"
   fi
 
-  cat <<EOF >> "$run_script"
-
-    cmdline="$_cmdline"
-    {
-      echo "GRUB_CMDLINE_LINUX_DEFAULT=\"\\\$cmdline\""
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	    cmdline="${_cmdline}"
+	    {
+	      echo "GRUB_CMDLINE_LINUX_DEFAULT=\"\\\$cmdline\""
+	EOF
 
   if [ "$image_boot_reference" = "label" ]; then
-    cat <<'EOF' >> "$run_script"
-      echo 'GRUB_ENABLE_LINUX_LABEL=true'
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_ENABLE_LINUX_LABEL=true'
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-      echo 'GRUB_ENABLE_LINUX_LABEL=false'
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_ENABLE_LINUX_LABEL=false'
+	EOF
   fi
 
   if [ "$image_boot_type" = "bios" ]; then
-    cat <<'EOF' >> "$run_script"
-      echo 'GRUB_GFXPAYLOAD_LINUX=text'
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_GFXPAYLOAD_LINUX=text'
+	EOF
   fi
 
   if [ -n "${image_encrypted+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-      echo 'GRUB_DISABLE_LINUX_UUID=true'
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_DISABLE_LINUX_UUID=true'
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-      echo 'GRUB_DISABLE_LINUX_UUID=false'
-EOF
+    cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_DISABLE_LINUX_UUID=false'
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-      echo 'GRUB_DISABLE_OS_PROBER=true'
-      echo 'GRUB_RECORDFAIL_TIMEOUT=20'
-    } >> /etc/default/grub
-EOF
+  cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_DISABLE_OS_PROBER=true'
+	      echo 'GRUB_RECORDFAIL_TIMEOUT=20'
+	    } >> /etc/default/grub
+	EOF
 
-  cat <<'EOF' >> "$run_script"
-    if ! grep -q "^GRUB_TERMINAL=" /etc/default/grub; then
-      echo 'GRUB_TERMINAL=console' >> /etc/default/grub
-    fi
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    if ! grep -q "^GRUB_TERMINAL=" /etc/default/grub; then
+	      echo 'GRUB_TERMINAL=console' >> /etc/default/grub
+	    fi
+	EOF
 
   if [ -n "${image_encrypted+x}" ] && \
      { [ -z "${image_experimental+x}" ] || \
@@ -205,13 +216,13 @@ EOF
     #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
     #  - Grub LUKS encryption support is not disabled, AND
     #  - /boot is not a separate partition.
-    cat <<'EOF' >> "$run_script"
-    echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-    echo 'GRUB_ENABLE_CRYPTODISK=n' >> /etc/default/grub
-EOF
+    cat <<-'EOF' >> "$run_script"
+	    echo 'GRUB_ENABLE_CRYPTODISK=n' >> /etc/default/grub
+	EOF
   fi
 
   case $image_console_type in
@@ -219,36 +230,33 @@ EOF
       enable_grub_serial_console ;;
   esac
 
-  cat <<'EOF' >> "$run_script"
-    ###chmod g=,o= /etc/default/grub
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	    ###chmod g=,o= /etc/default/grub
+	  }
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
-    rm /etc/default/grub-orig
-
-    # Fudge to see what is going on inside grub-mkconfig
-    ###sed -i -e 's|^set -e$|set -ex|' /usr/sbin/grub-mkconfig
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
+	    rm /etc/default/grub-orig
+	  }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-  write_log "Generating GRUB config" 2
-  grub-mkconfig -o /boot/grub/grub.cfg >> /chroot.log 2>&1
-
-  write_log "Checking GRUB config" 2
-  grub-script-check /boot/grub/grub.cfg >> /chroot.log
-
-  chmod g=,o= /boot/grub/grub.cfg
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Generating GRUB config" 2
+	  grub-mkconfig -o /boot/grub/grub.cfg >> /chroot.log 2>&1
+	
+	  write_log "Checking GRUB config" 2
+	  grub-script-check /boot/grub/grub.cfg >> /chroot.log
+	
+	  chmod g=,o= /boot/grub/grub.cfg
+	}
+	EOF
 }
 
 
@@ -259,17 +267,16 @@ install_grub() {
   local _grub_options _grub_efi_options _grub_modules_list
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-# Debug
-{
-  write_debug_log "grub.cfg contents:"
-  cat /boot/grub/grub.cfg >> /chroot.log || true
-}
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "grub.cfg contents:"
+	  cat /boot/grub/grub.cfg >> /chroot.log || true
+	}
+	EOF
   fi
 
-  ###_grub_efi_options="--bootloader-id=alpine --efi-directory=/efi --no-nvram"
   _grub_efi_options="--removable --efi-directory=/efi --no-nvram"
 
   if [ -n "${image_optimise+x}" ]; then
@@ -346,10 +353,16 @@ EOF
     if [ "$image_class" = "physical" ] && \
        [ "$image_physical_type" = "pc" ]; then
       case $image_os_device_type in
-        nvme | sata )
+        nvme )
           _grub_modules_list="$_grub_modules_list ahci" ;;
-        scsi | sd | usb )
+        pata )
+          _grub_modules_list="$_grub_modules_list ata pata" ;;
+        sata )
+          _grub_modules_list="$_grub_modules_list ata ahci scsi" ;;
+        scsi | sd )
           _grub_modules_list="$_grub_modules_list scsi" ;;
+        usb )
+          _grub_modules_list="$_grub_modules_list scsi usb" ;;
       esac
     fi
   fi
@@ -380,7 +393,7 @@ EOF
       if [ "$image_class" = "cloud" ]; then
         _grub_modules_list="$_grub_modules_list video_bochs"
       elif [ "$image_class" = "virtual" ]; then
-        case £image_vm_type in
+        case $image_vm_type in
           libvirtd | lxd | proxmox | qemu | generic )
             _grub_modules_list="$_grub_modules_list video_bochs"
             ;;
@@ -395,10 +408,10 @@ EOF
   fi
 
   if [ "$image_boot_type" = "uefi" ]; then
-    cat <<'EOF' >> "$run_script"
-
-mkdir -p /efi/EFI
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	mkdir -p /efi/EFI
+	EOF
   fi
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -410,41 +423,44 @@ EOF
       "--install-modules=\"$_grub_modules_list\"")
   fi
 
-  cat <<EOF >> "$run_script"
+  cat <<-EOF >> "$run_script"
+	
+	{
+	  write_log "Temporarily creating a dummy device.map file for GRUB" 2
+	  touch /boot/grub/device.map
+	
+	  write_log "Installing GRUB bootloader" 2
+	  grub-install ${_grub_options} \\
+	    \$loop_device 2>&1 \\
+	    | sed -e '/^grub-install: info: copying .*$/d' \\
+	    | sed -e '/^grub-install: info: cannot open .*No such file or directory.$/d' \\
+	    >> /chroot.log
+	EOF
 
-{
-  write_log "Temporarily creating a dummy device.map file for GRUB" 2
-  touch /boot/grub/device.map
-
-  write_log "Installing GRUB bootloader" 2
-  grub-install $_grub_options \\
-    \$loop_device >> /chroot.log 2>&1
-EOF
-
-  cat <<EOF >> "$run_script"
-
-  write_log "Deleting temporary Grub device.map file" 2
-  rm /boot/grub/device.map
-
-  if [ -n "\\\${losetup_package_installed+x}" ]; then
-    write_log "Removing $losetup_package package that was temporarily installed" 2
-    apk del $losetup_package >> /chroot.log 2>&1
-  fi
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Deleting temporary Grub device.map file" 2
+	  rm /boot/grub/device.map
+	
+	  if [ -n "\\\${losetup_package_installed+x}" ]; then
+	    write_log "Removing ${losetup_package} package that was temporarily installed" 2
+	    apk del ${losetup_package} >> /chroot.log 2>&1
+	  fi
+	EOF
 
   if [ "$image_mdev" = true ]; then
     # Remove the eudev package that was temporarily installed
     # so that grub-probe could use udevadm.
-    cat <<EOF >> "$run_script"
-
-  write_log "Removing eudev package that was temporarily installed"
-  apk del eudev >> /chroot.log 2>&1
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Removing eudev package that was temporarily installed"
+	  apk del eudev >> /chroot.log 2>&1
+	EOF
   fi
 
-  cat <<EOF >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -453,14 +469,14 @@ EOF
 #
 patch_grub_for_label() {
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-# Debug
-{
-  cp /etc/grub.d/10_linux /etc/grub.d/10_linux-orig
-	cp /usr/share/grub/grub-mkconfig_lib /usr/share/grub/grub-mkconfig_lib-orig
-	cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
-}
-EOF
+    cat <<-'EOF' >> "$run_script"
+	# Debug
+	{
+	  cp /etc/grub.d/10_linux /etc/grub.d/10_linux-orig
+		cp /usr/share/grub/grub-mkconfig_lib /usr/share/grub/grub-mkconfig_lib-orig
+		cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
+	}
+	EOF
   fi
 
   cat <<'EOF' >> "$run_script"
@@ -555,25 +571,25 @@ apk del --quiet patch >> $logfile
 EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-# Debug
-{
-	write_debug_log "Diff 10_linux:" 2
-  diff -aur /etc/grub.d/10_linux-orig /etc/grub.d/10_linux >> $logfile || true
-  rm /etc/grub.d/10_linux-orig
-
-  write_debug_log "Diff grub-mkconfig_lib:" 2
-  diff -aur \
-    /usr/share/grub/grub-mkconfig_lib-orig /usr/share/grub/grub-mkconfig_lib \\
-    >> $logfile || true
-  rm /usr/share/grub/grub-mkconfig_lib-orig
-
-  write_debug_log "Diff grub-mkconfig:" 2
-  diff -aur /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
-    >> $logfile || true
-  rm /usr/sbin/grub-mkconfig-orig
-
-}
-EOF
+    cat <<-'EOF' >> "$run_script"
+	# Debug
+	{
+	  write_debug_log "Diff 10_linux:" 2
+	  diff -aur /etc/grub.d/10_linux-orig /etc/grub.d/10_linux >> $logfile || true
+	  rm /etc/grub.d/10_linux-orig
+	
+	  write_debug_log "Diff grub-mkconfig_lib:" 2
+	  diff -aur \
+	    /usr/share/grub/grub-mkconfig_lib-orig /usr/share/grub/grub-mkconfig_lib \\
+	    >> $logfile || true
+	  rm /usr/share/grub/grub-mkconfig_lib-orig
+	
+	  write_debug_log "Diff grub-mkconfig:" 2
+	  diff -aur /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+	    >> $logfile || true
+	  rm /usr/sbin/grub-mkconfig-orig
+	
+	}
+	EOF
   fi
 }
