@@ -48,22 +48,28 @@ EOF
 # Configure cloud-init
 #
 configure_cloud_init() {
-  cat <<'EOF' >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring cloud-init"
+	{
+	  write_log "Running setup-cloud-init" 2
+	  setup-cloud-init >> /chroot.log 2>&1
+	EOF
 
-write_log "Configuring cloud-init"
-{
-  write_log "Running setup-cloud-init" 2
-  setup-cloud-init >> /chroot.log 2>&1
-
-  write_log "Precompiling cloud-init python files" 2
-  _python_dir=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
-  python3 -OO -m compileall \
-    -q /usr/lib/\${_python_dir}/site-packages/cloudinit >> /chroot.log 2>&1
-EOF
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 )
+      cat <<-'EOF' >> "$run_script"
+	  write_log "Precompiling cloud-init python files" 2
+	  _python_dir=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
+	  python3 -OO -m compileall \
+	    -q /usr/lib/\${_python_dir}/site-packages/cloudinit >> /chroot.log 2>&1
+	EOF
+      ;;
+  esac
 
   if [ "$image_class" = "cloud" ]; then
     # Cloud
-    define_cloud_settings
+    define_cloud_init_settings
   elif [ "$image_class" = "physical" ]; then
     # Physical
     datasource_list="'NoCloud'"
@@ -96,13 +102,13 @@ EOF
   fi
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg-orig
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg-orig
+	  }
+	EOF
   fi
 
   cat <<'EOF' >> "$run_script"
@@ -348,11 +354,11 @@ EOF
           fi
         ;;
 
-		  gce )
-        # Sync with GCE' internal NTP server(s)
+		  google )
+        # Sync with Google's internal NTP server(s)
         cat <<EOF >> "$run_script"
 	  servers:
-	  - $CONSTANT_GCE_NTP_INTERNAL_SERVER
+	  - $CONSTANT_GOOGLE_NTP_INTERNAL_SERVER
 EOF
         ;;
     esac
@@ -454,73 +460,73 @@ EOF
 EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    cp /etc/cloud/templates/hosts.alpine.tmpl \
-      /etc/cloud/templates/hosts.alpine.tmpl-orig
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/cloud/templates/hosts.alpine.tmpl \
+	      /etc/cloud/templates/hosts.alpine.tmpl-orig
+	  }
+	EOF
   fi
 
   if [ -n "${image_disable_ipv4+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  sed -i \
-    -e '/^# The following lines are desirable for IPv4.*$/d' \
-    -e '/^127\.0.*$/d' \
-    /etc/cloud/templates/hosts.alpine.tmpl
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  sed -i \
+	    -e '/^# The following lines are desirable for IPv4.*$/d' \
+	    -e '/^127\.0.*$/d' \
+	    /etc/cloud/templates/hosts.alpine.tmpl
+	EOF
   elif [ -n "${image_disable_ipv6+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  sed -i \
-    -e '/^# The following lines are desirable for IPv6.*$/d' \
-    -e '/^::1.*$/d' \
-    -e '/^ff02::.*$/d' \
-    /etc/cloud/templates/hosts.alpine.tmpl
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  sed -i \
+	    -e '/^# The following lines are desirable for IPv6.*$/d' \
+	    -e '/^::1.*$/d' \
+	    -e '/^ff02::.*$/d' \
+	    /etc/cloud/templates/hosts.alpine.tmpl
+	EOF
   fi
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-    diff /etc/cloud/cloud.cfg-orig /etc/cloud/cloud.cfg >> /chroot.log || true
-    rm /etc/cloud/cloud.cfg-orig
-
-    diff etc/cloud/templates/hosts.alpine.tmpl-orig \
-      etc/cloud/templates/hosts.alpine.tmpl \
-      >> /chroot.log || true
-    rm etc/cloud/templates/hosts.alpine.tmpl-orig
-
-    cp /etc/cloud/cloud.cfg.d/05_logging.cfg \
-      /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
-  }
-
-  write_log "Enabling cloud-init debugging" 2
-  sed -i \
-    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
-    /etc/cloud/cloud.cfg.d/05_logging.cfg
-
-  # Debug
-  {
-    diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
-      /etc/cloud/cloud.cfg.d/05_logging.cfg \
-      >> /chroot.log || true
-    rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    diff /etc/cloud/cloud.cfg-orig /etc/cloud/cloud.cfg >> /chroot.log || true
+	    rm /etc/cloud/cloud.cfg-orig
+	
+	    diff etc/cloud/templates/hosts.alpine.tmpl-orig \
+	      etc/cloud/templates/hosts.alpine.tmpl \
+	      >> /chroot.log || true
+	    rm etc/cloud/templates/hosts.alpine.tmpl-orig
+	
+	    cp /etc/cloud/cloud.cfg.d/05_logging.cfg \
+	      /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+	  }
+	
+	  write_log "Enabling cloud-init debugging" 2
+	  sed -i \
+	    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
+	    /etc/cloud/cloud.cfg.d/05_logging.cfg
+	
+	  # Debug
+	  {
+	    diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
+	      /etc/cloud/cloud.cfg.d/05_logging.cfg \
+	      >> /chroot.log || true
+	    rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
+	  }
+	EOF
   else
-    cat <<'EOF' >> "$run_script"
-
-  write_log "Disabling cloud-init debugging" 2
-  sed -i \
-    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=DEBUG/\1level=INFO/g ;P;D' \
-    /etc/cloud/cloud.cfg.d/05_logging.cfg
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Disabling cloud-init debugging" 2
+	  sed -i \
+	    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=DEBUG/\1level=INFO/g ;P;D' \
+	    /etc/cloud/cloud.cfg.d/05_logging.cfg
+	EOF
   fi
 
   if [ "$image_class" = "cloud" ]; then
@@ -542,7 +548,164 @@ EOF
     create_physical_machine_cloud_init_yaml_files
   fi
 
-  cat <<EOF >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
+
+
+#
+# Define Cloud-specific cloud-init machine specific packages
+#
+define_cloud_init_machine_packages() {
+  local _cloud_pkgs=""
+
+  case $image_cloud_type in
+    aws )
+      _cloud_pkgs="aws-cli nvme-cli" ;;
+    azure )
+      _cloud_pkgs="hvtools" ;;
+    digitalocean )
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 )
+          # No doctl packaged for these Alpine releases
+          : ;;
+        * )
+          _cloud_pkgs="doctl" ;;
+      esac
+      ;;
+    google )
+      _cloud_pkgs="nvme-cli" ;;
+    hetzner )
+      _cloud_pkgs="hcloud" ;;
+    ###vultr )
+    ###  _cloud_pkgs="vultr-cli" ;;
+  esac
+
+  echo "$_cloud_pkgs"
+}
+
+
+#
+# Define Cloud-specific cloud-init DataSource(s) to enable
+#
+define_cloud_init_settings() {
+  case $image_cloud_type in
+    generic )
+      datasource_list="'AliYun','Azure','BigStep','ConfigDrive','DigitalOcean'"
+      datasource_list="$datasource_list,'E24Cloud','Ec2','Exoscale','GCE'"
+      datasource_list="$datasource_list,'Hetzner','IBMCloud','Oracle'"
+      datasource_list="$datasource_list,'RbxCloud','Scaleway','UpCloud'"
+      datasource_list="$datasource_list,'Vultr'" ;;
+    aliyun )
+      datasource_list="'AliYun'" ;;
+    aws )
+      datasource_list="'Ec2'"
+      image_console_type="serial"
+      serial_port_number="0"
+      if [ "$image_arch" = "aarch64" ]; then
+        image_console_name="ttyAMA${serial_port_number}"
+        serial_port_name="ttyAMA${serial_port_number}"
+      else
+        serial_port_name="ttyS${serial_port_number}"
+      fi
+      ;;
+    azure )
+      datasource_list="'Azure'"
+      image_console_type="serial"
+      serial_port_number="0"
+      serial_port_name="ttyS${serial_port_number}"
+      ;;
+    bigstep )
+      datasource_list="'Bigstep'" ;;
+    brightbox )
+      datasource_list="'Ec2'" ;;
+    digitalocean )
+      datasource_list="'DigitalOcean'"
+      image_console_type="both"
+      serial_port_number="0"
+      serial_port_name="ttyS${serial_port_number}"
+      ;;
+    e24 )
+      datasource_list="'E24Cloud'" ;;
+    exoscale )
+      datasource_list="'Exoscale'" ;;
+    google )
+      datasource_list="'GCE'" ;;
+    hetzner )
+      datasource_list="'Ec2'" ;;
+    hyperone )
+      datasource_list="'RbxCloud'" ;;
+    ibmcloud )
+      datasource_list="'IBMCloud'" ;;
+    oracle )
+      datasource_list="'Oracle'"
+      if [ "$image_arch" = "aarch64" ]; then
+        image_console_name="ttyAMA1"
+      fi
+      image_console_type="both"
+      if [ "$image_console_type" = "serial" ]; then
+        serial_port_number="0"
+        if [ "$image_arch" = "aarch64" ]; then
+          serial_port_name="ttyAMA${serial_port_number}"
+        else
+          serial_port_name="ttyS${serial_port_number}"
+        fi
+      fi
+      ;;
+    rootbox )
+      datasource_list="'RbxCloud'" ;;
+    scaleway )
+      datasource_list="'Scaleway'" ;;
+    tencent )
+      datasource_list="'ConfigDrive'" ;;
+    upcloud )
+      datasource_list="'UpCloud'" ;;
+    vultr )
+      datasource_list="'Vultr'"
+      image_console_type="normal"
+      ;;
+  esac
+}
+
+
+#
+# Add cloud machine related entries to /etc/modules
+#
+etc_modules_list_for_cloud_init() {
+  cat <<'EOF' >> "$run_script"
+	
+	# Cloud-specific modules
+	tiny-power-button
 EOF
+
+  case $image_cloud_type in
+    aws )
+      if [ "$image_arch" = "aarch64" ]; then
+        cat <<'EOF' >> "$run_script"
+	gpio-pl061
+EOF
+      fi
+      cat <<'EOF' >> "$run_script"
+	nvme
+EOF
+      ;;
+    azure )
+      cat <<'EOF' >> "$run_script"
+	hv_utils
+EOF
+      ;;
+    google )
+      cat <<'EOF' >> "$run_script"
+	nvme
+EOF
+      ;;
+    generic )
+      cat <<'EOF' >> "$run_script"
+	hv_utils
+	nvme
+	ptp_kvm
+EOF
+      ;;
+  esac
 }

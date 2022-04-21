@@ -1,0 +1,68 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  tiny-cloud-functions
+##
+##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure tiny-cloud
+#
+configure_tiny_cloud() {
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring tiny-cloud"
+	{
+	  :
+	}
+	EOF
+}
+
+
+#
+# Define Cloud-specific tiny-cloud machine specific packages
+#
+define_tiny_cloud_machine_packages() {
+  local _cloud_pkgs=""
+
+###  case $image_cloud_type in
+###    aws )
+###      _cloud_pkgs="aws-cli nvme-cli" ;;
+###    azure )
+###      _cloud_pkgs="hvtools" ;;
+###    google )
+###      _cloud_pkgs="nvme-cli" ;;
+###    oracle )
+###      _cloud_pkgs="???" ;;
+###  esac
+
+  echo "$_cloud_pkgs"
+}
+
+
+#
+# Define Cloud-specific tiny-cloud packages/sub-packages
+#
+define_tiny_cloud_packages() {
+  local _tiny_pkgs="tiny-cloud"
+
+  case $image_cloud_type in
+    aws )
+      _tiny_pkgs="$_tiny_pkgs tiny-cloud-aws" ;;
+    azure )
+      _tiny_pkgs="$_tiny_pkgs tiny-cloud-azure" ;;
+    google )
+      _tiny_pkgs="$_tiny_pkgs tiny-cloud-gcp" ;;
+    oracle )
+      _tiny_pkgs="$_tiny_pkgs tiny-cloud-oci" ;;
+  esac
+
+  echo "$_tiny_pkgs"
+}

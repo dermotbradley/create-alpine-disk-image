@@ -29,26 +29,27 @@ script_dir="$(dirname "$0")"
 
 
 # Source read-only variables
-. ${script_dir}/lib/common-defines
-. ${script_dir}/lib/disk-image-defines
+. "${script_dir}"/lib/common-defines
+. "${script_dir}"/lib/disk-image-defines
 
 
 # Source functions, some shared with create-alpine-disk-installer
-. ${script_dir}/lib/cli-functions
-. ${script_dir}/lib/common-functions
-. ${script_dir}/lib/disk-image-functions
-. ${script_dir}/lib/mkinitfs-functions
-. ${script_dir}/lib/services-functions
+. "${script_dir}"/lib/cli-functions
+. "${script_dir}"/lib/common-functions
+. "${script_dir}"/lib/disk-image-functions
+. "${script_dir}"/lib/mkinitfs-functions
+. "${script_dir}"/lib/services-functions
 
-. ${script_dir}/lib/grub-functions
-. ${script_dir}/lib/syslinux-functions
+. "${script_dir}"/lib/grub-functions
+. "${script_dir}"/lib/syslinux-functions
 
-. ${script_dir}/lib/cloud-init-functions
-. ${script_dir}/lib/non-cloud-functions
+. "${script_dir}"/lib/cloud-init-functions
+. "${script_dir}"/lib/non-cloud-functions
+. "${script_dir}"/lib/tiny-cloud-functions
 
-. ${script_dir}/lib/cloud-functions
-. ${script_dir}/lib/physical-functions
-. ${script_dir}/lib/vm-functions
+. "${script_dir}"/lib/cloud-functions
+. "${script_dir}"/lib/physical-functions
+. "${script_dir}"/lib/vm-functions
 
 #############################################################################
 ##		Main Section
@@ -104,11 +105,11 @@ fi
 
 disk_image_size=$(calculate_image_size)
 
-cat <<EOF >> "$run_script"
-
-write_log "Creating sparse disk image of ${disk_image_size}MiB"
-truncate -s ${disk_image_size}M \$image_full_filename >> \$logfile
-EOF
+cat <<-EOF >> "$run_script"
+	
+	write_log "Creating sparse disk image of ${disk_image_size}MiB"
+	truncate -s ${disk_image_size}M \$image_full_filename >> \$logfile
+	EOF
 
 if [ "$image_boot_type" = "rpi" ]; then
   partition_rpi
@@ -119,15 +120,15 @@ else
 fi
 
 if [ -n "${debug_enabled+x}" ]; then
-  cat <<'EOF' >> "$run_script"
-
-# Debug
-{
-  write_debug_log "Resultant partition layout:" 2
-  parted --machine --script --align=optimal $image_full_filename \
-    unit MiB print >> $logfile
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "Resultant partition layout:" 2
+	  parted --machine --script --align=optimal $image_full_filename \
+	    unit MiB print >> $logfile
+	}
+	EOF
 fi
 
 setup_loop_device
@@ -173,46 +174,46 @@ if [ -n "${extra_files_directory+x}" ]; then
 fi
 
 # shellcheck disable=SC2129
-cat <<'EOF' >> "$run_script"
-
-#############################################################################
-##		Start of Chroot section
-#############################################################################
-
-chroot "$chroot_dir" /bin/sh -eu <<EOT
-
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	#############################################################################
+	##		Start of Chroot section
+	#############################################################################
+	
+	chroot "$chroot_dir" /bin/sh -eu <<EOT
+	
+	EOF
 
 if [ -n "${image_short_hostname+x}" ]; then
-  cat <<EOF >> "$run_script"
-short_hostname="$image_short_hostname"
-
-EOF
+  cat <<-EOF >> "$run_script"
+	short_hostname="${image_short_hostname}"
+	
+	EOF
 elif [ -n "${image_full_hostname+x}" ]; then
-  cat <<EOF >> "$run_script"
-full_hostname="$image_full_hostname"
-
-EOF
+  cat <<-EOF >> "$run_script"
+	full_hostname="${image_full_hostname}"
+	
+	EOF
 fi
-cat <<EOF >> "$run_script"
-keymap="$image_keymap"
-locale="$image_locale"
-EOF
+cat <<-EOF >> "$run_script"
+	keymap="${image_keymap}"
+	locale="${image_locale}"
+	EOF
 
 if [ "$image_class" = "physical" ]; then
-  cat <<EOF >> "$run_script"
-timezone="$image_timezone"
-EOF
+  cat <<-EOF >> "$run_script"
+	timezone="${image_timezone}"
+	EOF
 fi
 
 insert_chroot_functions
 
-cat <<'EOF' >> "$run_script"
-
-############################################################################
-##		Chroot Main Section
-############################################################################
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	############################################################################
+	##		Chroot Main Section
+	############################################################################
+	EOF
 
 configure_fstab
 add_additional_repos
@@ -223,11 +224,14 @@ add_base_init_d
 install_additional_packages
 additional_os_configuration
 
-if [ -z "${image_without_cloud_init+x}" ]; then
-  configure_cloud_init
-else
-  configure_non_cloud_init
-fi
+case $image_cloud_software in
+  cloud-init )
+    configure_cloud_init ;;
+  none )
+    configure_non_cloud_init ;;
+  tiny-cloud )
+    configure_tiny_cloud ;;
+esac
 
 if [ -n "${image_optimise+x}" ]; then
   disable_kernel_modules
@@ -247,47 +251,48 @@ fi
 
 if [ -n "${image_lvm_rootfs+x}" ] && \
    [ "$image_bootloader" = "grub" ]; then
-  cat <<'EOF' >> "$run_script"
-
-{
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-  # Debug
-  {
-    cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
-  }
-
-EOF
-  fi
-
-  cat <<'EOF' >> "$run_script"
-  write_log "Tweaking grub-mkconfig to prevent LVM-related warning" 2
-  sed -i \\
-    -Ee 's|^(GRUB_DEVICE="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    -Ee 's|^(GRUB_DEVICE_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    -Ee 's|^(GRUB_DEVICE_PARTUUID="\`)(.*)|\1 export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    -Ee 's|^(GRUB_DEVICE_BOOT="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    -Ee 's|^(GRUB_DEVICE_BOOT_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    -Ee 's|^(GRUB_FS="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-    /usr/sbin/grub-mkconfig
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	{
+	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  # Debug
-  {
-	  diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
-      >> /chroot.log || true
-  }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	  # Debug
+	  {
+	    cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
+	  }
+	
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Tweaking grub-mkconfig to prevent LVM-related warning" 2
+	  sed -i \\
+	    -Ee 's|^(GRUB_DEVICE="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    -Ee 's|^(GRUB_DEVICE_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    -Ee 's|^(GRUB_DEVICE_PARTUUID="\`)(.*)|\1 export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    -Ee 's|^(GRUB_DEVICE_BOOT="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    -Ee 's|^(GRUB_DEVICE_BOOT_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    -Ee 's|^(GRUB_FS="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
+	    /usr/sbin/grub-mkconfig
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+		  diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+	      >> /chroot.log || true
+	    rm /usr/sbin/grub-mkconfig-orig
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 fi
 
 if [ "$image_mdev" = true ]; then
@@ -296,11 +301,11 @@ if [ "$image_mdev" = true ]; then
   # installed, if not then it falls back to its own way of figuring stuff out
   # which does not work for filesystems on a loopback device, so let's
   # temporarily install eudev to let it use udevadm.
-  cat <<EOF >> "$run_script"
-
-write_log "Temporarily installing eudev so that grub-probe can use it"
-apk add eudev >> /chroot.log 2>&1
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Temporarily installing eudev so that grub-probe can use it"
+	apk add eudev >> /chroot.log 2>&1
+	EOF
 fi
 
 install_kernel
@@ -349,21 +354,21 @@ if [ -n "${image_encrypted+x}" ] && \
       fi
       ;;
   esac
-  cat <<EOF >> "$run_script"
-
-chmod 600 /boot/$_initramfs_filename
-EOF
+  cat <<-EOF >> "$run_script"
+	
+	chmod 600 /boot/${_initramfs_filename}
+	EOF
 fi
 
 if [ -n "${debug_enabled+x}" ]; then
-  cat <<'EOF' >> "$run_script"
-
-# Debug
-{
-  write_debug_log "mkinitfs contents:"
-  mkinitfs -l "\$_kernel_version" >> /chroot.log
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "mkinitfs contents:"
+	  mkinitfs -l "\$_kernel_version" >> /chroot.log
+	}
+	EOF
 fi
 
 if [ "$image_bootloader" = "grub" ]; then
@@ -382,101 +387,92 @@ fi
 
 
 if [ -n "${debug_enabled+x}" ]; then
-  cat <<'EOF' >> "$run_script"
-
-# Debug
-{
-  write_debug_log "Final installed packages list:"
-  apk info -v | sort >> /chroot.log
-
-  write_debug_log "Disk space usage:"
-  df -k >> /chroot.log
-
-  write_debug_log "/boot size:"
-  du -k /boot/ |sort -n >> /chroot.log
-  write_debug_log "/boot contents:"
-  ls -laR /boot/ >> /chroot.log
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "Final installed packages list:"
+	  apk info -v | sort >> /chroot.log
+	
+	  write_debug_log "Disk space usage:"
+	  df -k >> /chroot.log
+	
+	  write_debug_log "/boot size:"
+	  du -k /boot/ |sort -n >> /chroot.log
+	  write_debug_log "/boot contents:"
+	  # Remove date/time from "ls" output
+	  ls -laR /boot/ \
+	    | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	    >> /chroot.log
+	EOF
 
   if [ "$image_boot_type" = "uefi" ]; then
     # UEFI
-    cat <<'EOF' >> "$run_script"
-
-  write_debug_log "/efi size:"
-	du -k /efi/ |sort -n >> /chroot.log
-  write_debug_log "Contents of /efi directory:"
-  ls -lR /efi >> /chroot.log
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_debug_log "/efi size:"
+	  du -k /efi/ |sort -n >> /chroot.log
+	  write_debug_log "Contents of /efi directory:"
+	  # Remove date/time from "ls" output
+	  ls -lR /efi | \
+	  sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	  >> /chroot.log
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-
-  apk info | sort > /final-packages.list
-}
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  apk info | sort > /final-packages.list
+	}
+	EOF
 fi
 
-cat <<'EOF' >> "$run_script"
-
-EOT
-
-#############################################################################
-##		End of Chroot section
-#############################################################################
-
-cat "$chroot_dir"/chroot.log >> "$logfile"
-rm "$chroot_dir"/chroot.log
-
-write_log "Finished chroot section"
-
-write_log "Removing temporary /etc/resolv.conf from chroot filesystem"
-rm "$chroot_dir"/etc/resolv.conf
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	EOT
+	
+	#############################################################################
+	##		End of Chroot section
+	#############################################################################
+	
+	cat "$chroot_dir"/chroot.log >> "$logfile"
+	rm "$chroot_dir"/chroot.log
+	
+	write_log "Finished chroot section"
+	
+	write_log "Removing temporary /etc/resolv.conf from chroot filesystem"
+	rm "$chroot_dir"/etc/resolv.conf
+	EOF
 
 if [ -n "${debug_enabled+x}" ]; then
-  cat <<'EOF' >> "$run_script"
-
-# Debug
-mv "$chroot_dir"/base-packages.list .
-mv "$chroot_dir"/final-packages.list .
-mv "$chroot_dir"/kernel-config_* .
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	mv "$chroot_dir"/base-packages.list .
+	mv "$chroot_dir"/final-packages.list .
+	mv "$chroot_dir"/kernel-config_* .
+	EOF
 fi
 
-cat <<'EOF' >> "$run_script"
-
-write_log "Cleaning up"
-normal_cleanup
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	write_log "Cleaning up"
+	normal_cleanup
+	EOF
 
 if [ -n "${use_ramdisk+x}" ]; then
-  cat <<EOF >> "$run_script"
-
-write_log "Copying image from ramdisk to final location"
-cp "\$image_full_filename" "\$images_dir/"
-
-if mount | grep -q "\$ramdisk_dir" ; then
-  _rc=1
-  while [ \$_rc -ne 0 ]; do
-    write_log "Unmounting ramdisk"
-    umount \$ramdisk_dir >> \$logfile
-    _rc=\$?
-    sleep 5
-  done
-  # A small delay before rmdir as sometimes the umount is not immediate
-  sleep 5
-  rmdir \$ramdisk_dir
-fi
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Copying image from ramdisk to final location"
+	cp "$image_full_filename" "$images_dir/"
+	unmount_ramdisk
+	EOF
 fi
 
-cat <<'EOF' >> "$run_script"
-
-# Clear exit trap function
-trap EXIT
-
-exit
-EOF
+cat <<-'EOF' >> "$run_script"
+	
+	exit
+	EOF
 
 if [ -n "${debug_enabled+x}" ]; then
   shellcheck -s ash -e SC1117 "$run_script"

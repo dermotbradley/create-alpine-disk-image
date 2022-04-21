@@ -16,11 +16,11 @@
 # Create cloud Alibaba mkinitfs feature file
 #
 configure_mkinitfs_feature_cloud_alibaba() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/cloud-alibaba.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-alibaba.modules" 2
+	EOF
 
   initramfs_entry_initialise "cloud-alibaba"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -29,19 +29,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "cloud-alibaba.modules contents:" 2
-      cat /etc/mkinitfs/features.d/cloud-alibaba.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-alibaba.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-alibaba.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -49,11 +49,11 @@ EOF
 # Create cloud AWS mkinitfs feature file
 #
 configure_mkinitfs_feature_cloud_aws() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/cloud-aws.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-aws.modules" 2
+	EOF
 
   initramfs_entry_initialise "cloud-aws"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -74,19 +74,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "cloud-aws.modules contents:" 2
-      cat /etc/mkinitfs/features.d/cloud-aws.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-aws.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-aws.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -94,11 +94,11 @@ EOF
 # Create cloud Azure mkinitfs feature file
 #
 configure_mkinitfs_feature_cloud_azure() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/cloud-azure.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-azure.modules" 2
+	EOF
 
   initramfs_entry_initialise "cloud-azure"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -116,19 +116,19 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "cloud-azure.modules contents:" 2
-      cat /etc/mkinitfs/features.d/cloud-azure.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-azure.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-azure.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -136,11 +136,11 @@ EOF
 # Create cloud Exoscale mkinitfs feature file
 #
 configure_mkinitfs_feature_cloud_exoscale() {
-  cat <<'EOF' >> "$run_script"
-
-  {
-    write_log "Setting up features.d/cloud-exoscale.modules" 2
-EOF
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-exoscale.modules" 2
+	EOF
 
   initramfs_entry_initialise "cloud-exoscale"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
@@ -160,33 +160,33 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "cloud-exoscale.modules contents:" 2
-      cat /etc/mkinitfs/features.d/cloud-exoscale.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-exoscale.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-exoscale.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
 #
-# Create cloud GCE mkinitfs feature file
+# Create cloud Google mkinitfs feature file
 #
-configure_mkinitfs_feature_cloud_gce() {
-  cat <<'EOF' >> "$run_script"
+configure_mkinitfs_feature_cloud_google() {
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-google.modules" 2
+	EOF
 
-  {
-    write_log "Setting up features.d/cloud-gce.modules" 2
-EOF
-
-  initramfs_entry_initialise "cloud-gce"
+  initramfs_entry_initialise "cloud-google"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
   case $image_os_device_type in
@@ -202,174 +202,132 @@ EOF
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-    # Debug
-    {
-      write_debug_log "cloud-gce.modules contents:" 2
-      cat /etc/mkinitfs/features.d/cloud-gce.modules >> /chroot.log
-    }
-EOF
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-google.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-google.modules >> /chroot.log
+	    }
+	EOF
   fi
 
-  cat <<'EOF' >> "$run_script"
-  }
-EOF
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
 #
-# Define cloud machine specific packages
+# Define default settings for Cloud
 #
-define_cloud_machine_packages() {
-  local _cloud_pkgs=""
+default_cloud_settings() {
+  if [ -z ${esp_type+x} ]; then
+    esp_type=$CONSTANT_CLOUD_ESP_TYPE
+  fi
 
-  case $image_cloud_type in
-    aws )
-      _cloud_pkgs="aws-cli nvme-cli" ;;
-    azure )
-      _cloud_pkgs="hvtools" ;;
-    digitalocean )
-      case $image_alpine_release in
-        v3.13 | v3.14 | v3.15 )
-          # No doctl packaged for these Alpine releases
-          : ;;
+  if [ -z "${filename_for_image+x}" ]; then
+    filename_for_image="alpine-$image_alpine_release-$image_arch-$image_class-$image_cloud_type.img"
+  fi
+
+  # AWS Encryption
+  if [ -n "${image_encrypted+x}" ] && [ "$image_cloud_type" = "aws" ]; then
+    error_message "For AWS you should use an encrypted EBS device!"
+  fi
+
+  # Cloud software (cloud-init por tiny-cloud)
+  if [ -z "${image_cloud_software+x}" ]; then
+    image_cloud_software="cloud-init"
+  elif [ "$image_cloud_software" = "tiny-cloud" ]; then
+    case $image_cloud_type in
+      aws | azure | google | oracle )
+        ;;
+      * )
+        error_message "tiny-cloud is not supported for this cloud provider!"
+        ;;
+    esac
+  fi
+
+  # NTP
+  if [ -n "${image_ntp_use_host+x}" ] && \
+     [ "$image_ntp_use_host" = "true" ] && \
+	   [ -z "${image_experimental+x}" ]; then
+    error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
+  fi
+  if [ -n "${image_ntp_servers+x}" ]; then
+    error_message "NTP servers can only be specified for physical servers, other servers obtain this information from user-data!"
+  fi
+
+  # Remove encryption unlock
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    error_message "Remote unlocking of encrypted rootfs is not supported in cloud!"
+  fi
+
+  # Arch-specific settings
+  case $image_arch in
+    aarch64 )
+      if [ -z "${keyboard_type+x}" ]; then
+        # aarch64 VMs normally use USB keyboard
+        keyboard_type="usb"
+      fi
+      # aarch64 Cloud VMs always use UEFI
+      image_boot_type="uefi"
+      if [ -n "${image_bootloader+x}" ] && \
+         [ "$image_bootloader" != "grub" ]; then
+          error_message "aarch64 cloud machine can only use Grub bootloader!"
+      fi
+      image_bootloader="grub"
+      case $image_cloud_type in
+        aws | azure | oracle )
+          ;;
         * )
-          _cloud_pkgs="doctl" ;;
+          error_message "aarch64 cloud images cannot be created for this cloud provider!"
+          ;;
       esac
       ;;
-    gce )
-      _cloud_pkgs="nvme-cli" ;;
-    hetzner )
-      _cloud_pkgs="hcloud" ;;
-    ###vultr )
-    ###  _cloud_pkgs="vultr-cli" ;;
+    x86 | x86_64 )
+      if [ -z "${keyboard_type+x}" ]; then
+        keyboard_type="ps2"
+      fi
+      image_boot_type="bios"
+      # Bootloader may be overriden below at per-cloud level
+      image_bootloader="grub"
+      ;;
   esac
 
-  echo "$_cloud_pkgs"
-}
-
-
-#
-# Define the cloud-init DataSource(s) to enable for the relevant Cloud type
-#
-define_cloud_settings() {
+  # Cloud-specific settings
   case $image_cloud_type in
-    generic )
-      datasource_list="'AliYun','Azure','BigStep','ConfigDrive','DigitalOcean'"
-      datasource_list="$datasource_list,'E24Cloud','Ec2','Exoscale','GCE'"
-      datasource_list="$datasource_list,'Hetzner','IBMCloud','Oracle'"
-      datasource_list="$datasource_list,'RbxCloud','Scaleway','UpCloud'"
-      datasource_list="$datasource_list,'Vultr'" ;;
-    aliyun )
-      datasource_list="'AliYun'" ;;
-    aws )
-      datasource_list="'Ec2'"
-      image_console_type="serial"
-      serial_port_number="0"
-      if [ "$image_arch" = "aarch64" ]; then
-        image_console_name="ttyAMA${serial_port_number}"
-        serial_port_name="ttyAMA${serial_port_number}"
-      else
-        serial_port_name="ttyS${serial_port_number}"
-      fi
-      ;;
     azure )
-      datasource_list="'Azure'"
-      image_console_type="serial"
-      serial_port_number="0"
-      serial_port_name="ttyS${serial_port_number}"
-      ;;
-    bigstep )
-      datasource_list="'Bigstep'" ;;
-    brightbox )
-      datasource_list="'Ec2'" ;;
-    digitalocean )
-      datasource_list="'DigitalOcean'"
-      image_console_type="both"
-      serial_port_number="0"
-      serial_port_name="ttyS${serial_port_number}"
-      ;;
-    e24 )
-      datasource_list="'E24Cloud'" ;;
-    exoscale )
-      datasource_list="'Exoscale'" ;;
-    gce )
-      datasource_list="'GCE'" ;;
-    hetzner )
-      datasource_list="'Ec2'" ;;
-    hyperone )
-      datasource_list="'RbxCloud'" ;;
-    ibmcloud )
-      datasource_list="'IBMCloud'" ;;
-    oracle )
-      datasource_list="'Oracle'"
-      if [ "$image_arch" = "aarch64" ]; then
-        image_console_name="ttyAMA1"
+      image_bootloader="grub"
+      keyboard_type="serial"
+      if [ -n "${image_experimental+x}" ]; then
+        image_ntp_use_host=true
       fi
-      image_console_type="both"
-      if [ "$image_console_type" = "serial" ]; then
-        serial_port_number="0"
-        if [ "$image_arch" = "aarch64" ]; then
-          serial_port_name="ttyAMA${serial_port_number}"
-        else
-          serial_port_name="ttyS${serial_port_number}"
-        fi
-      fi
-      ;;
-    rootbox )
-      datasource_list="'RbxCloud'" ;;
-    scaleway )
-      datasource_list="'Scaleway'" ;;
-    tencent )
-      datasource_list="'ConfigDrive'" ;;
-    upcloud )
-      datasource_list="'UpCloud'" ;;
-    vultr )
-      datasource_list="'Vultr'"
-      image_console_type="normal"
       ;;
   esac
-}
 
+  if [ -z "${image_ntp_use_host+x}" ]; then
+    # By default the majority of Cloud providers do not support
+    # hypervisor PTP/NTP host time sync
+    image_ntp_use_host=false
+  fi
 
-#
-# Add cloud machine related entries to /etc/modules
-#
-etc_modules_list_for_cloud() {
-  cat <<'EOF' >> "$run_script"
-	
-	# Cloud-specific modules
-	tiny-power-button
-EOF
-
-  case $image_cloud_type in
-    aws )
-      if [ "$image_arch" = "aarch64" ]; then
-        cat <<'EOF' >> "$run_script"
-	gpio-pl061
-EOF
-      fi
-      cat <<'EOF' >> "$run_script"
-	nvme
-EOF
-      ;;
-    azure )
-      cat <<'EOF' >> "$run_script"
-	hv_utils
-EOF
-      ;;
-    gce )
-      cat <<'EOF' >> "$run_script"
-	nvme
-EOF
-      ;;
-    generic )
-      cat <<'EOF' >> "$run_script"
-	hv_utils
-	nvme
-	ptp_kvm
-EOF
-      ;;
+  # Sort out partition sizing
+  #---------------------------
+  case $image_arch in
+    aarch64 )
+      general_boot_part_size=$CONSTANT_CLOUD_AARCH64_BOOT_PART_SIZE ;;
+    x86 )
+      general_boot_part_size=$CONSTANT_CLOUD_X86_BOOT_PART_SIZE ;;
+    x86_64 )
+      general_boot_part_size=$CONSTANT_CLOUD_X86_64_BOOT_PART_SIZE ;;
   esac
+  if [ -z "${general_root_part_size+x}" ]; then
+    general_root_part_size=$CONSTANT_CLOUD_ROOT_PART_SIZE
+  fi
+  if [ -z "${esp_part_size+x}" ]; then
+    general_uefi_part_size=$CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE
+  else
+    general_uefi_part_size=$esp_part_size
+  fi
 }
