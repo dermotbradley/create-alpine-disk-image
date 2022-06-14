@@ -27,13 +27,10 @@ configure_mkinitfs_feature_vm_hyperv() {
   initramfs_entry_initialise "vm-hyperv"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   if [ -n "${image_optimise+x}" ]; then
-    initramfs_entry_add "kernel/drivers/hv/hv_balloon.ko*"
     initramfs_entry_add "kernel/drivers/hv/hv_utils.ko*"
     initramfs_entry_add "kernel/drivers/hv/hv_vmbus.ko*"
-    initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*"
   else
     initramfs_entry_add "kernel/drivers/hv"
-    initramfs_entry_add "kernel/drivers/net/hyperv"
   fi
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
   initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
@@ -78,13 +75,6 @@ configure_mkinitfs_feature_vm_qemu() {
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
   initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
-
-  if [ -n "${image_optimise+x}" ]; then
-    :
-  else
-    initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-  fi
-  initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
   initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
   initramfs_entry_add "kernel/drivers/crypto/virtio"
@@ -92,12 +82,19 @@ configure_mkinitfs_feature_vm_qemu() {
     nvme )
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
-    sata | scsi )
+    sata | scsi | usb )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
   esac
-  initramfs_entry_add "kernel/drivers/virtio"
+
+  ###initramfs_entry_add "kernel/drivers/virtio"
+
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  fi
+
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -133,13 +130,6 @@ configure_mkinitfs_feature_vm_virtio() {
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
   initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
-
-  if [ -n "${image_optimise+x}" ]; then
-    :
-  else
-    initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-  fi
-  initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
   initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
   initramfs_entry_add "kernel/drivers/crypto/virtio"
@@ -147,12 +137,13 @@ configure_mkinitfs_feature_vm_virtio() {
     nvme )
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
-    sata | scsi )
+    sata | scsi | usb )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
   esac
-  initramfs_entry_add "kernel/drivers/virtio"
+  ###initramfs_entry_add "kernel/drivers/virtio"
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -186,21 +177,24 @@ configure_mkinitfs_feature_vm_virtualbox() {
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   if [ -n "${image_optimise+x}" ]; then
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
-    initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
-    initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
-    initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
-    initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
+    ###initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+    ###initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
   else
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
-    initramfs_entry_add "kernel/drivers/virt/vboxguest"
-    initramfs_entry_add "kernel/drivers/virtio"
+    ###initramfs_entry_add "kernel/drivers/virt/vboxguest"
+    ###initramfs_entry_add "kernel/drivers/virtio"
   fi
-  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
+  fi
   case $image_os_device_type in
     nvme )
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
     sata | scsi )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
@@ -241,12 +235,15 @@ configure_mkinitfs_feature_vm_vmware() {
   else
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
   fi
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
   initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
-  initramfs_entry_add "kernel/drivers/net/vmxnet3"
+  if [ -n "${remote_unlock_enabled+x}" ]; then
+    initramfs_entry_add "kernel/drivers/net/vmxnet3"
+  fi
   initramfs_entry_finish
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -306,7 +303,7 @@ default_virtual_settings() {
       fi
       if [ -n "${image_bootloader+x}" ] && \
          [ "$image_bootloader" = "syslinux" ]; then
-        error_message "aarch64 virtual machine can only use Grub bootloader!"
+        error_message "aarch64 virtual machine can not use Syslinux bootloader!"
       else
         image_bootloader="grub"
       fi
@@ -324,9 +321,11 @@ default_virtual_settings() {
         * )
           keyboard_type="${image_keyboard_type:-both}" ;;
       esac
-      if [ -n "${image_boot_type+x}" ] && \
-         [ "$image_boot_type" = "uefi" ]; then
-        error_message "UEFI is not supported for x86!"
+      if [ -n "${image_boot_type+x}" ]; then
+        case $image_boot_type in
+          uefi )
+            error_message "UEFI is not supported for x86!" ;;
+        esac
       else
         image_boot_type="bios"
       fi
@@ -341,22 +340,18 @@ default_virtual_settings() {
         * )
           keyboard_type="${image_keyboard_type:-both}" ;;
       esac
+
       if [ -z ${image_boot_type+x} ]; then
         image_boot_type="bios"
-        if [ -z ${image_bootloader+x} ]; then
-          image_bootloader="grub"
-        fi
-      elif [ "$image_boot_type" = "bios" ]; then
-        if [ -z ${image_bootloader+x} ]; then
-          image_bootloader="grub"
-        fi
-      elif [ "$image_boot_type" = "uefi" ]; then
-        if [ -z ${image_bootloader+x} ]; then
-          image_bootloader="grub"
-        elif [ "$image_bootloader" = "syslinux" ] && \
-             [ -z "${image_experimental+x}" ]; then
-          error_message "Syslinux UEFI is an experimental option!"
-        fi
+      fi
+      if [ -z ${image_bootloader+x} ]; then
+        image_bootloader="grub"
+      fi
+
+      if [ "$image_bootloader" = "syslinux" ] && \
+         [ "$image_boot_type" = "uefi" ] && \
+         [ -z "${image_experimental+x}" ]; then
+        error_message "Syslinux UEFI is an experimental option!"
       fi
       ;;
   esac
@@ -396,13 +391,18 @@ define_virtual_machine_packages() {
   case $image_vm_type in
     hyperv )
       _virtual_pkgs="hvtools" ;;
-    libvirtd | lxd | proxmox | qemu )
+    libvirtd | lxd | proxmox | qemu | utm )
       _virtual_pkgs="qemu-guest-agent" ;;
     virtualbox )
       _virtual_pkgs="virtualbox-guest-additions" ;;
     vmware )
-      _virtual_pkgs="open-vm-tools open-vm-tools-guestinfo"
-      _virtual_pkgs="${_virtual_pkgs} open-vm-tools-timesync open-vm-tools-vix"
+      case $image_arch in
+        aarch64 | x86_64 )
+          _virtual_pkgs="open-vm-tools open-vm-tools-guestinfo"
+          _virtual_pkgs="${_virtual_pkgs} open-vm-tools-timesync open-vm-tools-vix"
+          _virtual_pkgs="${_virtual_pkgs} open-vm-tools-vmbackup"
+          ;;
+      esac
       ;;
   esac
 
@@ -417,7 +417,7 @@ define_virtual_settings() {
   case $image_vm_type in
     hyperv )
       datasource_list="'NoCloud'" ;;
-    libvirtd | lxd | proxmox | qemu )
+    libvirtd | lxd | proxmox | qemu | utm )
       datasource_list="'NoCloud'"
       if [ "$image_console_type" = "serial" ] && \
          { [ "$image_arch" = "armv7" ] || \
@@ -454,17 +454,28 @@ define_virtual_settings() {
 etc_modules_list_for_virtual() {
   cat <<'EOF' >> "$run_script"
 	
-	# VM-specific modules
+	# VM modules
 	tiny-power-button
 EOF
 
   case $image_vm_type in
     hyperv )
       cat <<'EOF' >> "$run_script"
+	
+	# Hyper-V specific modules
+	hv_balloon
+	hv_netsvc
+	hv_storsvc
 	hv_utils
+	hv_vmbus
 EOF
       ;;
-    libvirtd | lxd | proxmox | qemu | generic )
+    libvirtd | lxd | proxmox | qemu | utm | generic )
+      cat <<'EOF' >> "$run_script"
+	
+	# KVM-based hypervisor specific modules
+EOF
+
       if [ "$image_os_device_type" = "nvme" ]; then
         cat <<'EOF' >> "$run_script"
 	nvme
@@ -472,31 +483,33 @@ EOF
       fi
       cat <<'EOF' >> "$run_script"
 	ptp_kvm
+	virtio_net
 	virtio-rng
 EOF
       ;;
     virtualbox )
+      cat <<'EOF' >> "$run_script"
+	
+	# Virtualbox-specific modules
+EOF
+
       if [ "$image_os_device_type" = "nvme" ]; then
         cat <<'EOF' >> "$run_script"
 	nvme
 EOF
       fi
-      ;;
-    vmware )
-      cat <<'EOF' >> "$run_script"
-	ptp_vmw
-EOF
-      ;;
-  esac
 
-  case $image_vm_type in
-    hyperv | vmware )
-      # Do not add virtio_net module for Hyper-V or VMware
-      ;;
-    * )
       cat <<'EOF' >> "$run_script"
 	virtio_net
 EOF
-    ;;
+      ;;
+    vmware )
+      cat <<'EOF' >> "$run_script"
+	
+	# VMware-specific modules
+	ptp_vmw
+	vmxnet3
+EOF
+      ;;
   esac
 }

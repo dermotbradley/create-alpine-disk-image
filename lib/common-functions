@@ -237,11 +237,41 @@ create_repositories_file_inside_chroot() {
   cat <<-EOF >> "$run_script"
 	
 	write_log "Creating /etc/apk/repositories file inside chroot"
+	mkdir -p "\$chroot_dir"/etc/apk/keys
 	{
-	  mkdir -p "\$chroot_dir"/etc/apk/keys
-	  echo "${alpine_mirror_site}/${image_alpine_release}/main" \\
-	    > "\$chroot_dir"/etc/apk/repositories
-	}
+	  echo "${alpine_mirror_site}/${image_alpine_release}/main"
+	  echo "${alpine_mirror_site}/${image_alpine_release}/community"
+	EOF
+
+  if [ "$image_alpine_release" = "edge" ]; then
+    cat <<-EOF >> "$run_script"
+	  echo "${alpine_mirror_site}/${image_alpine_release}/testing"
+	EOF
+  fi
+
+  if [ -n "${local_alpine_repository+x}" ]; then
+    cat <<-EOF >> "$run_script"
+	  echo "$local_alpine_repository/${image_alpine_release}"
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	} > "\$chroot_dir"/etc/apk/repositories
+	EOF
+}
+
+
+#
+# Name a GPT disk partition
+#
+label_gpt_disk_partition() {
+  local _part_number=$1
+  local _part_name="${2:-}"
+
+  cat <<-EOF >> "$run_script"
+	  write_debug_log "Labelling GPT partition ${_part_number} as '${_part_name}'" 2
+	  parted --machine --script \$image_full_filename \\
+	    name ${_part_number} "${_part_name}" >> "\$logfile" 2>&1
 	EOF
 }
 
@@ -321,8 +351,8 @@ enable_grub_serial_console() {
   cat <<-EOF >> "$run_script"
 	    {
 	      write_log "Configure GRUB serial command" 4
-	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} \\
-	        --speed=${serial_port_speed}"' >> /etc/default/grub
+	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} --speed=${serial_port_speed}"' \\
+	        >> /etc/default/grub
 	      write_log "Configure GRUB for serial console" 4
 	EOF
 
@@ -400,7 +430,7 @@ format_esp_fs() {
 
   cat <<-EOF >> "$run_script"
 	  write_log "Formatting ${uefi_info_type} filesystem on ESP partition" 2
-	  mkfs.fat -v ${uefi_mkfs_option} -n ${CONSTANT_ESP_FS_LABEL} "\$uefi_part_device" \\
+	  mkfs.fat -v ${uefi_mkfs_option} -n "${CONSTANT_ESP_FS_LABEL}" "\$uefi_part_device" \\
 	    >> "\$logfile" 2>&1
 	
 	EOF
@@ -459,6 +489,8 @@ insert_chroot_function_add_fstab_entry() {
 	  local _fstab_entry
 	  if [ "\$_entry_type" = "BIND" ]; then
 	    _fs_options="bind,\${_fs_options}"
+	    local _fs_passno="0"
+	  elif [ "\$_fs_type" = "tmpfs" ]; then
 	    local _fs_passno="0"
 	  elif [ "\$_mount_point" = "/" ]; then
 	    local _fs_passno="1"
@@ -865,7 +897,7 @@ insert_runscript_function_error_cleanup() {
 	  normal_cleanup "error"
 	EOF
 
-  if [ -n "${ramdisk_directory+x}" ]; then
+  if [ -n "${use_ramdisk+x}" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  unmount_ramdisk
@@ -933,11 +965,13 @@ insert_runscript_function_normal_cleanup() {
 	EOF
   fi
 
-  if [ "$image_boot_type" = "uefi" ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_boot_type in
+    uefi )
+      cat <<-'EOF' >> "$run_script"
 	  unmount_chroot_fs "/efi"
 	EOF
-  fi
+      ;;
+  esac
 
   if [ "$image_class" = "physical" ] &&
      [ "$image_cloud_software" = "cloud-init" ]; then
@@ -1124,7 +1158,9 @@ insert_runscript_functions() {
   insert_runscript_function_get_uuid_from_device
   insert_runscript_function_normal_cleanup
   insert_runscript_function_unmount_chroot_fs
-  insert_runscript_function_unmount_ramdisk
+  if [ -n "${use_ramdisk+x}" ]; then
+    insert_runscript_function_unmount_ramdisk
+  fi
   insert_runscript_function_write_debug_log
   insert_runscript_function_write_log
 }

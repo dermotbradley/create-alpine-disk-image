@@ -16,7 +16,7 @@
 # Configure Syslinux
 #
 configure_bootloader_syslinux() {
-  local _cmdline _extra_modules _modules_list
+  local _cmdline _modules_list
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -53,7 +53,7 @@ configure_bootloader_syslinux() {
           # on flash device as this is *not* read from /etc/fstab by
           # initramfs' init when it mounts rootfs.
           case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 )
+            v3.13 | v3.14 | v3.15 | v3.16 | edge )
             _cmdline="$_cmdline rootflags=commit=300" ;;
           esac
           ;;
@@ -98,10 +98,6 @@ configure_bootloader_syslinux() {
 	EOF
 
   _modules_list="$image_fs_type"
-  _extra_modules="$(define_cmdline_for_modules)"
-  if [ -n "${_extra_modules}" ]; then
-    _modules_list="$_modules_list,$_extra_modules"
-  fi
 
   if [ -n "${image_encrypted+x}" ]; then
     cat <<-EOF >> "$run_script"

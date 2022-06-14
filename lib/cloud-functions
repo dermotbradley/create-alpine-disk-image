@@ -66,6 +66,7 @@ configure_mkinitfs_feature_cloud_aws() {
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
     sata | scsi )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
@@ -146,12 +147,12 @@ configure_mkinitfs_feature_cloud_exoscale() {
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
   case $image_os_device_type in
     nvme )
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
     sata | scsi )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
@@ -188,12 +189,12 @@ configure_mkinitfs_feature_cloud_google() {
 
   initramfs_entry_initialise "cloud-google"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
   case $image_os_device_type in
     nvme )
       initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
       ;;
     sata | scsi )
+      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
       initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
       initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
       ;;
@@ -251,7 +252,7 @@ default_cloud_settings() {
   # NTP
   if [ -n "${image_ntp_use_host+x}" ] && \
      [ "$image_ntp_use_host" = "true" ] && \
-	   [ -z "${image_experimental+x}" ]; then
+     [ -z "${image_experimental+x}" ]; then
     error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
   fi
   if [ -n "${image_ntp_servers+x}" ]; then
@@ -274,7 +275,7 @@ default_cloud_settings() {
       image_boot_type="uefi"
       if [ -n "${image_bootloader+x}" ] && \
          [ "$image_bootloader" != "grub" ]; then
-          error_message "aarch64 cloud machine can only use Grub bootloader!"
+        error_message "aarch64 cloud machine can only use Grub bootloader!"
       fi
       image_bootloader="grub"
       case $image_cloud_type in

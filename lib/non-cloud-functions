@@ -465,11 +465,10 @@ EOF
     else
       # Neither LUKS nor LVM
 
-      if [ "$image_alpine_release" = "v3.13" ] || \
-         [ "$image_alpine_release" = "v3.14" ] || \
-         [ "$image_alpine_release" = "v3.15" ]; then
-        # growpart with no overprovisioning support
-        cat <<EOF >> "$run_script"
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 )
+          # growpart with no overprovisioning support
+          cat <<EOF >> "$run_script"
 	
 	    # Grow the partition to fill most, but not all, of the disk
 	    run_and_log \\\\
@@ -477,9 +476,10 @@ EOF
 	      "Grew $_grow_device_part partition to fill ${_part_grow_size} of the device" \\\\
 	      "Unable to grow $_grow_device_part partition to fill ${_part_grow_size} of the device"
 EOF
-      else
-        # growpart version that does support overprovisioning
-        cat <<EOF >> "$run_script"
+          ;;
+        * )
+          # growpart version that does support overprovisioning
+          cat <<EOF >> "$run_script"
 	
 	    # Grow the partition to fill most, but not all, of the disk
 	    run_and_log \\\\
@@ -487,7 +487,8 @@ EOF
 	      "Grew partition ${_grow_device}${_grow_part_num}, leaving ${_disk_leave_free_percent}% free of disk" \\\\
 	      "Unable to grow partition ${_grow_device}${_grow_part_num}, leaving ${_disk_leave_free_percent}% free of disk"
 EOF
-      fi
+          ;;
+      esac
 
       if { [ "$image_class" = "physical" ] && \
            [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \

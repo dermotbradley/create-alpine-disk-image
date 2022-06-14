@@ -53,20 +53,21 @@ EOF
 #
 configure_acct() {
   cat <<-'EOF' >> "$run_script"
-	    write_log "Configuring acct" 4
+	
+	  write_log "Configuring acct" 2
+	  {
+	    write_log "Enable acct init.d service" 4
 	    {
-	      write_log "Enable acct init.d service" 6
-	      {
 	EOF
 
-  add_init_d_service "acct" "default" 8
+  add_init_d_service "acct" "default" 6
 
   cat <<-'EOF' >> "$run_script"
-	      } >> /chroot.log 2>&1
+	    } >> /chroot.log 2>&1
 	EOF
 
   cat <<-'EOF' >> "$run_script"
-	    }
+	  }
 	EOF
 }
 
@@ -325,7 +326,7 @@ configure_chronyd() {
         case $image_vm_type in
           hyperv )
             _phc_ptp_device="/dev/ptp_hyperv" ;;
-          libvirtd | lxd | proxmox | qemu )
+          libvirtd | lxd | proxmox | qemu | utm )
             _phc_ptp_device="/dev/ptp_kvm" ;;
           vmware )
             _phc_ptp_device="/dev/ptp_vmw" ;;
@@ -1041,7 +1042,7 @@ configure_hd_idle() {
 #
 configure_hypervisor_integration() {
   case $image_vm_type in
-    hyperv | libvirtd | lxd | proxmox | qemu | virtualbox | vmware )
+    hyperv | libvirtd | lxd | proxmox | qemu | utm | virtualbox | vmware )
       cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Configuring hypervisor integration daemon(s)" 2
@@ -1054,12 +1055,20 @@ configure_hypervisor_integration() {
           add_init_d_service "hv_kvp_daemon" "default" 4
           add_init_d_service "hv_vss_daemon" "default" 4
           ;;
-        libvirtd | lxd | proxmox | qemu )
+        libvirtd | lxd | proxmox | qemu | utm )
           add_init_d_service "qemu-guest-agent" "default" 4 ;;
         virtualbox )
           add_init_d_service "virtualbox-guest-additions" "default" 4 ;;
         vmware )
-          add_init_d_service "open-vm-tools" "default" 4 ;;
+          case $image_arch in
+            aarch64 | x86_64 )
+              add_init_d_service "open-vm-tools" "default" 4 ;;
+            * )
+              cat <<-'EOF' >> "$run_script"
+	    :
+	EOF
+              ;;
+          esac
       esac
 
       cat <<-'EOF' >> "$run_script"
@@ -1323,6 +1332,23 @@ configure_opensshd() {
 	        -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey \
 	        /etc/ssh/ssh_host_rsa_key|' /etc/ssh/sshd_config
 	EOF
+  else
+    # Basic sensible SSH configuration
+    cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Basic sshd secure configuration" 6
+	      # - limit Ciphers to relatively strong ones
+	      # - limit KexAlgorithms to curve 25519
+	      # - limit MAC to Encrypt-then-MAC versions
+	      # - only accept relatively strong public key types
+	      {
+	        printf 'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n'
+	        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+	        printf 'MACS hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com\n'
+	        printf 'PubkeyAcceptedKeyTypes ssh-ed25519,rsa-sha2-512,rsa-sha2-256\n'
+	        printf '\n'
+	      } >> /etc/ssh/sshd_config
+	EOF
   fi
 
 
@@ -1524,7 +1550,9 @@ configure_services() {
     case $image_os_device_media in
       disk )
         case $image_alpine_release in
-          v3.16 | edge )
+          v3.13 | v3.14 | v3.15 )
+            : ;;
+          * )
             configure_hd_idle ;;
         esac
         ;;
@@ -2022,54 +2050,55 @@ configure_utmps() {
 #
 configure_watchdog() {
   cat <<-'EOF' >> "$run_script"
-	    write_log "Configuring Watchdog daemon" 4
-	    {
+	
+	  write_log "Configuring Watchdog daemon" 2
+	  {
 	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<-'EOF' >> "$run_script"
-	      # Debug
-	      {
-	        cp /etc/conf.d/watchdog /etc/conf.d/watchdog-orig
-	      }
+	    # Debug
+	    {
+	      cp /etc/conf.d/watchdog /etc/conf.d/watchdog-orig
+	    }
 	
 	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
-	      write_log "Define watchdog device" 6
-	      sed -i \
-	        -e 's|^[#]WATCHDOG_DEV=.*|WATCHDOG_DEV="/dev/watchdog"|' \
-	        /etc/conf.d/watchdog
+	    write_log "Define watchdog device" 4
+	    sed -i \
+	      -e 's|^[#]WATCHDOG_DEV=.*|WATCHDOG_DEV="/dev/watchdog"|' \
+	      /etc/conf.d/watchdog
 	EOF
 
 
   cat <<-'EOF' >> "$run_script"
 	
-	      write_log "Enable watchdog init.d service" 6
-	      {
+	    write_log "Enable watchdog init.d service" 4
+	    {
 	EOF
 
   add_init_d_service "watchdog" "default" 6
 
   cat <<-'EOF' >> "$run_script"
-	      } >> /chroot.log 2>&1
+	    } >> /chroot.log 2>&1
 	EOF
 
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<-'EOF' >> "$run_script"
 	
-	      # Debug
-	      {
-	        diff /etc/conf.d/watchdog-orig /etc/conf.d/watchdog >> /chroot.log || true
-	        rm /etc/conf.d/watchdog-orig
-	      }
+	    # Debug
+	    {
+	      diff /etc/conf.d/watchdog-orig /etc/conf.d/watchdog >> /chroot.log || true
+	      rm /etc/conf.d/watchdog-orig
+	    }
 	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
-	    }
+	  }
 	EOF
 }
 
