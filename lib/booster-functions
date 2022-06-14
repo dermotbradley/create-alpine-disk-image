@@ -1,0 +1,228 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  booster-functions
+##
+##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure booster so that only the modules necessary for the relevant
+# image type are placed in the initramfs file.
+#
+configure_booster() {
+  local _extra_files_list _modules_list _modules_load_list _optimise
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring booster"
+	{
+	EOF
+
+  _extra_files_list=""
+  _modules_list=""
+  _modules_load_list="$(define_base_load_modules)"
+
+  ###_extra_files_list="/bin/busybox"
+
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Setting up booster.yaml" 2
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	  }
+	EOF
+
+
+  cat <<-EOF >> "$run_script"
+	    write_log "Setting up booster.yaml" 2
+	    {
+	      echo "compress: gzip"
+	      echo "mount_timeout: 30s"
+	      echo "universal: false"
+	      echo
+	EOF
+
+  if [ "${_modules_list+}" != "" ]; then
+    cat <<-EOF >> "$run_script"
+	      echo "modules: -*,${_modules_list}"
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	      echo "modules_force_load: -*,${_modules_load_list}"
+	EOF
+
+  if [ -z "${_extra_files_list+x}" ]; then
+    cat <<-EOF >> "$run_script"
+	      echo
+	      echo "extra_files: ${_extra_files_list}"
+EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	    } > /etc/booster.yaml
+	
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      write_debug_log "optimise-base.files contents:" 2
+	      cat /etc/booster.yaml >> /chroot.log
+	    }
+	
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+#
+#
+define_base_load_modules() {
+  local _list="simpledrm"
+
+  _list="${_list},${image_fs_type}"
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _list="${_list},dm-mod,dm-snapshot"
+  fi
+  if [ -n "${image_encrypted+x}" ]; then
+    _list="${_list},dm-crypt"
+  fi
+
+  echo "${_list}"
+}
+
+
+#
+# Configure /etc/booster.yaml
+#
+configure_booster_conf() {
+  local _optimise=${1:-}
+
+  local _features_list _cloud_features_list _virt_features_list
+
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Setting up booster.yaml" 2
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	  }
+	EOF
+
+  if [ -n "${image_optimise+x}" ]; then
+    # optimise
+
+    extra_files_list="/bin/busybox"
+    modules_force_list=""
+    modules_list="simpledrm"
+    case $image_alpine_release in
+      v3.13 | v3.14 )
+        # FBdev
+        : ;;
+      * )
+        # DRM
+        modules_list="$modules_list simpledrm";;
+    esac
+
+    cat <<-EOF >> "$run_script"
+	    write_log "Setting up features.d/optimise-base.files" 2
+	    {
+	      echo "compress: gzip"
+	      echo
+	      echo "universal: false"
+	      echo
+	      echo "mount_timeout: 30s"
+	EOF
+
+    if [ -z "${modules_list+x}" ]; then
+      cat <<-EOF >> "$run_script"
+	      echo
+	      echo "modules: -*,${modules_list}"
+	EOF
+    fi
+
+    if [ -z "${modules_force_list+x}" ]; then
+      cat <<-EOF >> "$run_script"
+	      echo
+	      echo "modules_force_load: -*,${modules_force_list}"
+	EOF
+    fi
+
+    if [ -z "${extra_files_list+x}" ]; then
+      cat <<-EOF >> "$run_script"
+	      echo
+	      echo "extra_files: ${extra_files_list}"
+EOF
+    fi
+
+    cat <<-EOF >> "$run_script"
+	    } > /etc/booster.yaml
+	
+	EOF
+
+    if [ -n "${debug_enabled+x}" ]; then
+      cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      write_debug_log "optimise-base.files contents:" 2
+	      cat /etc/booster.yaml >> /chroot.log
+	    }
+	
+	EOF
+    fi
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    diff /etc/booster.yaml-orig /etc/booster.yaml \
+	      >> /chroot.log || true
+	    rm /etc/booster.yaml-orig
+	  }
+	EOF
+  fi
+}

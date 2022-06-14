@@ -79,7 +79,7 @@ configure_cloud_init() {
   fi
 
   if [ -n "${cloud_seed_url+x}" ]; then
-		datasource_list="'NoCloud'"
+    datasource_list="'NoCloud'"
     add_seed_network_config_file
   fi
 
@@ -216,12 +216,13 @@ EOF
 	    name: $image_admin_username
 EOF
 
-  if [ "$image_auth_control" = "doas" ] || \
-     [ "$image_auth_control" = "both" ]; then
-  cat <<EOF >> "$run_script"
+  case $image_auth_control in
+    doas | both )
+      cat <<EOF >> "$run_script"
 	    doas: ["permit nopass $image_admin_username"]
 EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${image_default_user_password+x}" ]; then
     cat <<'EOF' >> "$run_script"
@@ -245,17 +246,19 @@ EOF
 	    gecos: Default cloud-init user
 EOF
 
-  if [ "$image_auth_control" = "sudo" ] || \
-     [ "$image_auth_control" = "both" ]; then
-  cat <<'EOF' >> "$run_script"
+  case $image_auth_control in
+    sudo | both )
+      cat <<'EOF' >> "$run_script"
 	    groups: [adm, sudo, wheel]
 	    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
 EOF
-  else
-  cat <<'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
 	    groups: [adm, wheel]
 EOF
-  fi
+      ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
 	    shell: /bin/ash
@@ -290,6 +293,18 @@ $datasource_settings
 EOF
   fi
 
+  if [ -n "${image_cloud_init_network_fallback+x}" ]; then
+    cat <<EOF >> "$run_script"
+	# Enable fallback network config (i.e. DHCP)
+	disable_fallback_netcfg: False
+EOF
+  else
+    cat <<EOF >> "$run_script"
+	# Disable fallback network config (i.e. DHCP)
+	disable_fallback_netcfg: True
+EOF
+  fi
+
   if [ "$image_class" = "cloud" ]; then
     case $image_cloud_type in
       # Enable network interface hotplug for supported DataSources
@@ -312,100 +327,56 @@ EOF
 	
 EOF
 
-  if [ "$image_class" = "cloud" ]; then
-    # Cloud
+  case $image_class in
 
-    cat <<EOF >> "$run_script"
+    cloud )
+      cat <<EOF >> "$run_script"
 	ntp:
 	  enabled: True
 EOF
 
-	  case $image_cloud_type in
-		  aws )
-        # Sync with AWS' internal NTP server(s)
-        cat <<EOF >> "$run_script"
+      case $image_cloud_type in
+
+        aws )
+          # Sync with AWS' internal NTP server(s)
+          cat <<EOF >> "$run_script"
 	  servers:
 EOF
-        if [ -z "${image_disable_ipv4+x}" ]; then
-          cat <<EOF >> "$run_script"
+          if [ -z "${image_disable_ipv4+x}" ]; then
+            cat <<EOF >> "$run_script"
 	  - $CONSTANT_AWS_NTP_IPV4ADDRESS
 EOF
-        fi
-        if [ -z "${image_disable_ipv6+x}" ]; then
-          cat <<EOF >> "$run_script"
+          fi
+          if [ -z "${image_disable_ipv6+x}" ]; then
+            cat <<EOF >> "$run_script"
 	  - $CONSTANT_AWS_NTP_IPV6ADDRESS
 EOF
-        fi
-        ;;
-
-        azure )
-          if [ -n "${image_experimental+x}" ]; then
-            # Sync with host machine's clock (using PTP)
-            cat <<'EOF' >> "$run_script"
-	  hypervisor_clock: True
-	    device: /dev/ptp_hyperv
-	    dpoll: -2
-	    poll: 3
-	    offset: "0.0"
-	    stratum: 2
-EOF
-          else
-            :
           fi
-        ;;
+          ;;
 
-		  google )
-        # Sync with Google's internal NTP server(s)
-        cat <<EOF >> "$run_script"
+        google )
+          # Sync with Google's internal NTP server(s)
+          cat <<EOF >> "$run_script"
 	  servers:
 	  - $CONSTANT_GOOGLE_NTP_INTERNAL_SERVER
 EOF
-        ;;
-    esac
-  elif [ "$image_class" = "virtual" ]; then
-    # Virtual
+          ;;
+      esac
+      ;;
 
-	  case $image_vm_type in
-      hyperv )
-        if [ -n "${image_experimental+x}" ]; then
-          # Sync with host machine's clock (using PTP)
+    virtual )
+      case $image_vm_type in
+
+        libvirtd | lxd | proxmox | qemu | utm )
           cat <<'EOF' >> "$run_script"
-	  hypervisor_clock: True
-	    device: /dev/ptp_hyperv
-EOF
-        else
-          :
-        fi
-        ;;
-			libvirtd | lxd | proxmox | qemu )
-        cat <<'EOF' >> "$run_script"
 	ntp:
 	  enabled: True
 EOF
+          ;;
+      esac
+      ;;
 
-        if [ -n "${image_experimental+x}" ]; then
-          # Sync with host machine's clock (using PTP)
-          cat <<'EOF' >> "$run_script"
-	  hypervisor_clock: True
-	    device: /dev/ptp_kvm
-EOF
-        else
-          :
-        fi
-        ;;
-      vmware )
-        if [ -n "${image_experimental+x}" ]; then
-          # Sync with host machine's clock (using PTP)
-          cat <<'EOF' >> "$run_script"
-	  hypervisor_clock: True
-	    device: /dev/ptp_vmw
-EOF
-        else
-          :
-        fi
-        ;;
-    esac
-	fi
+  esac
 
   cat <<'EOF' >> "$run_script"
 	
@@ -529,22 +500,20 @@ EOF
 	EOF
   fi
 
-  if [ "$image_class" = "cloud" ]; then
-    # Cloud
-    case $image_cloud_type in
-      azure )
-        create_etc_filesystems "ISO" ;;
-    esac
-  elif [ "$image_class" = "virtual" ]; then
-    # Virtual machine
-    create_etc_filesystems "ISO"
-  else
-    # Physical
-    create_etc_filesystems "VFAT"
-  fi
+  case $image_class in
+    cloud )
+      case $image_cloud_type in
+        azure )
+          create_etc_filesystems "ISO" ;;
+      esac
+      ;;
+    physical )
+      create_etc_filesystems "VFAT" ;;
+    virtual )
+      create_etc_filesystems "ISO" ;;
+  esac
 
   if [ "$image_class" = "physical" ]; then
-    # Physical
     create_physical_machine_cloud_init_yaml_files
   fi
 
@@ -561,10 +530,13 @@ define_cloud_init_machine_packages() {
   local _cloud_pkgs=""
 
   case $image_cloud_type in
+
     aws )
       _cloud_pkgs="aws-cli nvme-cli" ;;
+
     azure )
       _cloud_pkgs="hvtools" ;;
+
     digitalocean )
       case $image_alpine_release in
         v3.13 | v3.14 | v3.15 )
@@ -574,12 +546,26 @@ define_cloud_init_machine_packages() {
           _cloud_pkgs="doctl" ;;
       esac
       ;;
+
+    exoscale )
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 | v3.16 )
+          # No exoscale packaged for these Alpine releases
+          : ;;
+        * )
+          _cloud_pkgs="exoscale" ;;
+      esac
+      ;;
+
     google )
       _cloud_pkgs="nvme-cli" ;;
+
     hetzner )
       _cloud_pkgs="hcloud" ;;
+
     ###vultr )
     ###  _cloud_pkgs="vultr-cli" ;;
+
   esac
 
   echo "$_cloud_pkgs"
@@ -591,14 +577,17 @@ define_cloud_init_machine_packages() {
 #
 define_cloud_init_settings() {
   case $image_cloud_type in
+
     generic )
       datasource_list="'AliYun','Azure','BigStep','ConfigDrive','DigitalOcean'"
       datasource_list="$datasource_list,'E24Cloud','Ec2','Exoscale','GCE'"
       datasource_list="$datasource_list,'Hetzner','IBMCloud','Oracle'"
       datasource_list="$datasource_list,'RbxCloud','Scaleway','UpCloud'"
       datasource_list="$datasource_list,'Vultr'" ;;
+
     aliyun )
       datasource_list="'AliYun'" ;;
+
     aws )
       datasource_list="'Ec2'"
       image_console_type="serial"
@@ -610,34 +599,45 @@ define_cloud_init_settings() {
         serial_port_name="ttyS${serial_port_number}"
       fi
       ;;
+
     azure )
       datasource_list="'Azure'"
       image_console_type="serial"
       serial_port_number="0"
       serial_port_name="ttyS${serial_port_number}"
       ;;
+
     bigstep )
       datasource_list="'Bigstep'" ;;
+
     brightbox )
       datasource_list="'Ec2'" ;;
+
     digitalocean )
       datasource_list="'DigitalOcean'"
       image_console_type="both"
       serial_port_number="0"
       serial_port_name="ttyS${serial_port_number}"
       ;;
+
     e24 )
       datasource_list="'E24Cloud'" ;;
+
     exoscale )
       datasource_list="'Exoscale'" ;;
+
     google )
       datasource_list="'GCE'" ;;
+
     hetzner )
       datasource_list="'Ec2'" ;;
+
     hyperone )
       datasource_list="'RbxCloud'" ;;
+
     ibmcloud )
       datasource_list="'IBMCloud'" ;;
+
     oracle )
       datasource_list="'Oracle'"
       if [ "$image_arch" = "aarch64" ]; then
@@ -653,18 +653,24 @@ define_cloud_init_settings() {
         fi
       fi
       ;;
+
     rootbox )
       datasource_list="'RbxCloud'" ;;
+
     scaleway )
       datasource_list="'Scaleway'" ;;
+
     tencent )
       datasource_list="'ConfigDrive'" ;;
+
     upcloud )
       datasource_list="'UpCloud'" ;;
+
     vultr )
       datasource_list="'Vultr'"
       image_console_type="normal"
       ;;
+
   esac
 }
 
@@ -680,6 +686,7 @@ etc_modules_list_for_cloud_init() {
 EOF
 
   case $image_cloud_type in
+
     aws )
       if [ "$image_arch" = "aarch64" ]; then
         cat <<'EOF' >> "$run_script"
@@ -690,16 +697,19 @@ EOF
 	nvme
 EOF
       ;;
+
     azure )
       cat <<'EOF' >> "$run_script"
 	hv_utils
 EOF
       ;;
+
     google )
       cat <<'EOF' >> "$run_script"
 	nvme
 EOF
       ;;
+
     generic )
       cat <<'EOF' >> "$run_script"
 	hv_utils
@@ -707,5 +717,6 @@ EOF
 	ptp_kvm
 EOF
       ;;
+
   esac
 }

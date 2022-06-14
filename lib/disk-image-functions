@@ -212,20 +212,26 @@ EOF
 # Calculate size of the boot partition if it is required.
 #
 calculate_boot_part_size() {
-  local _size _fs_total_size
+  local _fs_total_size _size
+
+  local _reserved_percent=0
 
   if [ -n "${needs_boot_partition+x}" ]; then
     _fs_total_size=$((general_boot_part_size))
     case $image_fs_type in
       ext4 )
-        # Allow for Ext4 FS reserved percentage
-        _size=$((_fs_total_size + (_fs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100 + 1))) ;;
+        _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
       f2fs )
-        # Allow for F2FS overprovision percentage
-        _size=$((_fs_total_size + (_fs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100 + 1))) ;;
-      * )
-        _size=$_fs_total_size ;;
+        _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+      xfs )
+        _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
     esac
+
+    if [ $_reserved_percent -gt 0 ]; then
+      _size=$((_fs_total_size + (_fs_total_size * _reserved_percent / 100)))
+    else
+      _size=$_fs_total_size
+    fi
   fi
 
   echo "${_size:-0}"
@@ -245,22 +251,22 @@ calculate_image_size() {
   fi
 
   if [ -n "${image_encrypted+x}" ]; then
-	  # LUKS (including LVM-on-LUKS)
+    # LUKS (including LVM-on-LUKS)
     _image_total_size=$(($(calculate_luks_part_size)))
     if [ -n "${debug_enabled+x}" ]; then
       echo "calculate_image_size, initial image size for LUKS is $_image_total_size MiB" >> debug
-  	fi
+    fi
   elif [ -n "${image_lvm_rootfs+x}" ]; then
-	  # LVM
+    # LVM
     _image_total_size=$(($(calculate_lvm_vg_size) + 4))
     if [ -n "${debug_enabled+x}" ]; then
       echo "calculate_image_size, initial image size for LVM (including 4MiB rounding) is $_image_total_size MiB" >> debug
-  	fi
+    fi
   else
     _image_total_size=$(calculate_root_part_size)
     if [ -n "${debug_enabled+x}" ]; then
       echo "calculate_image_size, initial image size is $_image_total_size MiB" >> debug
-  	fi
+    fi
   fi
 
   if [ "$image_class" = "physical" ] && \
@@ -268,14 +274,14 @@ calculate_image_size() {
     _image_total_size="$((_image_total_size + CONSTANT_CIDATA_PART_SIZE))"
     if [ -n "${debug_enabled+x}" ]; then
       echo "calculate_image_size, adding on CIDATA partition, giving $_image_total_size MiB" >> debug
-  	fi
+    fi
   fi
 
   if [ -n "${needs_boot_partition+x}" ]; then
     _image_total_size="$((_image_total_size + $(calculate_boot_part_size)))"
     if [ -n "${debug_enabled+x}" ]; then
       echo "calculate_image_size, adding on Boot partition, giving $_image_total_size MiB" >> debug
-  	fi
+    fi
   fi
 
   case $image_boot_type in
@@ -305,54 +311,55 @@ calculate_image_size() {
 calculate_luks_part_size() {
   local _luks_total_size _size
 
+  local _reserved_percent=0
+
   _luks_total_size=$general_root_part_size
-	if [ -n "${debug_enabled+x}" ]; then
-		echo "calculate_luks_part_size, initial LUKS partition is $_luks_total_size MiB" >> debug
+  if [ -n "${debug_enabled+x}" ]; then
+    echo "calculate_luks_part_size, initial LUKS partition is $_luks_total_size MiB" >> debug
   fi
 
   if [ -z "${needs_boot_partition+x}" ]; then
     _luks_total_size=$((_luks_total_size + general_boot_part_size))
-  	if [ -n "${debug_enabled+x}" ]; then
-	  	echo "calculate_luks_part_size, no boot partition so adding boot files, size is $_luks_total_size MiB" >> debug
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_luks_part_size, no boot partition so adding boot files, size is $_luks_total_size MiB" >> debug
     fi
   fi
 
   case $image_fs_type in
     ext4 )
-      # Allow for Ext4 FS reserved percentage
-      _size=$((_luks_total_size + (_luks_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_luks_part_size, allowing for Ext4 reserved space, size is $_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
     f2fs )
-      # Allow for F2FS overprovision percentage
-      _size=$((_luks_total_size + (_luks_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_luks_part_size, allowing for F2FS overprovisioning percentage, size is $_size MiB" >> debug
-      fi
-      ;;
-    * )
-      _size=$_luks_total_size
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_luks_part_size, size is $_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
   esac
+
+  if [ $_reserved_percent -gt 0 ]; then
+    _size=$((_luks_total_size + (_luks_total_size * _reserved_percent / 100)))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_luks_part_size, allowing for $_reserved_percent% reserved space, size is $_size MiB" >> debug
+    fi
+  else
+    _size=$_luks_total_size
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_luks_part_size, size is $_size MiB" >> debug
+    fi
+  fi
+
 
   if [ -n "${image_lvm_rootfs+x}" ]; then
     # LVM-on-LUKS
     _size=$((_size + (_size * CONSTANT_LVM_OVERHEAD_PERCENT / 100) + 4))
-  	if [ -n "${debug_enabled+x}" ]; then
-	  	echo "calculate_luks_part_size, allowing for LVM overhead, size is $_size MiB" >> debug
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_luks_part_size, allowing for LVM overhead, size is $_size MiB" >> debug
     fi
   fi
 
   # add LUKS overhead, rounding up to nearest 4MiB
   _size=$((_size + (_size * CONSTANT_LUKS_OVERHEAD_PERCENT / 100)))
-	_size=$(lvm_round_extents $_size)
+  _size=$(lvm_round_extents $_size)
   if [ -n "${debug_enabled+x}" ]; then
-	  echo "calculate_luks_part_size, allowing for LUKS overhead, size is $_size MiB" >> debug
+    echo "calculate_luks_part_size, allowing for LUKS overhead, size is $_size MiB" >> debug
   fi
 
   echo "$_size"
@@ -365,32 +372,33 @@ calculate_luks_part_size() {
 calculate_lvm_boot_lv_size() {
   local _boot_total_size _lv_total_size
 
+  local _reserved_percent=0
+
   _boot_total_size=$general_boot_part_size
-	if [ -n "${debug_enabled+x}" ]; then
-		echo "calculate_lvm_boot_lv_size, initial Boot LV size is $_boot_total_size MiB" >> debug
+  if [ -n "${debug_enabled+x}" ]; then
+    echo "calculate_lvm_boot_lv_size, initial Boot LV size is $_boot_total_size MiB" >> debug
   fi
 
   case $image_fs_type in
     ext4 )
-      # Allow for Ext4 FS reserved percentage
-      _boot_total_size=$((_boot_total_size + (_boot_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_boot_lv_size, allowing for Ext4 reserved space, size is $_boot_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
     f2fs )
-      # Allow for F2FS overprovision percentage
-      _boot_total_size=$((_boot_total_size + (_boot_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_boot_lv_size, allowing for F2FS overprovisioning percentage, size is $_boot_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
   esac
+
+  if [ $_reserved_percent -gt 0 ]; then
+    _boot_total_size=$((_boot_total_size + (_boot_total_size * $_reserved_percent / 100)))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_boot_lv_size, allowing for $_reserved_percent% reserved space, size is $_boot_total_size MiB" >> debug
+    fi
+  fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_boot_total_size)
   if [ -n "${debug_enabled+x}" ]; then
-	  echo "calculate_lvm_boot_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
+    echo "calculate_lvm_boot_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
   fi
   echo "$_lv_total_size"
 }
@@ -402,32 +410,33 @@ calculate_lvm_boot_lv_size() {
 calculate_lvm_logs_lv_size() {
   local _logs_total_size _lv_total_size
 
+  local _reserved_percent=0
+
   _logs_total_size=$CONSTANT_LVM_LOGS_LV_SIZE
-	if [ -n "${debug_enabled+x}" ]; then
-		echo "calculate_lvm_logs_lv_size, initial Logs LV size is $_logs_total_size MiB" >> debug
+  if [ -n "${debug_enabled+x}" ]; then
+    echo "calculate_lvm_logs_lv_size, initial Logs LV size is $_logs_total_size MiB" >> debug
   fi
 
   case $image_fs_type in
     ext4 )
-      # Allow for Ext4 FS reserved percentage
-      _logs_total_size=$((_logs_total_size + (_logs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_logs_lv_size, allowing for Ext4 reserved space, size is $_logs_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
     f2fs )
-      # Allow for F2FS overprovision percentage
-      _logs_total_size=$((_logs_total_size + (_logs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_logs_lv_size, allowing for F2FS overprovisioning percentage, size is $_logs_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
   esac
+
+  if [ $_reserved_percent -gt 0 ]; then
+    _logs_total_size=$((_logs_total_size + (_logs_total_size * _reserved_percent / 100)))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_logs_lv_size, allowing for $_reserved_percent% reserved space, size is $_logs_total_size MiB" >> debug
+    fi
+  fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_logs_total_size)
   if [ -n "${debug_enabled+x}" ]; then
-	  echo "calculate_lvm_logs_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
+    echo "calculate_lvm_logs_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
   fi
   echo "$_lv_total_size"
 }
@@ -439,32 +448,33 @@ calculate_lvm_logs_lv_size() {
 calculate_lvm_root_lv_size() {
   local _root_total_size _lv_total_size
 
+  local _reserved_percent=0
+
   _root_total_size=$general_root_part_size
-	if [ -n "${debug_enabled+x}" ]; then
-		echo "calculate_lvm_root_lv_size, initial Root LV size is $_root_total_size MiB" >> debug
+  if [ -n "${debug_enabled+x}" ]; then
+    echo "calculate_lvm_root_lv_size, initial Root LV size is $_root_total_size MiB" >> debug
   fi
 
   case $image_fs_type in
     ext4 )
-      # Allow for Ext4 FS reserved percentage
-      _root_total_size=$((_root_total_size + (_root_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_root_lv_size, allowing for Ext4 reserved space, size is $_root_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
     f2fs )
-      # Allow for F2FS overprovision percentage
-      _root_total_size=$((_root_total_size + (_root_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100)))
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_lvm_root_lv_size, allowing for F2FS overprovisioning percentage, size is $_root_total_size MiB" >> debug
-      fi
-      ;;
+      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
   esac
+
+  if [ $_reserved_percent -gt 0 ]; then
+    _root_total_size=$((_root_total_size + (_root_total_size * _reserved_percent / 100)))
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_root_lv_size, allowing for $_reserved_percent% reserved space, size is $_root_total_size MiB" >> debug
+    fi
+  fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_root_total_size)
   if [ -n "${debug_enabled+x}" ]; then
-	  echo "calculate_lvm_root_lv_size, rounding up to next extend, size is $_lv_total_size MiB" >> debug
+    echo "calculate_lvm_root_lv_size, rounding up to next extend, size is $_lv_total_size MiB" >> debug
   fi
   echo "$_lv_total_size"
 }
@@ -479,26 +489,26 @@ calculate_lvm_vg_size() {
 
   if [ -z "${needs_boot_partition+x}" ]; then
     _boot_total_size=$(calculate_lvm_boot_lv_size)
-		if [ -n "${debug_enabled+x}" ]; then
-		  echo "calculate_lvm_vg_size, Boot LV size is $_boot_total_size MiB" >> debug
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_vg_size, Boot LV size is $_boot_total_size MiB" >> debug
     fi
   fi
   _root_total_size=$(calculate_lvm_root_lv_size)
   _logs_total_size=$(calculate_lvm_logs_lv_size)
-	if [ -n "${debug_enabled+x}" ]; then
-		echo "calculate_lvm_vg_size, Root LV size is $_root_total_size MiB" >> debug
-		echo "calculate_lvm_vg_size, Logs LV size is $_logs_total_size MiB" >> debug
+  if [ -n "${debug_enabled+x}" ]; then
+    echo "calculate_lvm_vg_size, Root LV size is $_root_total_size MiB" >> debug
+    echo "calculate_lvm_vg_size, Logs LV size is $_logs_total_size MiB" >> debug
   fi
 
   if [ -n "${needs_boot_partition+x}" ]; then
     _vg_total_size=$((_root_total_size + _logs_total_size))
-		if [ -n "${debug_enabled+x}" ]; then
-		  echo "calculate_lvm_vg_size, adding Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_vg_size, adding Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
     fi
   else
     _vg_total_size=$((_boot_total_size + _root_total_size + _logs_total_size))
-		if [ -n "${debug_enabled+x}" ]; then
-		  echo "calculate_lvm_vg_size, adding Boot+Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
+    if [ -n "${debug_enabled+x}" ]; then
+      echo "calculate_lvm_vg_size, adding Boot+Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
     fi
   fi
   echo "$_vg_total_size"
@@ -512,20 +522,25 @@ calculate_lvm_vg_size() {
 calculate_root_part_size() {
   local _fs_total_size
 
+  local _reserved_percent=0
+
   _fs_total_size=$general_root_part_size
   if [ -z "${needs_boot_partition+x}" ]; then
     _fs_total_size=$((_fs_total_size + general_boot_part_size))
   fi
+
   case $image_fs_type in
     ext4 )
-      # Allow for Ext4 FS reserved percentage
-      _fs_total_size=$((_fs_total_size + (_fs_total_size * CONSTANT_EXT4_RESERVED_PERCENT / 100 + 1)))
-    ;;
+      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
     f2fs )
-      # Allow for F2FS overprovision percentage
-      _fs_total_size=$((_fs_total_size + (_fs_total_size * CONSTANT_F2FS_RESERVED_PERCENT / 100 + 1)))
-      ;;
+      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
   esac
+
+  if [ $_reserved_percent -gt 0 ]; then
+    _fs_total_size=$((_fs_total_size + (_fs_total_size * _reserved_percent / 100 + 1)))
+  fi
 
   echo "$_fs_total_size"
 }
@@ -629,28 +644,30 @@ configure_fstab() {
   fi
 
   # UEFI ESP
-  if [ "$image_boot_type" = "uefi" ]; then
-    _mountpoint="/efi"
+  case $image_boot_type in
+    uefi )
+      _mountpoint="/efi"
 
-    case $image_boot_reference in
-      label )
-        cat <<-EOF >> "$run_script"
-	  add_fstab_entry LABEL "SYSTEM_EFI" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
+      case $image_boot_reference in
+        label )
+          cat <<-EOF >> "$run_script"
+	  add_fstab_entry LABEL "$CONSTANT_ESP_FS_LABEL" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
 	EOF
-        ;;
-		  * )
-        cat <<-EOF >> "$run_script"
+          ;;
+        * )
+          cat <<-EOF >> "$run_script"
 	  add_fstab_entry UUID "\$esp_fs_uuid" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
 	EOF
-        ;;
-		esac
+          ;;
+      esac
 
-    if [ "$image_bootloader" = "syslinux" ]; then
-      cat <<-'EOF' >> "$run_script"
+      if [ "$image_bootloader" = "syslinux" ]; then
+        cat <<-'EOF' >> "$run_script"
 	  add_fstab_entry BIND "/efi/EFI/BOOT" "/boot" "none" "rw,relatime" "/boot ESP bind-mount"
 	EOF
-    fi
-	fi
+      fi
+      ;;
+  esac
 
   # /boot
   if [ -n "${needs_boot_partition+x}" ]; then
@@ -909,18 +926,16 @@ define_additional_packages() {
         _initial_pkgs="$_initial_pkgs eudev"
       fi
       ;;
-	  none )
+    none )
       _initial_pkgs="$_initial_pkgs $(define_non_cloud_init_packages)"
       if [ "${image_mdev}" = false ]; then
         _initial_pkgs="$_initial_pkgs eudev"
       fi
       case $image_dhcp_client in
         dhclient )
-          _initial_pkgs="$_initial_pkgs dhclient"
-          ;;
+          _initial_pkgs="$_initial_pkgs dhclient" ;;
         dhcpcd )
-          _initial_pkgs="$_initial_pkgs dhcpcd"
-          ;;
+          _initial_pkgs="$_initial_pkgs dhcpcd" ;;
       esac
       ;;
     tiny-cloud )
@@ -930,18 +945,15 @@ define_additional_packages() {
 
   case $image_auth_control in
     doas )
-      _initial_pkgs="$_initial_pkgs doas"
-      ;;
+      _initial_pkgs="$_initial_pkgs doas" ;;
     sudo )
-      _initial_pkgs="$_initial_pkgs sudo"
-      ;;
+      _initial_pkgs="$_initial_pkgs sudo" ;;
     both )
-      _initial_pkgs="$_initial_pkgs doas sudo"
-      ;;
+      _initial_pkgs="$_initial_pkgs doas sudo" ;;
   esac
 
   if [ -n "${image_enable_utmp+x}" ]; then
-    _initial_pkgs="$_initial_pkgs utmps"
+    _initial_pkgs="$_initial_pkgs procps utmps"
   fi
 
   if [ -n "${image_encrypted+x}" ]; then
@@ -950,6 +962,15 @@ define_additional_packages() {
        [ -n "${remote_unlock_enabled+x}" ]; then
       _initial_pkgs="$_initial_pkgs dropbear-convert dropbear-unlockdisk"
     fi
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    _initial_pkgs="$_initial_pkgs lvm2"
+  fi
+
+  if [ -n "${image_encrypted+x}" ] || \
+     [ -n "${image_lvm_rootfs+x}" ]; then
+    _initial_pkgs="$_initial_pkgs device-mapper"
   fi
 
   case $image_firewall in
@@ -977,10 +998,6 @@ define_additional_packages() {
     xfs )
       _initial_pkgs="$_initial_pkgs xfsprogs xfsprogs-extra" ;;
   esac
-
-  if [ -n "${image_lvm_rootfs+x}" ]; then
-    _initial_pkgs="$_initial_pkgs device-mapper lvm2"
-  fi
 
   case $image_ssh_server in
     dropbear )
@@ -1020,38 +1037,6 @@ define_additional_packages() {
   esac
 
   echo "$_initial_pkgs"
-}
-
-
-#
-# Define entries for kernel command line modules list
-#
-define_cmdline_for_modules() {
-  local _list_of_modules
-
-  ###_list_of_modules="rng-core"
-  ###if [ "$image_class" = "virtual" ]; then
-  ###  case $image_vm_type in
-  ###    libvirtd | lxd | proxmox | qemu | generic )
-  ###      _list_of_modules="$_list_of_modules,virtio-rng" ;;
-  ###  esac
-  ###fi
-  ###if [ "$image_class" = "cloud" ] || \
-  ###   [ "$image_class" = "virtual" ]; then
-  ###_list_of_modules="$_list_of_modules,tiny-power-button"
-  ###fi
-
-  ###_list_of_modules="$_list_of_modules,jitterentropy_rng"
-
-  ###if [ -z "${image_disable_ipv6+x}" ]; then
-  ###  if [ -n "${_list_of_modules+x}" ]; then
-  ###    _list_of_modules="$_list_of_modules,ipv6"
-  ###  else
-  ###    _list_of_modules="ipv6"
-  ###  fi
-  ###fi
-
-  echo "${_list_of_modules:-}"
 }
 
 
@@ -1156,6 +1141,7 @@ delete_users_groups() {
 	    write_debug_log "50-udev-default.rules differences:" 2
 	    diff /lib/udev/rules.d/50-udev-default.rules-orig \
 	      /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
+	    rm /lib/udev/rules.d/50-udev-default.rules-orig
 	EOF
     fi
 
@@ -1227,13 +1213,13 @@ disable_kernel_modules() {
           _disable_modules="$_disable_modules $CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES"
           _disable_modules="$_disable_modules $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
         fi
-        if [ "$image_vm_type" != "libvirtd" ] && \
-           [ "$image_vm_type" != "lxd" ] && \
-           [ "$image_vm_type" != "proxmox" ] && \
-           [ "$image_vm_type" != "qemu" ]; then
-          # Disable KVM/QEMU-derived modules
-          _disable_modules="$_disable_modules ptp_kvm virtio_rng"
-        fi
+        case $image_vm_type in
+          libvirtd | lxd | proxmox | qemu | utm )
+            : ;;
+          * )
+            # Disable KVM/QEMU-derived modules
+            _disable_modules="$_disable_modules ptp_kvm virtio_rng" ;;
+        esac
         if [ "$image_vm_type" != "vmware" ]; then
           # Disable VMware modules
           _disable_modules="$_disable_modules $CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES"
@@ -1350,20 +1336,22 @@ format_and_mount_fs() {
 	EOF
 
   # Format UEFI ESP filesystem if needed
-  if [ "$image_boot_type" = "uefi" ]; then
-    cat <<-EOF >> "$run_script"
+  case $image_boot_type in
+    uefi )
+      cat <<-EOF >> "$run_script"
 	  uefi_part_device="\${loop_device}p${uefi_part_num}"
 	EOF
-    format_esp_fs
-    if [ "$image_boot_reference" = "uuid" ]; then
-      cat <<-'EOF' >> "$run_script"
+      format_esp_fs
+      if [ "$image_boot_reference" = "uuid" ]; then
+        cat <<-'EOF' >> "$run_script"
 	  esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
 	EOF
-    fi
-    cat <<-EOF >> "$run_script"
+      fi
+      cat <<-EOF >> "$run_script"
 	
 	EOF
-  fi
+      ;;
+  esac
 
   # Format boot filesystem if needed
   if [ -n "${needs_boot_partition+x}" ]; then
@@ -1548,16 +1536,17 @@ format_and_mount_fs() {
 	fi
 
   # Mount UEFI ESP filesustem if necessary
-  if [ "$image_boot_type" = "uefi" ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_boot_type in
+    uefi )
+      cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Mounting ESP filesystem onto $chroot_dir/efi" 2
 	  mkdir -p "$chroot_dir"/efi
 	  mount -o private "$uefi_part_device" "$chroot_dir"/efi >> "$logfile" 2>&1
 	EOF
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-EOF >> "$run_script"
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-EOF >> "$run_script"
 	
 	  # Debug
 	  {
@@ -1565,14 +1554,15 @@ format_and_mount_fs() {
 	    df -BM "\$chroot_dir"/efi >> "\$logfile"
 	  }
 	EOF
-  	fi
-  fi
+      fi
+      ;;
+  esac
 
   # Mount boot filesystem if necessary
   if [ -n "${needs_boot_partition+x}" ] || \
      { [ -n "${image_lvm_rootfs+x}" ] && \
-       { [ "$image_boot_type" != "uefi" ] || \
-         [ "$image_bootloader" != "syslinux" ]; }; }; then
+       { [ "$image_bootloader" != "syslinux" ] || \
+         [ "$image_boot_type" = "bios" ]; }; }; then
     # Needs a boot partition or else is LVM but not Syslinux-based UEFI
     # (where boot is part of ESP partition)
     cat <<-'EOF' >> "$run_script"
@@ -1713,7 +1703,7 @@ format_fat_fs() {
   local device=$1
   local fs_use="$2"
   local fat_type=$3
-  local fat_label=$4
+  local fat_label="$4"
   local formatting_where="$5"
 
   case $fat_type in
@@ -1734,7 +1724,7 @@ format_fat_fs() {
   cat <<-EOF >> "$run_script"
 	
 	  write_log "Formatting FAT${fat_info_type} $fs_use filesystem on $formatting_where" 2
-	  mkfs.fat $fat_mkfs_option -n $fat_label "$device" >> "\$logfile" 2>&1
+	  mkfs.fat $fat_mkfs_option -n "$fat_label" "$device" >> "\$logfile" 2>&1
 	EOF
 }
 
@@ -1807,33 +1797,35 @@ install_alpine_base() {
   local _base_packages _bootloader_packages
 
   _base_packages="alpine-base"
-  if [ "$image_boot_type" = "uefi" ]; then
-    _base_packages="$_base_packages efivar"
-  fi
+  case $image_boot_type in
+    uefi )
+      _base_packages="$_base_packages efivar" ;;
+  esac
 
-  # RPI alpine-base doesn't depend on mkinitfs so add it to list.
-  if [ "$image_class" = "physical" ] && \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-    _base_packages="$_base_packages mkinitfs"
-  fi
+  # Add the appropriate package for managing initramfs
+  case $image_initramfs_tool in
+    booster )
+      _base_packages="$_base_packages booster" ;;
+    mkinitfs )
+      _base_packages="$_base_packages mkinitfs" ;;
+  esac
 
   # Define bootloader-related packages
   case $image_bootloader in
     grub )
       _bootloader_packages="grub"
-      if [ "$image_boot_type" = "uefi" ]; then
-        _bootloader_packages="$_bootloader_packages dosfstools grub-efi"
-      else
-        _bootloader_packages="$_bootloader_packages grub-bios"
-      fi
-      _base_packages="$_base_packages $_bootloader_packages"
+      case $image_boot_type in
+        uefi )
+          _bootloader_packages="$_bootloader_packages dosfstools grub-efi" ;;
+        * )
+          _bootloader_packages="$_bootloader_packages grub-bios" ;;
+      esac
       ;;
     syslinux )
       _bootloader_packages="syslinux"
       if [ "$image_boot_type" = "uefi" ]; then
         _bootloader_packages="$_bootloader_packages dosfstools"
       fi
-      _base_packages="$_base_packages $_bootloader_packages"
       ;;
     * )
       if [ "$image_class" = "physical" ] && \
@@ -1845,12 +1837,14 @@ install_alpine_base() {
             # raspberrypi-bootloader must also be installed.
             _bootloader_packages="$_bootloader_packages raspberrypi-bootloader" ;;
         esac
-        _base_packages="$_base_packages $_bootloader_packages"
       else
         _bootloader_packages="none"
       fi
       ;;
   esac
+  if [ "$_bootloader_packages" != "none" ]; then
+    _base_packages="$_base_packages $_bootloader_packages"
+  fi
 
   cat <<-EOF >> "$run_script"
 	
@@ -2423,6 +2417,7 @@ partition_uefi() {
 
   create_disk_partition "$uefi_part_num" "$_uefi_part_start" \
     "$_uefi_part_end" "$image_uefi_part_size" "ESP" "esp" "$_esp_part_type"
+  label_gpt_disk_partition 1 "ESP"
 
   if [ -n "${image_encrypted+x}" ]; then
     # Disk encryption
@@ -2436,6 +2431,7 @@ partition_uefi() {
 
       create_disk_partition "$boot_part_num" "$_boot_part_start" \
         "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+      label_gpt_disk_partition $boot_part_num "Boot"
 
       if [ "$image_class" = "physical" ] && \
          [ "$image_cloud_software" = "cloud-init" ]; then
@@ -2445,6 +2441,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         luks_part_num=4
         _luks_part_start="${_cidata_part_end}"
@@ -2463,6 +2460,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         luks_part_num=3
         _luks_part_start="${_cidata_part_end}"
@@ -2476,6 +2474,7 @@ partition_uefi() {
 
     create_disk_partition "$luks_part_num" "$_luks_part_start" \
       "$_luks_part_end" "$image_luks_part_size" "LUKS"
+    label_gpt_disk_partition $luks_part_num "LUKS"
 
   elif [ -n "${image_lvm_rootfs+x}" ]; then
     # LVM
@@ -2488,6 +2487,7 @@ partition_uefi() {
 
       create_disk_partition "$boot_part_num" "$_boot_part_start" \
         "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
+      label_gpt_disk_partition $boot_part_num "Boot"
 
       if [ "$image_class" = "physical" ] && \
          [ "$image_cloud_software" = "cloud-init" ]; then
@@ -2498,6 +2498,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         lvm_part_num=4
         _lvm_part_start="${_cidata_part_end}"
@@ -2518,6 +2519,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         lvm_part_num=3
         _lvm_part_start="${_cidata_part_end}"
@@ -2531,6 +2533,7 @@ partition_uefi() {
 
     create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
       "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+    label_gpt_disk_partition $lvm_part_num "LVM"
 
   else
     # No disk encryption, no LVM
@@ -2542,6 +2545,7 @@ partition_uefi() {
 
       create_disk_partition "$boot_part_num" "$_boot_part_start" \
         "$_boot_part_end" "$image_boot_part_size" "Boot"
+      label_gpt_disk_partition $boot_part_num "Boot"
 
       if [ "$image_class" = "physical" ] && \
          [ "$image_cloud_software" = "cloud-init" ]; then
@@ -2551,6 +2555,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         root_part_num=4
         _root_part_start="${_cidata_part_end}"
@@ -2570,6 +2575,7 @@ partition_uefi() {
 
         create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
           "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+        label_gpt_disk_partition $cidata_part_num "cidata"
 
         root_part_num=3
         _root_part_start="${_cidata_part_end}"
@@ -2583,6 +2589,7 @@ partition_uefi() {
 
     create_disk_partition "$root_part_num" "$_root_part_start" \
       "$_root_part_end" "$image_root_part_size" "Root"
+    label_gpt_disk_partition $root_part_num "Root"
 
   fi
 

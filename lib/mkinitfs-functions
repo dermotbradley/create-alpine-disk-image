@@ -139,7 +139,7 @@ configure_mkinitfs() {
     case $image_vm_type in
       hyperv )
         configure_mkinitfs_feature_vm_hyperv ;;
-      libvirtd | lxd | proxmox | qemu )
+      libvirtd | lxd | proxmox | qemu | utm )
         configure_mkinitfs_feature_vm_qemu ;;
       virtualbox )
         configure_mkinitfs_feature_vm_virtualbox ;;
@@ -257,7 +257,7 @@ configure_mkinitfs_conf() {
        { [ -z "${image_experimental+x}" ] || \
          [ -z "${remote_unlock_enabled+x}" ]; } && \
        [ -z "${image_no_grub_encryption+x}" ] && \
-			 [ -z "${needs_boot_partition+x}" ]; then
+       [ -z "${needs_boot_partition+x}" ]; then
       # Cryptkey is used for unlock rootfs without 2nd password prompt.
       # It applies only when:
       #  - disk image is encrypted, AND
@@ -270,7 +270,7 @@ configure_mkinitfs_conf() {
     # cryptsetup is required in all rootfs encryption situations
     _features_list="$_features_list ${_optimise:-}cryptsetup"
     if [ -n "${image_experimental+x}" ] && \
-		   [ -n "${remote_unlock_enabled+x}" ]; then
+       [ -n "${remote_unlock_enabled+x}" ]; then
       # enable SSH remote unlock functionality and also dhcp which it uses
       _features_list="$_features_list ${_optimise:-}dhcp ${_optimise:-}remote_unlock_luks"
     fi
@@ -341,7 +341,7 @@ configure_mkinitfs_conf() {
     case $image_vm_type in
       hyperv )
         _virt_features_list="vm-hyperv" ;;
-      libvirtd | lxd | proxmox | qemu )
+      libvirtd | lxd | proxmox | qemu | utm )
         _virt_features_list="vm-qemu" ;;
       virtualbox )
         _virt_features_list="vm-virtualbox" ;;
@@ -482,7 +482,16 @@ configure_mkinitfs_feature_base() {
 	      echo "/etc/modules"
 	      echo "/lib/mdev"
 	      echo "/sbin/apk"
+	EOF
+
+    case $image_alpine_release in
+      v3.13 | v3.14 | v3.15 | v3.16 | edge )
+        cat <<-'EOF' >> "$run_script"
 	      echo "/sbin/modprobe"
+	EOF
+    esac
+
+    cat <<-'EOF' >> "$run_script"
 	      echo "/sbin/nlplug-findfs"
 	    } > /etc/mkinitfs/features.d/optimise-base.files
 	
@@ -561,7 +570,7 @@ configure_mkinitfs_feature_base() {
 
     # current mkinitfs versions do not include /etc/modules
     case $image_alpine_release in
-      3.13 | 3.14 | 3.15 )
+      v3.13 | v3.14 | v3.15 | v3.16 | edge )
         if [ -n "${debug_enabled+x}" ]; then
           cat <<-'EOF' >> "$run_script"
 	    # Debug
@@ -1307,7 +1316,8 @@ configure_mkinitfs_feature_network() {
 
     initramfs_entry_initialise "optimise-network"
 
-    if [ -z "${image_disable_ipv6+x}" ]; then
+    if [ -n "${remote_unlock_enabled+x}" ] && \
+       [ -z "${image_disable_ipv6+x}" ]; then
       initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
     fi
 
@@ -1367,7 +1377,8 @@ configure_mkinitfs_feature_network() {
 	EOF
 
     initramfs_entry_initialise "network" "append"
-    if [ -z "${image_disable_ipv6+x}" ]; then
+    if [ -n "${remote_unlock_enabled+x}" ] && \
+       [ -z "${image_disable_ipv6+x}" ]; then
       initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
     fi
     initramfs_entry_finish

@@ -37,8 +37,10 @@ script_dir="$(dirname "$0")"
 . "${script_dir}"/lib/cli-functions
 . "${script_dir}"/lib/common-functions
 . "${script_dir}"/lib/disk-image-functions
-. "${script_dir}"/lib/mkinitfs-functions
 . "${script_dir}"/lib/services-functions
+
+. "${script_dir}"/lib/booster-functions
+. "${script_dir}"/lib/mkinitfs-functions
 
 . "${script_dir}"/lib/grub-functions
 . "${script_dir}"/lib/syslinux-functions
@@ -242,7 +244,12 @@ if [ -n "${image_harden+x}" ]; then
   delete_users_groups
 fi
 
-configure_mkinitfs
+case $image_initramfs_tool in
+  booster )
+    configure_booster ;;
+  mkinitfs )
+    configure_mkinitfs ;;
+esac
 
 if [ -n "${remote_unlock_enabled+x}" ] && \
    [ -n "${ssh_public_key+x}" ]; then
@@ -283,7 +290,7 @@ if [ -n "${image_lvm_rootfs+x}" ] && \
 	
 	  # Debug
 	  {
-		  diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
+	    diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
 	      >> /chroot.log || true
 	    rm /usr/sbin/grub-mkconfig-orig
 	  }
@@ -295,18 +302,22 @@ if [ -n "${image_lvm_rootfs+x}" ] && \
 	EOF
 fi
 
-if [ "$image_mdev" = true ]; then
-  # Hack/kludge for grub-probe problems - it will use "udevadm info" to
-  # determine info related to the boot device/fs if eudev package is
-  # installed, if not then it falls back to its own way of figuring stuff out
-  # which does not work for filesystems on a loopback device, so let's
-  # temporarily install eudev to let it use udevadm.
-  cat <<-'EOF' >> "$run_script"
+case $image_alpine_release in
+  v3.13 | v3.14 | v3.15 | v3.16 | edge )
+    if [ "$image_mdev" = true ]; then
+      # Hack/kludge for grub-probe problems - it will use "udevadm info" to
+      # determine info related to the boot device/fs if eudev package is
+      # installed, if not then it falls back to its own way of figuring stuff out
+      # which does not work for filesystems on a loopback device, so let's
+      # temporarily install eudev to let it use udevadm.
+      cat <<-'EOF' >> "$run_script"
 	
 	write_log "Temporarily installing eudev so that grub-probe can use it"
 	apk add eudev >> /chroot.log 2>&1
 	EOF
-fi
+    fi
+    ;;
+esac
 
 install_kernel
 
@@ -316,14 +327,17 @@ if [ "$image_arch" = "x86" ] || \
 fi
 install_firmware
 
-if [ "$image_bootloader" = "grub" ]; then
-  configure_bootloader_grub
-elif [ "$image_bootloader" = "syslinux" ]; then
-  configure_bootloader_syslinux
-elif [ "$image_class" = "physical" ] && \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-  configure_bootloader_rpi
-fi
+case $image_bootloader in
+  grub )
+    configure_bootloader_grub ;;
+  syslinux )
+    configure_bootloader_syslinux ;;
+  * )
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      configure_bootloader_rpi
+    fi
+esac
 
 if [ -n "${image_encrypted+x}" ] && \
    [ "$image_bootloader" = "grub" ] && \
@@ -369,22 +383,52 @@ if [ -n "${debug_enabled+x}" ]; then
 	  mkinitfs -l "\$_kernel_version" >> /chroot.log
 	}
 	EOF
+
+  if [ "$image_initramfs_tool" = "booster" ]; then
+    case $image_class in
+      cloud | virtual )
+        if [ "$image_kernel_type" = "edge" ]; then
+          _initramfs_filename="booster-edge2virt"
+        else
+          _initramfs_filename="booster-virt"
+        fi
+        ;;
+      physical )
+        if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+          _initramfs_filename="booster-rpi"
+        else
+          if [ "$image_kernel_type" = "edge" ]; then
+            _initramfs_filename="booster-edge"
+          else
+            _initramfs_filename="booster-lts"
+          fi
+        fi
+        ;;
+    esac
+
+    cat <<-EOF >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "booster $_initramfs_filename contents:"
+	  booster ls "/boot/$_initramfs_filename" >> /chroot.log
+	}
+	EOF
+  fi
 fi
 
-if [ "$image_bootloader" = "grub" ]; then
-  install_grub
-elif [ "$image_bootloader" = "syslinux" ]; then
-  install_syslinux
-fi
-
+case $image_bootloader in
+  grub )
+    install_grub ;;
+  syslinux )
+    install_syslinux ;;
+esac
 
 configure_services
-
 
 if [ -n "${extra_packages_list+x}" ]; then
   install_extra_packages
 fi
-
 
 if [ -n "${debug_enabled+x}" ]; then
   cat <<-'EOF' >> "$run_script"
@@ -403,22 +447,26 @@ if [ -n "${debug_enabled+x}" ]; then
 	  # Remove date/time from "ls" output
 	  ls -laR /boot/ \
 	    | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	     -e 's| Jan [ ]*1 1970||g' \
 	    >> /chroot.log
 	EOF
 
-  if [ "$image_boot_type" = "uefi" ]; then
-    # UEFI
-    cat <<-'EOF' >> "$run_script"
+  case $image_boot_type in
+    uefi )
+      # UEFI
+      cat <<-'EOF' >> "$run_script"
 	
 	  write_debug_log "/efi size:"
 	  du -k /efi/ |sort -n >> /chroot.log
 	  write_debug_log "Contents of /efi directory:"
 	  # Remove date/time from "ls" output
 	  ls -lR /efi | \
-	  sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	    sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	    -e 's| Jan [ ]*1 1970||g' \
 	  >> /chroot.log
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	

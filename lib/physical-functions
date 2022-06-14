@@ -30,18 +30,10 @@ add_rpi_boot_fstab_entries() {
 # Setup the config files used by Raspberry Pi bootloader
 #
 configure_bootloader_rpi() {
-  local _cmdline _extra_modules _modules
+  local _cmdline _modules
 
   ###_modules="sd-mod,usb-storage"
   _modules=""
-  _extra_modules="$(define_cmdline_for_modules)"
-  if [ -n "${_extra_modules}" ]; then
-    if [ -z "${_modules}" ]; then
-      _modules="$_extra_modules"
-    else
-      _modules="$_modules,$_extra_modules"
-    fi
-  fi
 
   # Increase the kernel message buffer so all messages during boot are retained
   _cmdline="log_buf_len=32768"
@@ -58,7 +50,7 @@ configure_bootloader_rpi() {
           # on flash device as this is *not* read from /etc/fstab by
           # initramfs' init when it mounts rootfs.
           case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 )
+            v3.13 | v3.14 | v3.15 | v3.16 | edge )
             _cmdline="$_cmdline rootflags=commit=300" ;;
           esac
           ;;
@@ -826,9 +818,11 @@ default_physical_settings() {
         x86 )
           if [ -z "${image_boot_type+x}" ]; then
             image_boot_type="bios"
-          elif [ "$image_boot_type" = "uefi" ]; then
-            error_message "UEFI is not supported for x86!"
           fi
+          case $image_boot_type in
+            uefi )
+              error_message "UEFI is not supported for x86!" ;;
+          esac
           if [ -z "${image_bootloader+x}" ]; then
             image_bootloader="grub"
           fi
@@ -936,16 +930,21 @@ define_physical_machine_packages() {
     _physical_pkgs="${_physical_pkgs} raspberrypi"
     case $image_alpine_release in
       v3.13 | v3.14 )
-        # These releases do not have the mmc-utils package
+        # These releases do not have the mmc-utils or uhubctl packages
         : ;;
-      * )
+      v3.15 | v3.16 )
+        # These releases do not have the uhubctl package
         _physical_pkgs="${_physical_pkgs} mmc-utils" ;;
+      * )
+        _physical_pkgs="${_physical_pkgs} mmc-utils uhubctl" ;;
     esac
   fi
 
-  # Add hd-idle package for releases that contain it
   case $image_alpine_release in
-    v3.16 | edge )
+    v3.13 | v3.14 | v3.15 )
+      # These releases do not have the hd-idle package
+      : ;;
+    * )
       _physical_pkgs="$_physical_pkgs hd-idle" ;;
   esac
 

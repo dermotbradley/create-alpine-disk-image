@@ -34,6 +34,7 @@ bootloader-password:,\
 boottype:,\
 chroot-directory:,\
 cloud:,\
+cloud-init-network-fallback,\
 cloud-seed-url:,\
 console-type:,\
 cpu-vendor:,\
@@ -63,6 +64,7 @@ harden,\
 hwrng,\
 image-filename:,\
 images-directory:,\
+initramfs-tool:,\
 insecure,\
 ipv4only,\
 ipv6only,\
@@ -98,6 +100,7 @@ root-part-size:,\
 rpi-poe-hat,\
 rpi-rtc,\
 script-filename:,\
+serial-console-speed:,\
 short-hostname:,\
 ssh-key-types:,\
 ssh-public-key:,\
@@ -217,6 +220,14 @@ help\
           cli_option_not_handled
         fi
         shift 2
+        ;;
+      --cloud-init-network-fallback )
+        if [ "$script_type" = "creator" ]; then
+          image_cloud_init_network_fallback=true
+        else
+          cli_option_not_handled
+        fi
+        shift
         ;;
       --cloud-seed-url )
         if [ "$script_type" = "creator" ]; then
@@ -471,6 +482,15 @@ help\
         images_directory="$2"
         shift 2
         ;;
+      --initramfs-tool )
+        case $2 in
+          booster | mkinitfs )
+            image_initramfs_tool=$2 ;;
+          * )
+            cli_option_unknown_value "unknown initramfs tool!'" ;;
+        esac
+        shift 2
+        ;;
       --insecure )
         if [ "$script_type" = "creator" ]; then
           image_insecure=true
@@ -629,7 +649,7 @@ help\
       --release )
         if [ "$script_type" = "creator" ]; then
           case $2 in
-            3.13 | 3.14 | 3.15 )
+            3.13 | 3.14 | 3.15 | 3.16 )
               image_alpine_release=v$2 ;;
             edge )
               image_alpine_release=$2 ;;
@@ -713,6 +733,19 @@ help\
         generated_script_filename="$2"
         shift 2
         ;;
+      --serial-console-speed )
+        if [ "$script_type" = "creator" ]; then
+          case $2 in
+            '9600' | '19200' | '38400' | '57600' | '115200' )
+              image_serial_console_speed="$2" ;;
+            * )
+              cli_option_unknown_value "serial console speed '$2', must be either '9600', '19200', '38400', '57600' or '115200'" ;;
+          esac
+        else
+          cli_option_not_handled
+        fi
+        shift 2
+        ;;
       --short-hostname )
         if [ "$script_type" = "creator" ]; then
           image_short_hostname="$2"
@@ -725,7 +758,7 @@ help\
         if [ "$script_type" = "creator" ]; then
           case $2 in
             'ed25519' | 'ed25519+rsa' )
-              IMAGE_SSH_KEYTYPES="$2" ;;
+              image_ssh_keytypes="$2" ;;
             * )
               cli_option_unknown_value "SSH host key type '$2', must be either 'ed25519' or 'ed25519+rsa'" ;;
           esac
@@ -808,7 +841,7 @@ help\
         if [ "$script_type" = "creator" ]; then
           image_class="virtual"
           case $2 in
-            generic | hyperv | libvirtd | lxd | proxmox | qemu | virtualbox | vmware )
+            generic | hyperv | libvirtd | lxd | proxmox | qemu | utm | virtualbox | vmware )
               image_vm_type=$2 ;;
             * )
               echo
@@ -923,6 +956,9 @@ usage() {
   option_help "--image-filename < filename >" "Filename to use for the created Alpine disk image."
   option_help "--images-directory < directory >" "The directory where to store the created disk image. Defaults to '$CONSTANT_DEFAULT_IMAGES_DIRECTORY'."
   if [ -n "${image_experimental+x}" ]; then
+    option_help "--initramfs-tool '< booster | mkinitfs >'" "Experimental. Chooses which tool is used to create and run the initramfs. Defaults to mkinitfs."
+  fi
+  if [ -n "${image_experimental+x}" ]; then
     option_help "--insecure" "Experimental. Permit password-based access via SSH."
   fi
   option_help "--ipv4only" "Do not enable IPv6 in the created disk image."
@@ -984,6 +1020,7 @@ usage() {
     option_help "--rpi-rtc" "When creating an image for a Raspberry Pi (i.e. '--physical rpi2') indicates that the RPI has a hardware RTC fitted."
   fi
   option_help "--script-filename < filename >" "MANDATORY. The filename of the script to be created."
+  option_help "--serial-console-speed < speed >" "The speed of the interface used as console."
   if [ -z "${image_class+x}" ] || [ "$image_class" = "physical" ]; then
     option_help "--short-hostname < hostname >" "Only for physical machines. The hostname, without domain, to place in the generated cloud-init user-data YAML file."
   fi
@@ -999,7 +1036,7 @@ usage() {
     option_help "--timezone < zonename >" "Only for physical machines. Timezone to place in the generated cloud-init user-data YAML file. Example value: 'Europe/London'."
   fi
   if [ -n "${image_experimental+x}" ] && \
-	   { [ -z "${image_class+x}" ] || [ "$image_class" = "cloud" ]; }; then
+     { [ -z "${image_class+x}" ] || [ "$image_class" = "cloud" ]; }; then
     option_help "--tiny-cloud" "Experimental. Use tiny-cloud instead of cloud-init."
   fi
   if [ -n "${image_experimental+x}" ]; then
@@ -1008,7 +1045,7 @@ usage() {
   option_help "--use-ramdisk" "Indicates to use a (temporary) ramdisk when creating the disk image to speed up creation and/or to reduce disk writes (i.e. on SSD)."
   option_help "--username <username>" "Name of the default account to create upon 1st boot. Defaults to '$CONSTANT_DEFAULT_ADMIN_USERNAME'."
   if [ -z "${image_class+x}" ] || [ "$image_class" = "virtual" ]; then
-    option_help "--virtual <vm type>" "Valid values are:  < generic | hyperv | libvirtd | lxd | openstack | proxmox | qemu | virtualbox | vmware >"
+    option_help "--virtual <vm type>" "Valid values are:  < generic | hyperv | libvirtd | lxd | openstack | proxmox | qemu | utm | virtualbox | vmware >"
   fi
 }
 
@@ -1058,6 +1095,11 @@ validate_cli_options() {
   # Console type
   if [ -z ${image_console_type+x} ]; then
     image_console_type="normal"
+  fi
+
+  # Tools for creating/updating initramfs
+  if [ -z ${image_initramfs_tool+x} ]; then
+    image_initramfs_tool="mkinitfs"
   fi
 
   # APK-static version
@@ -1194,7 +1236,7 @@ validate_cli_options() {
 
 
   # Settings that may depend on other per cloud/physical/virtual settings:
-	#-----------------------------------------------------------------------
+  #-----------------------------------------------------------------------
 
   # If console name not specified then assume default
   if [ -z ${image_console_name+x} ]; then
@@ -1204,7 +1246,15 @@ validate_cli_options() {
       normal )
         image_console_name="tty0" ;;
       serial )
-        image_console_name="ttyS0" ;;
+        image_console_name="ttyS0"
+        if [ -z "${serial_port_speed+x}" ]; then
+          if [ -n "${image_serial_console_speed+x}" ]; then
+            serial_port_speed=$image_serial_console_speed
+          else
+            serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
+          fi
+        fi
+        ;;
     esac
   fi
 
@@ -1293,7 +1343,8 @@ validate_cli_options() {
 
   image_boot_part_size=$(calculate_boot_part_size)
 
-  if [ "$image_boot_type" = "uefi" ]; then
-    image_uefi_part_size=$(calculate_uefi_part_size)
-  fi
+  case $image_boot_type in
+    uefi )
+      image_uefi_part_size=$(calculate_uefi_part_size) ;;
+  esac
 }

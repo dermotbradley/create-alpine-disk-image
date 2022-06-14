@@ -16,7 +16,7 @@
 # Configure Grub
 #
 configure_bootloader_grub() {
-  local _cmdline _modules
+  local _cmdline
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -85,11 +85,6 @@ configure_bootloader_grub() {
   _cmdline="log_buf_len=32768"
 
   _cmdline="$_cmdline rootfstype=$image_fs_type"
-  # Add modules list
-  _modules="$(define_cmdline_for_modules)"
-  if [ -n "${_modules}" ]; then
-    _cmdline="$_cmdline modules=$_modules"
-  fi
   case $image_fs_type in
     btrfs | ext4 )
       case $image_os_device_media in
@@ -98,7 +93,7 @@ configure_bootloader_grub() {
           # on flash device as this is *not* read from /etc/fstab by
           # initramfs' init when it mounts rootfs.
           case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 )
+            v3.13 | v3.14 | v3.15 | v3.16 | edge )
             _cmdline="$_cmdline rootflags=commit=300" ;;
           esac
           ;;
@@ -134,10 +129,6 @@ configure_bootloader_grub() {
   fi
 
   if [ -n "${image_encrypted+x}" ]; then
-    # Add other LUKS-related cmdline entries
-    if [ -z "${image_lvm_rootfs+x}" ]; then
-      _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
-    fi
     _cmdline="$_cmdline \\\$(define_cmdline_for_encryption)"
 
     if [ "$image_bootloader" = "grub" ] && \
@@ -380,7 +371,7 @@ install_grub() {
         _grub_modules_list="$_grub_modules_list video_bochs"
       elif [ "$image_class" = "virtual" ]; then
         case $image_vm_type in
-          libvirtd | lxd | proxmox | qemu | generic )
+          libvirtd | lxd | proxmox | qemu | utm | generic )
             _grub_modules_list="$_grub_modules_list video_bochs"
             ;;
         esac
@@ -394,7 +385,7 @@ install_grub() {
         _grub_modules_list="$_grub_modules_list video_bochs"
       elif [ "$image_class" = "virtual" ]; then
         case $image_vm_type in
-          libvirtd | lxd | proxmox | qemu | generic )
+          libvirtd | lxd | proxmox | qemu | utm | generic )
             _grub_modules_list="$_grub_modules_list video_bochs"
             ;;
         esac
@@ -407,12 +398,14 @@ install_grub() {
     fi
   fi
 
-  if [ "$image_boot_type" = "uefi" ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_boot_type in
+    uefi )
+      cat <<-'EOF' >> "$run_script"
 	
 	mkdir -p /efi/EFI
 	EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${debug_enabled+x}" ]; then
     _grub_options="${_grub_options} --verbose"
@@ -423,24 +416,30 @@ install_grub() {
       "--install-modules=\"$_grub_modules_list\"")
   fi
 
-  cat <<-EOF >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
 	
 	{
+	EOF
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | edge )
+      if [ "${image_mdev}" = true ]; then
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Temporarily creating a dummy device.map file for GRUB" 2
 	  touch /boot/grub/device.map
 	
+	EOF
+      fi
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
 	  write_log "Installing GRUB bootloader" 2
 	  grub-install ${_grub_options} \\
 	    \$loop_device 2>&1 \\
 	    | sed -e '/^grub-install: info: copying .*$/d' \\
 	    | sed -e '/^grub-install: info: cannot open .*No such file or directory.$/d' \\
 	    >> /chroot.log
-	EOF
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Deleting temporary Grub device.map file" 2
-	  rm /boot/grub/device.map
 	
 	  if [ -n "\\\${losetup_package_installed+x}" ]; then
 	    write_log "Removing ${losetup_package} package that was temporarily installed" 2
@@ -448,15 +447,22 @@ install_grub() {
 	  fi
 	EOF
 
-  if [ "$image_mdev" = true ]; then
-    # Remove the eudev package that was temporarily installed
-    # so that grub-probe could use udevadm.
-    cat <<-'EOF' >> "$run_script"
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | edge )
+      if [ "$image_mdev" = true ]; then
+        # Remove the eudev package that was temporarily installed
+        # so that grub-probe could use udevadm.
+        cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Deleting temporary Grub device.map file" 2
+	  rm /boot/grub/device.map
 	
 	  write_log "Removing eudev package that was temporarily installed"
 	  apk del eudev >> /chroot.log 2>&1
 	EOF
-  fi
+      fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	}
