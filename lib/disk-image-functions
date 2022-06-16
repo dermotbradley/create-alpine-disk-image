@@ -127,6 +127,19 @@ basic_os_configuration() {
 	
 	  write_log "Configure /etc/init.d/bootmisc to keep previous copy of dmesg logfile" 2
 	  sed -i -e 's|[#]previous_dmesg=.*|previous_dmesg=yes|g' /etc/conf.d/bootmisc
+	EOF
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 )
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Create dummy dmesg logfile to workaround openrc bug" 2
+	  touch /var/log/dmesg
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Fixup rc.conf so that keyboards and screens use Unicode" 2
 	  sed -i -e 's/^#unicode="NO"/unicode="YES"/' /etc/rc.conf
@@ -154,8 +167,16 @@ basic_os_configuration() {
 	
 	  write_log "Enable colour shell prompt" 2
 	  cp /etc/profile.d/${_color_prompt_file} /etc/profile.d/color_prompt.sh
+	EOF
+
+  if [ "$image_class" != "virtual" ] || [ "$image_vm_type" != "vmware" ]; then
+    cat <<-EOF >> "$run_script"
 	
 	  rmdir /media/floppy
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
 	}
 	EOF
 }

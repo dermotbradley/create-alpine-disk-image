@@ -515,9 +515,6 @@ configure_mkinitfs_feature_base() {
 	EOF
 
     initramfs_entry_initialise "optimise-base"
-    if [ "$image_class" = "virtual" ] && [ "$image_vm_type" = "rhvm" ]; then
-      initramfs_entry_add "kernel/drivers/block/floppy.ko*"
-    fi
     if [ -n "${image_hwrng+x}" ] && [ "$image_class" = "physical" ]; then
       initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
       case $image_physical_vendor in
@@ -611,9 +608,6 @@ configure_mkinitfs_feature_base() {
 	EOF
 
     initramfs_entry_initialise "base" "append"
-    if [ "$image_class" = "virtual" ] && [ "$image_vm_type" = "rhvm" ]; then
-      initramfs_entry_add "kernel/drivers/block/floppy.ko*"
-    fi
     if [ -n "${image_hwrng+x}" ] && [ "$image_class" = "physical" ]; then
       initramfs_entry_add "kernel/drivers/char/hw_random/*.ko*"
     fi

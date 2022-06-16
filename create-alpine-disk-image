@@ -522,7 +522,8 @@ cat <<-'EOF' >> "$run_script"
 	exit
 	EOF
 
-if [ -n "${debug_enabled+x}" ]; then
+if [ -n "${debug_enabled+x}" ] && \
+   command -v shellcheck >/dev/null 2>&1; then
   shellcheck -s ash -e SC1117 "$run_script"
   # shellcheck disable=SC2034
   _rc=$?

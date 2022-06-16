@@ -230,17 +230,17 @@ configure_mkinitfs_feature_vm_vmware() {
 
   initramfs_entry_initialise "vm-vmware"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/ata/ata_piix.ko*"
   if [ -n "${image_optimise+x}" ]; then
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
   else
     initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
   fi
-  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
+  initramfs_entry_add "kernel/drivers/message/fusion/mptspi.ko*"
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
   initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-  initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
-  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
-  initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/vmw_pvscsi.ko*"
   if [ -n "${remote_unlock_enabled+x}" ]; then
     initramfs_entry_add "kernel/drivers/net/vmxnet3"
   fi
@@ -435,9 +435,7 @@ define_virtual_settings() {
     virtualbox )
       datasource_list="'NoCloud'" ;;
     vmware )
-      datasource_list="'OVF','VMware'" ;;
-    vsphere )
-      datasource_list="'AltCloud'" ;;
+      datasource_list="'AltCloud','OVF','VMware'" ;;
     generic )
       datasource_list="'AltCloud','ConfigDrive','Opennebula','Openstack','NoCloud','OVF'" ;;
   esac
@@ -507,7 +505,11 @@ EOF
       cat <<'EOF' >> "$run_script"
 	
 	# VMware-specific modules
+	floppy
 	ptp_vmw
+	vmw_balloon
+	vmw_vmci
+	vmw_vsock_vmci_transport
 	vmxnet3
 EOF
       ;;
