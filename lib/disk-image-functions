@@ -1671,7 +1671,7 @@ format_and_mount_fs() {
 	    lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
 	    write_debug_log "Blkid output:" 2
 	    lsblk \
-	      --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTTYPENAME,PARTLABEL \
+	      --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTLABEL \
 	      "$loop_device" >> "$logfile" 2>&1
 	  }
 	EOF
