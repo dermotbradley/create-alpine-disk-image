@@ -635,6 +635,7 @@ insert_runscript_function_check_binfmt_packages() {
 	  if [ "$_host_arch" != "$_arch" ]; then
 	    _host_os=$(detect_host_os)
 	    case $_host_os in
+	
 	      alpine )
 	        _required_packages="qemu-openrc"
 	        case $_arch in
@@ -660,6 +661,7 @@ insert_runscript_function_check_binfmt_packages() {
 	          exit 1
 	        fi
 	        ;;
+	
 	      debian | ubuntu )
 	        _required_packages="binfmt-support qemu-user-static"
 	        # shellcheck disable=SC2086
@@ -671,12 +673,14 @@ insert_runscript_function_check_binfmt_packages() {
 	          exit 1
 	        fi
 	        ;;
+	
 	      * )
 	        echo
 	        echo "Unsupported host OS!"
 	        echo
 	        exit 1
 	        ;;
+	
 	    esac
 	
 	    # Is binfmt configured for this QEMU arch?
@@ -700,6 +704,12 @@ insert_runscript_function_check_binfmt_packages() {
 	        echo
 	        exit 1
 	      fi
+	    elif [ "$_arch" = "x86" ] && \
+	         { [ "$_host_os" = "debian" ] || \
+	           [ "$_host_os" = "ubuntu" ]; }; then
+	      # The Debian & Ubuntu binfmt-support package does not set up binfmt for x86
+	      echo ':qemu-i386:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xfe\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-i386-static:' \
+	        | tee /proc/sys/fs/binfmt_misc/register > /dev/null
 	    else
 	      echo
 	      echo "Binfmt and QEMU are not configured for $_arch"
@@ -728,6 +738,7 @@ insert_runscript_function_check_for_required_packages() {
 	
 	  _host_os=$(detect_host_os)
 	  case $_host_os in
+	
 	    alpine )
 	      _host_os_major_version="$(grep VERSION_ID /etc/os-release | sed -E -e 's/^VERSION_ID=([0-9]+\.[0-9]+).*/\1/g')"
 	EOF
@@ -751,6 +762,9 @@ insert_runscript_function_check_for_required_packages() {
   fi
   if [ -n "${image_lvm_rootfs+x}" ]; then
     _package_list="$_package_list lvm2"
+  fi
+  if [ -n "${debug_enabled+x}" ]; then
+    _package_list="$_package_list shellcheck"
   fi
 
   cat <<-EOF >> "$run_script"
@@ -781,6 +795,7 @@ insert_runscript_function_check_for_required_packages() {
 	        exit 1
 	      fi
 	      ;;
+	
 	    debian | ubuntu )
 	EOF
 
@@ -799,6 +814,9 @@ insert_runscript_function_check_for_required_packages() {
   fi
   if [ -n "${image_lvm_rootfs+x}" ]; then
     _package_list="$_package_list lvm2"
+  fi
+  if [ -n "${debug_enabled+x}" ]; then
+    _package_list="$_package_list shellcheck"
   fi
 
   cat <<-EOF >> "$run_script"
@@ -825,12 +843,14 @@ insert_runscript_function_check_for_required_packages() {
 	        temp_ca_file_created=true
 	      fi
 	      ;;
+	
 	    *)
 	      echo
 	      echo "Unsupported host OS!"
 	      echo
 	      exit 1
 	      ;;
+	
 	  esac
 	}
 	EOF
