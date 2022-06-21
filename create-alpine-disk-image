@@ -22,7 +22,7 @@
 
 TMPDIR="/var/tmp"
 
-script_version="0.2-DEV"
+script_version="0.2"
 script_type="creator"
 script_name="create-alpine-disk-image"
 script_dir="$(dirname "$0")"
