@@ -22,7 +22,7 @@
 
 TMPDIR="/var/tmp"
 
-script_version="0.2"
+script_version="0.2.1-DEV"
 script_type="creator"
 script_name="create-alpine-disk-image"
 script_dir="$(dirname "$0")"
@@ -303,7 +303,7 @@ if [ -n "${image_lvm_rootfs+x}" ] && \
 fi
 
 case $image_alpine_release in
-  v3.13 | v3.14 | v3.15 | v3.16 | edge )
+  v3.13 | v3.14 | v3.15 | v3.16 )
     if [ "$image_mdev" = true ]; then
       # Hack/kludge for grub-probe problems - it will use "udevadm info" to
       # determine info related to the boot device/fs if eudev package is
@@ -379,42 +379,55 @@ if [ -n "${debug_enabled+x}" ]; then
 	
 	# Debug
 	{
-	  write_debug_log "mkinitfs contents:"
-	  mkinitfs -l "\$_kernel_version" >> /chroot.log
-	}
 	EOF
 
-  if [ "$image_initramfs_tool" = "booster" ]; then
-    case $image_class in
-      cloud | virtual )
-        if [ "$image_kernel_type" = "edge" ]; then
-          _initramfs_filename="booster-edge2virt"
-        else
-          _initramfs_filename="booster-virt"
-        fi
-        ;;
-      physical )
-        if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-          _initramfs_filename="booster-rpi"
-        else
-          if [ "$image_kernel_type" = "edge" ]; then
-            _initramfs_filename="booster-edge"
-          else
-            _initramfs_filename="booster-lts"
-          fi
-        fi
-        ;;
-    esac
+  case $image_initramfs_tool in
 
-    cat <<-EOF >> "$run_script"
-	
-	# Debug
-	{
+    booster )
+      case $image_class in
+
+        cloud | virtual )
+          if [ "$image_kernel_type" = "edge" ]; then
+            _initramfs_filename="booster-edge2virt"
+          else
+            _initramfs_filename="booster-virt"
+          fi
+          ;;
+
+        physical )
+          if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+            _initramfs_filename="booster-rpi"
+          else
+            if [ "$image_kernel_type" = "edge" ]; then
+              _initramfs_filename="booster-edge"
+            else
+              _initramfs_filename="booster-lts"
+            fi
+          fi
+          ;;
+      esac
+
+      cat <<-EOF >> "$run_script"
 	  write_debug_log "booster $_initramfs_filename contents:"
 	  booster ls "/boot/$_initramfs_filename" >> /chroot.log
+	EOF
+      ;;
+
+    mkinitfs )
+      cat <<-'EOF' >> "$run_script"
+	  write_debug_log "mkinitfs contents:"
+	  mkinitfs -l "\$_kernel_version" >> /chroot.log
+	EOF
+      ;;
+
+    * )
+      : ;;
+
+  esac
+
+  cat <<-'EOF' >> "$run_script"
 	}
 	EOF
-  fi
 fi
 
 case $image_bootloader in

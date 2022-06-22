@@ -17,7 +17,8 @@
 # image type are placed in the initramfs file.
 #
 configure_booster() {
-  local _extra_files_list _modules_list _modules_load_list _optimise
+  local _extra_files_list _fsck_programs _kernel_type
+  local _modules_force_list _modules_list
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -25,14 +26,72 @@ configure_booster() {
 	{
 	EOF
 
-  _extra_files_list=""
+  _extra_files_list="/bin/busybox"
+  case $image_fs_type in
+    btrfs )
+      _fsck_programs="/sbin/fsck.btrfs" ;;
+    ext4 )
+      _fsck_programs="/sbin/fsck.ext4" ;;
+    f2fs )
+      _fsck_programs="/usr/sbin/fsck.f2fs" ;;
+    xfs )
+      _fsck_programs="/sbin/fsck.xfs" ;;
+  esac
+  if [ -n "${_fsck_programs+x}" ]; then
+    _extra_files_list="$_extra_files_list,$_fsck_programs"
+  fi
+
   _modules_list=""
-  _modules_load_list="$(define_base_load_modules)"
+  _modules_force_list="$(define_booster_base_load_modules)"
 
-  ###_extra_files_list="/bin/busybox"
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	  # Debug
+	  {
+	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	  }
+	
+	EOF
+  fi
 
-  cat <<-'EOF' >> "$run_script"
+  cat <<-EOF >> "$run_script"
 	  write_log "Setting up booster.yaml" 2
+	  {
+	    echo "compress: gzip"
+	    echo "mount_timeout: 30s"
+	    echo "universal: false"
+	    echo
+	EOF
+
+  if [ "$_modules_list" != "" ]; then
+    cat <<-EOF >> "$run_script"
+	    echo "modules: -*,${_modules_list}"
+	EOF
+  fi
+
+  if [ "$_modules_force_list" != "" ]; then
+    cat <<-EOF >> "$run_script"
+	    echo "modules: -*"
+	    echo "modules_force_load: ${_modules_force_list}"
+	EOF
+  fi
+
+  if [ "$_extra_files_list" != "" ]; then
+    cat <<-EOF >> "$run_script"
+	    echo
+	    echo "extra_files: ${_extra_files_list}"
+	EOF
+  fi
+
+  if [ -n "${image_lvm_rootfs+x}" ]; then
+    cat <<-EOF >> "$run_script"
+	    echo
+	    echo "enable_lvm: true"
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  } > /etc/booster.yaml
 	EOF
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -40,61 +99,20 @@ configure_booster() {
 	
 	  # Debug
 	  {
-	    cp /etc/booster.yaml /etc/booster.yaml-orig
+	    write_debug_log "booster.yaml contents:" 2
+	    cat /etc/booster.yaml >> /chroot.log
 	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    cp /etc/booster.yaml /etc/booster.yaml-orig
-	  }
-	EOF
-
-
-  cat <<-EOF >> "$run_script"
-	    write_log "Setting up booster.yaml" 2
-	    {
-	      echo "compress: gzip"
-	      echo "mount_timeout: 30s"
-	      echo "universal: false"
-	      echo
-	EOF
-
-  if [ "${_modules_list+}" != "" ]; then
-    cat <<-EOF >> "$run_script"
-	      echo "modules: -*,${_modules_list}"
-	EOF
-  fi
-
-  cat <<-EOF >> "$run_script"
-	      echo "modules_force_load: -*,${_modules_load_list}"
-	EOF
-
-  if [ -z "${_extra_files_list+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	      echo
-	      echo "extra_files: ${_extra_files_list}"
-EOF
-  fi
-
-  cat <<-EOF >> "$run_script"
-	    } > /etc/booster.yaml
-	
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	    # Debug
-	    {
-	      write_debug_log "optimise-base.files contents:" 2
-	      cat /etc/booster.yaml >> /chroot.log
-	    }
 	
 	EOF
   fi
+
+  _kernel_type="$(get_kernel_type)"
+
+  cat <<-EOF >> "$run_script"
+	  write_debug_log "Workaround to point /boot/initramfs-* file to /boot/booster-* file" 2
+	  mkdir -p /boot/
+	  ln -s /boot/booster-${_kernel_type} /boot/initramfs-${_kernel_type}
+	EOF
 
   cat <<-'EOF' >> "$run_script"
 	}
@@ -105,124 +123,32 @@ EOF
 #
 #
 #
-define_base_load_modules() {
-  local _list="simpledrm"
+define_booster_base_load_modules() {
+  local _list
 
-  _list="${_list},${image_fs_type}"
-  if [ -n "${image_lvm_rootfs+x}" ]; then
-    _list="${_list},dm-mod,dm-snapshot"
+  case $image_alpine_release in
+    v3.13 | v3.14 )
+      # FBdev
+      : ;;
+    * )
+      # DRM
+      _list="simpledrm";;
+  esac
+
+  if [ -n "${_list+x}" ];then
+    _list="${_list},${image_fs_type}"
+  else
+    _list="${image_fs_type}"
   fi
+
+  _list="${_list},virtio_blk,tiny_power_button,vmwgfx,sd_mod,virtio_scsi"
+
+  ###if [ -n "${image_lvm_rootfs+x}" ]; then
+  ###  _list="${_list},dm-mod,dm-snapshot"
+  ###fi
   if [ -n "${image_encrypted+x}" ]; then
     _list="${_list},dm-crypt"
   fi
 
   echo "${_list}"
-}
-
-
-#
-# Configure /etc/booster.yaml
-#
-configure_booster_conf() {
-  local _optimise=${1:-}
-
-  local _features_list _cloud_features_list _virt_features_list
-
-  cat <<-'EOF' >> "$run_script"
-	  write_log "Setting up booster.yaml" 2
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    cp /etc/booster.yaml /etc/booster.yaml-orig
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    cp /etc/booster.yaml /etc/booster.yaml-orig
-	  }
-	EOF
-
-  if [ -n "${image_optimise+x}" ]; then
-    # optimise
-
-    extra_files_list="/bin/busybox"
-    modules_force_list=""
-    modules_list="simpledrm"
-    case $image_alpine_release in
-      v3.13 | v3.14 )
-        # FBdev
-        : ;;
-      * )
-        # DRM
-        modules_list="$modules_list simpledrm";;
-    esac
-
-    cat <<-EOF >> "$run_script"
-	    write_log "Setting up features.d/optimise-base.files" 2
-	    {
-	      echo "compress: gzip"
-	      echo
-	      echo "universal: false"
-	      echo
-	      echo "mount_timeout: 30s"
-	EOF
-
-    if [ -z "${modules_list+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	      echo
-	      echo "modules: -*,${modules_list}"
-	EOF
-    fi
-
-    if [ -z "${modules_force_list+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	      echo
-	      echo "modules_force_load: -*,${modules_force_list}"
-	EOF
-    fi
-
-    if [ -z "${extra_files_list+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	      echo
-	      echo "extra_files: ${extra_files_list}"
-EOF
-    fi
-
-    cat <<-EOF >> "$run_script"
-	    } > /etc/booster.yaml
-	
-	EOF
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
-	    # Debug
-	    {
-	      write_debug_log "optimise-base.files contents:" 2
-	      cat /etc/booster.yaml >> /chroot.log
-	    }
-	
-	EOF
-    fi
-  fi
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    diff /etc/booster.yaml-orig /etc/booster.yaml \
-	      >> /chroot.log || true
-	    rm /etc/booster.yaml-orig
-	  }
-	EOF
-  fi
 }

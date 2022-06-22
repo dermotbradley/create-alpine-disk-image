@@ -473,6 +473,49 @@ format_ext4_fs() {
 
 
 #
+# Indicate whether kernel package is lts/rpi/rpi2/rpi4/virt
+#
+get_kernel_type() {
+  local _kernel_type
+
+  case $image_class in
+
+    cloud | virtual )
+      if [ "$image_kernel_type" = "edge" ]; then
+        _kernel_type="edge4virt"
+      else
+        _kernel_type="virt"
+      fi
+      ;;
+
+    physical )
+      case $image_physical_type in
+        pc )
+          if [ "$image_kernel_type" = "edge" ]; then
+            _kernel_type="edge"
+          else
+            _kernel_type="lts"
+          fi
+          ;;
+        rpi2 | rpi3 )
+          if [ "$image_arch" = "armv7" ]; then
+            _kernel_type="rpi2"
+          else
+            _kernel_type="rpi"
+          fi
+          ;;
+        rpi4 )
+          _kernel_type="rpi4" ;;
+      esac
+      ;;
+
+  esac
+
+  echo "$_kernel_type"
+}
+
+
+#
 # Insert function add_fstab_entry into created script
 #
 insert_chroot_function_add_fstab_entry() {
@@ -518,46 +561,13 @@ insert_chroot_function_add_fstab_entry() {
 # Insert function get_kernel_version into created script
 #
 insert_chroot_function_get_kernel_version() {
-  local _kernel_package
-
-  cat <<-'EOF' >> "$run_script"
-	
-	get_kernel_version() {
-	EOF
-
-  case $image_class in
-    cloud | virtual )
-      if [ "$image_kernel_type" = "edge" ]; then
-        _kernel_package="edge4virt"
-      else
-        _kernel_package="virt"
-      fi
-      ;;
-    physical )
-      case $image_physical_type in
-        pc )
-          if [ "$image_kernel_type" = "edge" ]; then
-            _kernel_package="edge"
-          else
-            _kernel_package="lts"
-          fi
-          ;;
-        rpi2 | rpi3 )
-          if [ "$image_arch" = "armv7" ]; then
-            _kernel_package="rpi2"
-          else
-            _kernel_package="rpi"
-          fi
-          ;;
-        rpi4 )
-          _kernel_package="rpi4" ;;
-      esac
-      ;;
-  esac
+  local _kernel_type="$(get_kernel_type)"
 
   cat <<-EOF >> "$run_script"
-	  echo "\\\$(apk info linux-${_kernel_package} | head -n 1 | sed -e "s/^linux-${_kernel_package}-//" \\
-	    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-${_kernel_package}/")"
+	
+	get_kernel_version() {
+	  echo "\\\$(apk info linux-${_kernel_type} | head -n 1 | sed -e "s/^linux-${_kernel_type}-//" \\
+	    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-${_kernel_type}/")"
 	}
 	EOF
 }
@@ -772,18 +782,23 @@ insert_runscript_function_check_for_required_packages() {
 	      case \$_host_os_major_version in
 	        3.13 | 3.14 )
 	          # Select:
-	          #    util-linux for: losetup, mount (Busybox versions are not suitable)
+	          #    util-linux for: losetup, mount, umount (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages util-linux"
 	          ;;
 	        3.15 )
 	          # Select:
-	          #    util-linux-misc for: losetup, mount (Busybox versions are not suitable)
+	          #    util-linux-misc for: losetup, mount, umount (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages util-linux-misc"
+	          ;;
+	        3.16 )
+	          # Select:
+	          #    losetup & util-linux-misc for: losetup, mount, umount (Busybox versions are not suitable)
+	          _required_packages="\$_required_packages losetup util-linux-misc"
 	          ;;
 	        * )
 	          # Select:
-	          #    losetup & util-linux-misc for: losetup, mount (Busybox versions are not suitable)
-	          _required_packages="\$_required_packages losetup util-linux-misc"
+	          #    losetup, mount, & umount for: losetup, mount, umount (Busybox versions are not suitable)
+	          _required_packages="\$_required_packages losetup mount umount"
 	          ;;
 	      esac
 	      # shellcheck disable=SC2086

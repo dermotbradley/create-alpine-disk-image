@@ -418,11 +418,12 @@ install_grub() {
 
   cat <<-'EOF' >> "$run_script"
 	
+	write_log "Installing GRUB bootloader"
 	{
 	EOF
 
   case $image_alpine_release in
-    v3.13 | v3.14 | v3.15 | v3.16 | edge )
+    v3.13 | v3.14 | v3.15 | v3.16 )
       if [ "${image_mdev}" = true ]; then
         cat <<-'EOF' >> "$run_script"
 	  write_log "Temporarily creating a dummy device.map file for GRUB" 2
@@ -434,7 +435,7 @@ install_grub() {
   esac
 
   cat <<-EOF >> "$run_script"
-	  write_log "Installing GRUB bootloader" 2
+	  write_log "Running GRUB installer" 2
 	  grub-install ${_grub_options} \\
 	    \$loop_device 2>&1 \\
 	    | sed -e '/^grub-install: info: copying .*$/d' \\
@@ -448,7 +449,7 @@ install_grub() {
 	EOF
 
   case $image_alpine_release in
-    v3.13 | v3.14 | v3.15 | v3.16 | edge )
+    v3.13 | v3.14 | v3.15 | v3.16 )
       if [ "$image_mdev" = true ]; then
         # Remove the eudev package that was temporarily installed
         # so that grub-probe could use udevadm.

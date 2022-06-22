@@ -1905,45 +1905,12 @@ install_alpine_base() {
 # Insert function get_kernel_package_version into created script
 #
 insert_chroot_function_get_kernel_package_version() {
-  local _kernel_package
-
-  cat <<-'EOF' >> "$run_script"
-	
-	get_kernel_package_version() {
-	EOF
-
-  case $image_class in
-    cloud | virtual )
-      if [ "$image_kernel_type" = "edge" ]; then
-        _kernel_package="edge4virt"
-      else
-        _kernel_package="virt"
-      fi
-      ;;
-    physical )
-      case $image_physical_type in
-        pc )
-          if [ "$image_kernel_type" = "edge" ]; then
-            _kernel_package="edge"
-          else
-            _kernel_package="lts"
-          fi
-          ;;
-        rpi2 | rpi3 )
-          if [ "$image_arch" = "armv7" ]; then
-            _kernel_package="rpi2"
-          else
-            _kernel_package="rpi"
-          fi
-          ;;
-        rpi4 )
-          _kernel_package="rpi4" ;;
-      esac
-      ;;
-  esac
+  local _kernel_type=$(get_kernel_type)
 
   cat <<-EOF >> "$run_script"
-	  echo "\\\$(apk info linux-$_kernel_package | head -n 1 | sed -e "s/^linux-$_kernel_package-//" \\
+	
+	get_kernel_package_version() {
+	  echo "\\\$(apk info linux-$_kernel_type | head -n 1 | sed -e "s/^linux-$_kernel_type-//" \\
 	    -e 's/ .*//')"
 	}
 	EOF
