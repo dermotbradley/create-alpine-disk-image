@@ -1,5 +1,9 @@
 # CHANGELOG for create-alpine-disk-image
 
+### Version 0.2.1-DEV (Unreleased)
+
+* 
+
 ### Version 0.2 (21/06/2022)
 
 * Completely reworked, splitting the code into several included "defines" and "functions" files. This was done in order to keep the code manageable and also in preparation for adding additional scripts.

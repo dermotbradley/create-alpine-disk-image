@@ -238,6 +238,7 @@ configure_mkinitfs_feature_vm_vmware() {
   initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
   initramfs_entry_add "kernel/drivers/message/fusion/mptspi.ko*"
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sr_mod.ko*"
   if [ -n "${remote_unlock_enabled+x}" ]; then
     initramfs_entry_add "kernel/drivers/net/vmxnet3"
   fi
