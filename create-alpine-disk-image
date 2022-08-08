@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC1117,SC2039
 #
 #############################################################################
@@ -22,10 +22,10 @@
 
 TMPDIR="/var/tmp"
 
-script_version="0.2.1-DEV"
-script_type="creator"
-script_name="create-alpine-disk-image"
-script_dir="$(dirname "$0")"
+readonly script_version="0.2.1-DEV"
+readonly script_type="creator"
+readonly script_name="create-alpine-disk-image"
+readonly script_dir="$(dirname "$0")"
 
 
 # Source read-only variables
@@ -40,9 +40,11 @@ script_dir="$(dirname "$0")"
 . "${script_dir}"/lib/services-functions
 
 . "${script_dir}"/lib/booster-functions
+. "${script_dir}"/lib/initramfs-functions
 . "${script_dir}"/lib/mkinitfs-functions
 
 . "${script_dir}"/lib/grub-functions
+. "${script_dir}"/lib/rpi-bootloader-functions
 . "${script_dir}"/lib/syslinux-functions
 
 . "${script_dir}"/lib/cloud-init-functions
@@ -71,14 +73,11 @@ echo "  Image arch: $image_arch"
 echo "  Image class: $image_class"
 case $image_class in
   cloud )
-    echo "  Cloud type: $image_cloud_type"
-    ;;
+    echo "  Cloud type: $image_cloud_type" ;;
   physical )
-    echo "  Physical machine type: $image_physical_type"
-    ;;
+    echo "  Physical machine type: $image_physical_type" ;;
   virtual )
-    echo "  VM type: $image_vm_type"
-    ;;
+    echo "  VM type: $image_vm_type" ;;
 esac
 echo "  Alpine release: $image_alpine_release"
 echo "  Boot Type: $image_boot_type"
@@ -113,13 +112,14 @@ cat <<-EOF >> "$run_script"
 	truncate -s ${disk_image_size}M \$image_full_filename >> \$logfile
 	EOF
 
-if [ "$image_boot_type" = "rpi" ]; then
-  partition_rpi
-elif [ "$image_boot_type" = "bios" ]; then
-  partition_bios
-else
-  partition_uefi
-fi
+case $image_boot_type in
+  bios )
+    partition_bios ;;
+  rpi )
+    partition_rpi ;;
+  secure-uefi | uefi )
+    partition_uefi ;;
+esac
 
 if [ -n "${debug_enabled+x}" ]; then
   cat <<-'EOF' >> "$run_script"
@@ -127,6 +127,8 @@ if [ -n "${debug_enabled+x}" ]; then
 	# Debug
 	{
 	  write_debug_log "Resultant partition layout:" 2
+	  parted --machine --script --align=optimal $image_full_filename \
+	    unit s print >> $logfile
 	  parted --machine --script --align=optimal $image_full_filename \
 	    unit MiB print >> $logfile
 	}
@@ -144,10 +146,8 @@ fi
 
 format_and_mount_fs
 
-if [ -n "${image_encrypted+x}" ] && \
-   [ "$image_bootloader" = "grub" ] && \
-   { [ -z "${image_experimental+x}" ] || \
-     [ -z "${remote_unlock_enabled+x}" ]; } && \
+if [ -n "${image_encrypted+x}" ] && [ "$image_bootloader" = "grub" ] && \
+   { [ -z "${image_experimental+x}" ] || [ -z "${remote_unlock_enabled+x}" ]; } && \
    [ -z "${image_no_grub_encryption+x}" ] && \
    [ -z "${needs_boot_partition+x}" ]; then
   # LUKS keyfile is used to unlock rootfs without 2nd password prompt.
@@ -251,13 +251,11 @@ case $image_initramfs_tool in
     configure_mkinitfs ;;
 esac
 
-if [ -n "${remote_unlock_enabled+x}" ] && \
-   [ -n "${ssh_public_key+x}" ]; then
+if [ -n "${remote_unlock_enabled+x}" ] && [ -n "${ssh_public_key+x}" ]; then
   setup_dropbear_authorized_keys
 fi
 
-if [ -n "${image_lvm_rootfs+x}" ] && \
-   [ "$image_bootloader" = "grub" ]; then
+if [ -n "${image_lvm_rootfs+x}" ] && [ "$image_bootloader" = "grub" ]; then
   cat <<-'EOF' >> "$run_script"
 	
 	{
@@ -317,14 +315,19 @@ case $image_alpine_release in
 	EOF
     fi
     ;;
+  * )
+    # No longer needed as patch added to Grub to work without udevadm
+    : ;;
 esac
 
 install_kernel
-
-if [ "$image_arch" = "x86" ] || \
-   [ "$image_arch" = "x86_64" ]; then
-  install_microcode
-fi
+case $image_arch in
+  x86 | x86_64 )
+    if [ "$image_class" = "physical" ]; then
+      install_microcode
+    fi
+    ;;
+esac
 install_firmware
 
 case $image_bootloader in
@@ -339,10 +342,8 @@ case $image_bootloader in
     fi
 esac
 
-if [ -n "${image_encrypted+x}" ] && \
-   [ "$image_bootloader" = "grub" ] && \
-   { [ -z "${image_experimental+x}" ] || \
-     [ -z "${remote_unlock_enabled+x}" ]; } && \
+if [ -n "${image_encrypted+x}" ] && [ "$image_bootloader" = "grub" ] && \
+   { [ -z "${image_experimental+x}" ] || [ -z "${remote_unlock_enabled+x}" ]; } && \
    [ -z "${image_no_grub_encryption+x}" ] && \
    [ -z "${needs_boot_partition+x}" ]; then
   # When using GRUB encryption along with a keyfile (to avoid 2nd prompt),
@@ -350,22 +351,26 @@ if [ -n "${image_encrypted+x}" ] && \
   # keyfile to decrypt the root partition.
   case $image_class in
     cloud | virtual )
-      if [ "$image_kernel_type" = "edge" ]; then
-        _initramfs_filename="initramfs-edge2virt"
-      else
-        _initramfs_filename="initramfs-virt"
-      fi
+      case $image_kernel_type in
+        edge )
+          _initramfs_filename="initramfs-edge2virt" ;;
+        * )
+          _initramfs_filename="initramfs-virt" ;;
+      esac
       ;;
     physical )
-      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-        _initramfs_filename="initramfs-rpi"
-      else
-        if [ "$image_kernel_type" = "edge" ]; then
-          _initramfs_filename="initramfs-edge"
-        else
-          _initramfs_filename="initramfs-lts"
-        fi
-      fi
+      case $image_physical_type in
+        rpi* )
+          _initramfs_filename="initramfs-rpi" ;;
+        * )
+          case $image_kernel_type in
+            edge )
+              _initramfs_filename="initramfs-edge" ;;
+            * )
+              _initramfs_filename="initramfs-lts" ;;
+          esac
+          ;;
+      esac
       ;;
   esac
   cat <<-EOF >> "$run_script"
@@ -382,47 +387,45 @@ if [ -n "${debug_enabled+x}" ]; then
 	EOF
 
   case $image_initramfs_tool in
-
     booster )
       case $image_class in
-
         cloud | virtual )
-          if [ "$image_kernel_type" = "edge" ]; then
-            _initramfs_filename="booster-edge2virt"
-          else
-            _initramfs_filename="booster-virt"
-          fi
+          case $image_kernel_type in
+            edge )
+              _initramfs_filename="booster-edge2virt" ;;
+            * )
+              _initramfs_filename="booster-virt" ;;
+          esac
           ;;
-
         physical )
-          if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-            _initramfs_filename="booster-rpi"
-          else
-            if [ "$image_kernel_type" = "edge" ]; then
-              _initramfs_filename="booster-edge"
-            else
-              _initramfs_filename="booster-lts"
-            fi
-          fi
+          case $image_physical_type in
+            rpi* )
+              _initramfs_filename="booster-rpi" ;;
+            * )
+              case $image_kernel_type in
+                edge )
+                  _initramfs_filename="booster-edge" ;;
+                * )
+                  _initramfs_filename="booster-lts" ;;
+              esac
+              ;;
+          esac
           ;;
       esac
 
       cat <<-EOF >> "$run_script"
 	  write_debug_log "booster $_initramfs_filename contents:"
-	  booster ls "/boot/$_initramfs_filename" >> /chroot.log
+	  booster ls "/boot/$_initramfs_filename" >> /chroot.log 2>&1
 	EOF
       ;;
-
     mkinitfs )
       cat <<-'EOF' >> "$run_script"
 	  write_debug_log "mkinitfs contents:"
-	  mkinitfs -l "\$_kernel_version" >> /chroot.log
+	  mkinitfs -l "\$_kernel_version" >> /chroot.log 2>&1
 	EOF
       ;;
-
     * )
       : ;;
-
   esac
 
   cat <<-'EOF' >> "$run_script"
@@ -465,7 +468,7 @@ if [ -n "${debug_enabled+x}" ]; then
 	EOF
 
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       # UEFI
       cat <<-'EOF' >> "$run_script"
 	

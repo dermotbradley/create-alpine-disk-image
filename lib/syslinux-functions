@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -49,12 +49,14 @@ configure_bootloader_syslinux() {
     btrfs | ext4 )
       case $image_os_device_media in
         flash | sd | ssd )
-          # For older Alpine releases add commit mount option for rootfs when
-          # on flash device as this is *not* read from /etc/fstab by
-          # initramfs' init when it mounts rootfs.
           case $image_alpine_release in
             v3.13 | v3.14 | v3.15 | v3.16 | edge )
-            _cmdline="$_cmdline rootflags=commit=300" ;;
+              # For older Alpine releases add commit mount option for rootfs
+              # when on flash device as this is *not* read from /etc/fstab by
+              # initramfs' init when it mounts rootfs.
+              _cmdline="$_cmdline rootflags=commit=300" ;;
+            * )
+              : ;;
           esac
           ;;
       esac
@@ -64,11 +66,12 @@ configure_bootloader_syslinux() {
     normal )
       _cmdline="$_cmdline console=${image_console_name}" ;;
     serial )
-      _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}" ;;
+      _cmdline="$_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}" ;;
   esac
-  if [ "$image_boot_type" = "bios" ]; then
-    _cmdline="$_cmdline nomodeset"
-  fi
+  case $image_boot_type in
+    bios )
+      _cmdline="$_cmdline nomodeset" ;;
+  esac
   if [ -n "${image_disable_ipv6+x}" ]; then
     _cmdline="$_cmdline ipv6.disable=1"
   fi
@@ -105,28 +108,14 @@ configure_bootloader_syslinux() {
 	EOF
   elif [ "$image_boot_reference" = "label" ]; then
     # Use LABELs to refer to filesystems
-    if [ "$image_boot_type" = "uefi" ]; then
-      cat <<-EOF >> "$run_script"
-	    ###fs_reference="LABEL=SYSTEM_EFI"
+    cat <<-EOF >> "$run_script"
 	    fs_reference="LABEL=${CONSTANT_ROOTFS_LABEL}"
 	EOF
-    else
-      cat <<-EOF >> "$run_script"
-	    fs_reference="LABEL=${CONSTANT_ROOTFS_LABEL}"
-	EOF
-    fi
   else
     # Use UUIDs to refer to filesystems
-    if [ "$image_boot_type" = "uefi" ]; then
-      cat <<-'EOF' >> "$run_script"
-	    ###fs_reference="UUID=$esp_fs_uuid"
+    cat <<-'EOF' >> "$run_script"
 	    fs_reference="UUID=$root_fs_uuid"
 	EOF
-    else
-      cat <<-'EOF' >> "$run_script"
-	    fs_reference="UUID=$root_fs_uuid"
-	EOF
-    fi
   fi
 
   cat <<-EOF >> "$run_script"
@@ -148,7 +137,7 @@ configure_bootloader_syslinux() {
 
 
   case $image_console_type in
-    serial | both )
+    serial )
       enable_syslinux_serial_console ;;
   esac
 
@@ -180,10 +169,34 @@ configure_bootloader_syslinux() {
 
 
 #
+# Enable serial console for Syslinux
+#
+enable_syslinux_serial_console() {
+  cat <<-EOF >> "$run_script"
+	
+	    write_log "Configure Syslinux serial port and speed" 4
+	    sed -i -e "s|^serial_port=.*|serial_port=${image_serial_console_port_number}|g" \\
+	      -e "s|^serial_baud=.*|serial_baud=${image_serial_console_port_speed}|g" \\
+	      /etc/update-extlinux.conf
+	EOF
+
+  case $image_console_type in
+    serial )
+      cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Disable normal Syslinux console" 4
+	    sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
+	EOF
+      ;;
+  esac
+}
+
+
+#
 # Install Syslinux onto disk
 #
 install_syslinux() {
- if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "${debug_enabled+x}" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
@@ -201,9 +214,9 @@ install_syslinux() {
 	{
 	EOF
 
-  if [ "$image_boot_type" = "bios" ]; then
-    # BIOS
-    cat <<-'EOF' >> "$run_script"
+  case $image_boot_type in
+    bios )
+      cat <<-'EOF' >> "$run_script"
 	  write_log "Installing BIOS MBR" 2
 	  dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin \
 	    of="$loop_device" >> /chroot.log 2>&1
@@ -211,8 +224,8 @@ install_syslinux() {
 	  extlinux --install /boot/ >> /chroot.log 2>&1
 	EOF
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
@@ -220,11 +233,10 @@ install_syslinux() {
 	    cat /boot/extlinux.conf >> /chroot.log
 	  }
 	EOF
-    fi
-
-  else
-    # UEFI
-    cat <<-'EOF' >> "$run_script"
+      fi
+      ;;
+    uefi )
+      cat <<-'EOF' >> "$run_script"
 	  ###write_log "Installing Syslinux files in EFI/boot" 2
 	  ###mkdir -p /boot/EFI/BOOT
 	  ###cp \
@@ -251,8 +263,8 @@ install_syslinux() {
 	    /boot/
 	EOF
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
@@ -262,9 +274,9 @@ install_syslinux() {
 	    cat /boot/extlinux.conf >> /chroot.log
 	  }
 	EOF
-    fi
-
-  fi
+      fi
+      ;;
+  esac
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<-'EOF' >> "$run_script"
@@ -308,16 +320,17 @@ install_syslinux() {
 	  {
 	EOF
 
-    if [ "$image_boot_type" = "uefi" ]; then
-      # UEFI
-      cat <<-'EOF' >> "$run_script"
+    case $image_boot_type in
+      uefi )
+        cat <<-'EOF' >> "$run_script"
 	    write_debug_log "/boot/extlinux.conf contents after everything:"
 	    cat /boot/extlinux.conf >> /chroot.log
 	    write_debug_log "/boot contents:" 2
 	    ls -ltrR /boot/ >> /chroot.log
 	
 	EOF
-    fi
+        ;;
+    esac
 
     cat <<-'EOF' >> "$run_script"
 	    diff /boot/extlinux.conf-orig /boot/extlinux.conf >> /chroot.log || true

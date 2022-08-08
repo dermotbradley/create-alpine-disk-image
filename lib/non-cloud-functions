@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -91,7 +91,6 @@ configure_non_cloud_init() {
 
   if [ "${image_mdev}" = true ]; then
     # mdev
-
     cat <<-'EOF' >> "$run_script"
 	  write_log "Enable mdev init.d service" 2
 	  {
@@ -99,7 +98,6 @@ configure_non_cloud_init() {
     add_init_d_service "mdev" "sysinit" 4
   else
     # udev
-
     cat <<-'EOF' >> "$run_script"
 	  write_log "Enable udev init.d services" 2
 	  {
@@ -115,19 +113,6 @@ configure_non_cloud_init() {
 	EOF
 
   configure_network_interfaces
-
-  # Need to sort out serial console settings at this stage.
-  case $image_console_type in
-    serial | both )
-      if [ -z "${serial_port_number+x}" ]; then
-        serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
-        serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
-      fi
-      if [ -z "${serial_port_speed+x}" ]; then
-        serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
-      fi
-      ;;
-  esac
 
   if [ -z "${debug_enabled+x}" ]; then
     # Lock the root account's password if debugging not enabled
@@ -309,26 +294,21 @@ setup_init_d_for_growing_root_partition() {
     _grow_part_num="$root_part_num"
   fi
 
-  if [ "$image_class"  = "physical" ] && \
-     { [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] || \
-       [ "$image_os_device_type" = "sd" ]; }; then
-    # RPI or PC with SDcard
-    _grow_device="/dev/mmcblk0"
-  elif [ "$image_os_device_type" = "nvme" ]; then
-    # NVME
-    _grow_device="/dev/nvme0n1"
-  else
-    # SATA, SCSI, or USB
-    _grow_device="/dev/sda"
-  fi
-
-  if { [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-     [ "$image_os_device_type" = "nvme" ]; then
-    _grow_device_part="${_grow_device}p${_grow_part_num}"
-  else
-    _grow_device_part="${_grow_device}${_grow_part_num}"
-  fi
+  case $image_os_device_type in
+    nvme )
+      _grow_device="/dev/nvme0n1"
+      _grow_device_part="${_grow_device}p${_grow_part_num}"
+      ;;
+    sd )
+      _grow_device="/dev/mmcblk0"
+      _grow_device_part="${_grow_device}p${_grow_part_num}"
+      ;;
+    * )
+      # SATA, SCSI, or USB
+      _grow_device="/dev/sda"
+      ;;
+  esac
+  _grow_device_part="${_grow_device_part:-${_grow_device}${_grow_part_num}}"
 
   cat <<'EOF' >> "$run_script"
 
@@ -371,8 +351,7 @@ write_log "Creating init.d script for resizing rootfs" 2
 	
 EOF
 
-  if [ -n "${image_encrypted+x}" ] || \
-     [ -n "${image_lvm_rootfs+x}" ] || \
+  if [ -n "${image_encrypted+x}" ] || [ -n "${image_lvm_rootfs+x}" ] || \
      { [ "$image_os_device_media" = "flash" ] || \
        [ "$image_os_device_media" = "sd" ] || \
        [ "$image_os_device_media" = "ssd" ]; }; then
@@ -428,13 +407,12 @@ EOF
     elif [ -n "${image_lvm_rootfs+x}" ]; then
       # LVM
 
-      if { [ "$image_class" = "physical" ] && \
-           [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-         [ "$image_os_device_type" = "nvme" ]; then
-        _resize_pv_part="${_grow_device}p${lvm_part_num}"
-      else
-        _resize_pv_part="${_grow_device}${lvm_part_num}"
-      fi
+      case $image_os_device_type in
+        nvme | sd )
+          _resize_pv_part="${_grow_device}p${lvm_part_num}" ;;
+        * )
+          _resize_pv_part="${_grow_device}${lvm_part_num}" ;;
+      esac
       _resize_logs_lv_device="/dev/mapper/$CONSTANT_LVM_VG_NAME-${CONSTANT_LVM_LOGS_LV_NAME}"
 
       cat <<EOF >> "$run_script"
@@ -490,13 +468,12 @@ EOF
           ;;
       esac
 
-      if { [ "$image_class" = "physical" ] && \
-           [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-         [ "$image_os_device_type" = "nvme" ]; then
-        _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
-      else
-        _resize_root_fs_part="${_grow_device}${_grow_part_num}"
-      fi
+      case $image_os_device_type in
+        nvme | sd )
+          _resize_root_fs_part="${_grow_device}p${_grow_part_num}" ;;
+        * )
+          _resize_root_fs_part="${_grow_device}${_grow_part_num}" ;;
+      esac
     fi
   else
     # Use growpart
@@ -508,13 +485,12 @@ EOF
 	      "Unable to grow partition ${_grow_device}${_grow_part_num}"
 EOF
 
-    if { [ "$image_class" = "physical" ] && \
-         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; } || \
-       [ "$image_os_device_type" = "nvme" ]; then
-      _resize_root_fs_part="${_grow_device}p${_grow_part_num}"
-    else
-      _resize_root_fs_part="${_grow_device}${_grow_part_num}"
-    fi
+    case $image_os_device_type in
+      nvme | sd )
+        _resize_root_fs_part="${_grow_device}p${_grow_part_num}" ;;
+      * )
+        _resize_root_fs_part="${_grow_device}${_grow_part_num}" ;;
+    esac
   fi
 
   case $image_fs_type in

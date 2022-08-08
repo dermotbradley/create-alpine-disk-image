@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -48,6 +48,8 @@ EOF
 # Configure cloud-init
 #
 configure_cloud_init() {
+  local _ptp_device _ptp_dpoll _ptp_poll _ptp_offset _ptp_stratum
+
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Configuring cloud-init"
@@ -67,38 +69,24 @@ configure_cloud_init() {
       ;;
   esac
 
-  if [ "$image_class" = "cloud" ]; then
-    # Cloud
-    define_cloud_init_settings
-  elif [ "$image_class" = "physical" ]; then
-    # Physical
-    datasource_list="'NoCloud'"
-  else
-    # VM
-    define_virtual_settings
-  fi
+  case $image_class in
+    cloud )
+      define_cloud_init_settings ;;
+    physical )
+      datasource_list="'NoCloud'" ;;
+    virtual )
+      define_virtual_settings ;;
+  esac
 
   if [ -n "${cloud_seed_url+x}" ]; then
     datasource_list="'NoCloud'"
-    add_seed_network_config_file
+    ###add_seed_network_config_file
   fi
 
   if [ -z "${datasource_list+x}" ]; then
     datasource_list="'None'"
   else
     datasource_list="$datasource_list,'None'"
-  fi
-
-  # Need to sort out serial console settings at this stage, after specific
-  # clouds/VM types may/may not have overriden the defaults.
-  if [ "$image_console_type" = "serial" ]; then
-    if [ -z "${serial_port_number+x}" ]; then
-      serial_port_number=$CONSTANT_DEFAULT_SERIAL_PORT_NUMBER
-      serial_port_name=$CONSTANT_DEFAULT_SERIAL_PORT_NAME
-    fi
-    if [ -z "${serial_port_speed+x}" ]; then
-      serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
-    fi
   fi
 
   if [ -n "${debug_enabled+x}" ]; then
@@ -267,15 +255,18 @@ EOF
 	    templates_dir: /etc/cloud/templates/
 EOF
 
-  if [ "$image_ssh_server" = "openssh" ]; then
-  cat <<'EOF' >> "$run_script"
+  case $image_ssh_server in
+    openssh )
+      cat <<'EOF' >> "$run_script"
 	  ssh_svcname: sshd
 EOF
-  elif [ "$image_ssh_server" = "tinyssh" ]; then
-  cat <<'EOF' >> "$run_script"
+      ;;
+    tinyssh )
+      cat <<'EOF' >> "$run_script"
 	  ssh_svcname: tinysshd
 EOF
-  fi
+      ;;
+  esac
 
   cat <<EOF >> "$run_script"
 	_SCRIPT_
@@ -305,19 +296,21 @@ EOF
 EOF
   fi
 
-  if [ "$image_class" = "cloud" ]; then
-    case $image_cloud_type in
-      # Enable network interface hotplug for supported DataSources
-      aws )
-        cat <<'EOF' >> "$run_script"
+  case $image_class in
+    cloud )
+      case $image_cloud_type in
+        # Enable network interface hotplug for supported DataSources
+        aws )
+          cat <<'EOF' >> "$run_script"
 	
 	updates:
 	  network:
 	    when: ["boot","hotplug"]
 EOF
-        ;;
-    esac
-  fi
+          ;;
+      esac
+      ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
 	
@@ -328,15 +321,16 @@ EOF
 EOF
 
   case $image_class in
-
-    cloud )
+    cloud | virtual )
       cat <<EOF >> "$run_script"
 	ntp:
 	  enabled: True
 EOF
+  esac
 
+  case $image_class in
+    cloud )
       case $image_cloud_type in
-
         aws )
           # Sync with AWS' internal NTP server(s)
           cat <<EOF >> "$run_script"
@@ -353,7 +347,16 @@ EOF
 EOF
           fi
           ;;
-
+        azure )
+          if [ -n "${image_experimental+x}" ] && \
+             [ "$image_alpine_release" = "edge" ]; then
+            _ptp_device="/dev/ptp_hyperv"
+            _ptp_dpoll="-2"
+            _ptp_poll="3"
+            _ptp_offset="0.0"
+            _ptp_stratum="2"
+          fi
+          ;;
         google )
           # Sync with Google's internal NTP server(s)
           cat <<EOF >> "$run_script"
@@ -363,20 +366,42 @@ EOF
           ;;
       esac
       ;;
-
     virtual )
       case $image_vm_type in
-
-        libvirtd | lxd | proxmox | qemu | utm )
-          cat <<'EOF' >> "$run_script"
-	ntp:
-	  enabled: True
-EOF
+        hyperv )
+          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
+            _ptp_device="/dev/ptp_hyperv"
+          fi
+          ;;
+        libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
+          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
+            _ptp_device="/dev/ptp_kvm"
+          fi
+          ;;
+        vmware )
+          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
+            _ptp_device="/dev/ptp_vmw"
+          fi
           ;;
       esac
       ;;
-
   esac
+
+  if [ -n "${_ptp_device+x}" ]; then
+    # Sync with host machine's clock (using PTP)
+    _ptp_dpoll="${_ptp_dpoll:-CONSTANT_DEFAULT_PTP_DPOLL}"
+    _ptp_poll="${_ptp_poll:-CONSTANT_DEFAULT_PTP_POLL}"
+    _ptp_offset="${_ptp_offset:-CONSTANT_DEFAULT_PTP_OFFSET}"
+    _ptp_stratum="${_ptp_stratum:-CONSTANT_DEFAULT_PTP_STRATUM}"
+    cat <<'EOF' >> "$run_script"
+	  hypervisor_clock: True
+	    device: $_ptp_device
+	    dpoll: $_ptp_dpoll
+	    poll: $_ptp_poll
+	    offset: "$_ptp_offset"
+	    stratum: $_ptp_stratum
+EOF
+  fi
 
   cat <<'EOF' >> "$run_script"
 	
@@ -391,19 +416,22 @@ EOF
 	ssh_deletekeys: True
 EOF
 
-  if [ "$image_ssh_keytypes" = "ed25519" ]; then
-    cat <<'EOF' >> "$run_script"
+  case $image_ssh_keytypes in
+    ed25519 )
+      cat <<'EOF' >> "$run_script"
 	
 	# Only create ED25519 SSH host key
 	ssh_genkeytypes: ["ed25519"]
 EOF
-  else
-    cat <<'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
 	
 	# Only create ED25519 and RSA SSH host keys
 	ssh_genkeytypes: ["ed25519","rsa"]
 EOF
-  fi
+      ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
 	
@@ -530,13 +558,10 @@ define_cloud_init_machine_packages() {
   local _cloud_pkgs=""
 
   case $image_cloud_type in
-
     aws )
       _cloud_pkgs="aws-cli nvme-cli" ;;
-
     azure )
       _cloud_pkgs="hvtools" ;;
-
     digitalocean )
       case $image_alpine_release in
         v3.13 | v3.14 | v3.15 )
@@ -546,7 +571,6 @@ define_cloud_init_machine_packages() {
           _cloud_pkgs="doctl" ;;
       esac
       ;;
-
     exoscale )
       case $image_alpine_release in
         v3.13 | v3.14 | v3.15 | v3.16 )
@@ -556,16 +580,14 @@ define_cloud_init_machine_packages() {
           _cloud_pkgs="exoscale" ;;
       esac
       ;;
-
     google )
       _cloud_pkgs="nvme-cli" ;;
-
     hetzner )
       _cloud_pkgs="hcloud" ;;
-
     ###vultr )
     ###  _cloud_pkgs="vultr-cli" ;;
-
+    generic )
+      _cloud_pkgs="nvme-cli" ;;
   esac
 
   echo "$_cloud_pkgs"
@@ -577,100 +599,51 @@ define_cloud_init_machine_packages() {
 #
 define_cloud_init_settings() {
   case $image_cloud_type in
-
     generic )
-      datasource_list="'AliYun','Azure','BigStep','ConfigDrive','DigitalOcean'"
-      datasource_list="$datasource_list,'E24Cloud','Ec2','Exoscale','GCE'"
-      datasource_list="$datasource_list,'Hetzner','IBMCloud','Oracle'"
-      datasource_list="$datasource_list,'RbxCloud','Scaleway','UpCloud'"
-      datasource_list="$datasource_list,'Vultr'" ;;
-
+      datasource_list="'AliYun','Azure','Bigstep','ConfigDrive','DigitalOcean'"
+      datasource_list="$datasource_list,'Ec2','Exoscale','GCE','Hetzner'"
+      datasource_list="$datasource_list,'IBMCloud','Oracle','RbxCloud'"
+      datasource_list="$datasource_list,'Scaleway','UpCloud','Vultr'" ;;
     aliyun )
-      datasource_list="'AliYun'" ;;
-
+      datasource_list="'AliYun','Ec2'" ;;
     aws )
-      datasource_list="'Ec2'"
-      image_console_type="serial"
-      serial_port_number="0"
-      if [ "$image_arch" = "aarch64" ]; then
-        image_console_name="ttyAMA${serial_port_number}"
-        serial_port_name="ttyAMA${serial_port_number}"
-      else
-        serial_port_name="ttyS${serial_port_number}"
-      fi
-      ;;
-
+      datasource_list="'Ec2'" ;;
     azure )
-      datasource_list="'Azure'"
-      image_console_type="serial"
-      serial_port_number="0"
-      serial_port_name="ttyS${serial_port_number}"
-      ;;
-
+      datasource_list="'Azure'" ;;
     bigstep )
       datasource_list="'Bigstep'" ;;
-
     brightbox )
       datasource_list="'Ec2'" ;;
-
     digitalocean )
-      datasource_list="'DigitalOcean'"
-      image_console_type="both"
-      serial_port_number="0"
-      serial_port_name="ttyS${serial_port_number}"
-      ;;
-
+      datasource_list="'DigitalOcean'" ;;
     e24 )
-      datasource_list="'E24Cloud'" ;;
-
+      datasource_list="'Ec2'" ;;
     exoscale )
       datasource_list="'Exoscale'" ;;
-
     google )
       datasource_list="'GCE'" ;;
-
     hetzner )
-      datasource_list="'Ec2'" ;;
-
+      datasource_list="'Hetzner'" ;;
     hyperone )
       datasource_list="'RbxCloud'" ;;
-
     ibmcloud )
       datasource_list="'IBMCloud'" ;;
-
     oracle )
-      datasource_list="'Oracle'"
-      if [ "$image_arch" = "aarch64" ]; then
-        image_console_name="ttyAMA1"
-      fi
-      image_console_type="both"
-      if [ "$image_console_type" = "serial" ]; then
-        serial_port_number="0"
-        if [ "$image_arch" = "aarch64" ]; then
-          serial_port_name="ttyAMA${serial_port_number}"
-        else
-          serial_port_name="ttyS${serial_port_number}"
-        fi
-      fi
-      ;;
-
+      datasource_list="'Oracle'" ;;
+    ovh )
+      datasource_list="'Ec2','OpenStack'" ;;
     rootbox )
       datasource_list="'RbxCloud'" ;;
-
     scaleway )
       datasource_list="'Scaleway'" ;;
-
     tencent )
       datasource_list="'ConfigDrive'" ;;
-
     upcloud )
       datasource_list="'UpCloud'" ;;
-
     vultr )
-      datasource_list="'Vultr'"
-      image_console_type="normal"
-      ;;
-
+      datasource_list="'Vultr'" ;;
+    zstack )
+      datasource_list="'Ec2'" ;;
   esac
 }
 
@@ -683,40 +656,45 @@ etc_modules_list_for_cloud_init() {
 	
 	# Cloud-specific modules
 	tiny-power-button
+	
 EOF
 
   case $image_cloud_type in
-
     aws )
-      if [ "$image_arch" = "aarch64" ]; then
-        cat <<'EOF' >> "$run_script"
+      cat <<'EOF' >> "$run_script"
+	# AWS
+	ena
+EOF
+      case $image_arch in
+        aarch64 )
+          cat <<'EOF' >> "$run_script"
 	gpio-pl061
 EOF
-      fi
+          ;;
+      esac
       cat <<'EOF' >> "$run_script"
 	nvme
 EOF
       ;;
-
     azure )
       cat <<'EOF' >> "$run_script"
+	# Azure
 	hv_utils
+	mana
 EOF
       ;;
-
     google )
       cat <<'EOF' >> "$run_script"
+	# Google
 	nvme
 EOF
       ;;
-
-    generic )
+    * )
       cat <<'EOF' >> "$run_script"
-	hv_utils
+	# Generic cloud
 	nvme
-	ptp_kvm
+	virtio_net
 EOF
       ;;
-
   esac
 }

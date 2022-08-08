@@ -1,0 +1,91 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  initramfs-functions
+##
+##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Returns a list of kernel modules either by filepath or just by name
+#
+initramfs_modules_load_list() {
+  local list_type=$1
+
+
+}
+
+
+#
+# Passed a path relative to /lib/modules/<version>/ for a module,
+# returns the module's name. Caters for where module name is
+# different than module filename.
+#
+module_name() {
+  local _path=$1
+
+  local _name
+
+  _name="${_path##*/}"
+  _name="${_name%%.ko*}"
+
+  case $_name in
+    tiny-power-button )
+      echo "tiny_power_button" ;;
+    * )
+      echo "$_name" ;;
+  esac
+}
+
+
+#
+#
+#
+create_modules_dep_script() {
+  cat <<'EOF' >> "$run_script"
+
+  write_debug_log "Creating script to determine modules dependancies on other modules" 2
+  {
+    cat <<-'_SCRIPT_' > /root/module-deps
+	#!/bin/sh
+	
+	for mod in \$(lsmod | sort | sed -e '/^Module .*/d' -e 's/[ ].*$//g'); do
+	  mod_name_len=\${#mod}
+	  if [ "\$mod_name_len" -le 7 ]; then
+	    padding="\t\t\t\t"
+	  elif [ "\$mod_name_len" -le 15 ]; then
+	    padding="\t\t\t"
+	  elif [ "\$mod_name_len" -le 23 ]; then
+	    padding="\t\t"
+	  else
+	    padding="\t"
+	  fi
+	
+	  deps=\$(modinfo "\$mod" | grep "depends:" | sed -e 's/^depends:[ ]*//g')
+	  if [ "\$deps" != "" ]; then
+	    echo -e "\${mod}\${padding}\${deps}"
+	  else
+	    echo -e "\${mod}"
+	  fi
+	done
+	
+	exit
+	_SCRIPT_
+    chmod +x /root/module-deps
+  }
+EOF
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  # Fudge
+	  {
+	    sed -i -e 's|^set -e$|set -ex|' /sbin/mkinitfs
+	  }
+	EOF
+}

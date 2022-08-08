@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 
 #############################################################################
 ##
@@ -60,7 +60,7 @@ readonly CONSTANT_LVM_LOGS_LV_SIZE=16
 # Cloud
 ########
 readonly CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE=1
-# Takes into account size of kernel & initramfs
+# Boot size takes into account size of kernel & initramfs
 readonly CONSTANT_CLOUD_AARCH64_BOOT_PART_SIZE=64
 readonly CONSTANT_CLOUD_X86_BOOT_PART_SIZE=32
 readonly CONSTANT_CLOUD_X86_64_BOOT_PART_SIZE=32
@@ -70,7 +70,13 @@ readonly CONSTANT_CLOUD_ESP_TYPE="fat12"
 # Physical
 ###########
 readonly CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE=16
-# Takes into account size of firmware, kernel and initramfs
+# FAT32 minimum filesystem size on 512-byte sector device,
+# 65525 clusters x 512 byte sector = 32 MiB
+readonly CONSTANT_DEFAULT_PHYSICAL_FAT32_512_ESP_PART_SIZE=32
+# FAT32 minimum filesystem size on 4K sector device,
+# 65525 clusters x 4096 byte sector = 256MiB
+readonly CONSTANT_DEFAULT_PHYSICAL_FAT32_4096_ESP_PART_SIZE=256
+# Boot size takes into account size of firmware, kernel and initramfs
 readonly CONSTANT_PHYSICAL_BOOT_PART_SIZE=64
 readonly CONSTANT_PHYSICAL_ROOT_PART_SIZE=450
 readonly CONSTANT_PHYSICAL_ESP_TYPE="fat16"
@@ -85,11 +91,11 @@ readonly CONSTANT_RPI_ARMV7_ROOT_PART_SIZE=240
 # Virtual
 ##########
 readonly CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE=1
-# Takes into account size of kernel & initramfs
+# Boot size takes into account size of kernel & initramfs
 readonly CONSTANT_VIRTUAL_AARCH64_BOOT_PART_SIZE=64
 readonly CONSTANT_VIRTUAL_X86_BOOT_PART_SIZE=32
 readonly CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE=40
-readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=210
+readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=270
 readonly CONSTANT_VIRTUAL_ESP_TYPE="fat12"
 
 
@@ -111,7 +117,7 @@ readonly CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES="hid-hyperv \
 # AWS-specific defines
 readonly CONSTANT_AWS_NTP_IPV4ADDRESS="169.254.169.123"
 readonly CONSTANT_AWS_NTP_IPV6ADDRESS="fd00:ec2::123"
-readonly CONSTANT_CLOUD_AWS_KERNEL_MODULES="ena"
+readonly CONSTANT_CLOUD_AWS_KERNEL_MODULES="efa ena"
 
 # Azure-specific defines
 readonly CONSTANT_CLOUD_AZURE_KERNEL_MODULES="mana"
@@ -161,9 +167,9 @@ readonly CONSTANT_VIRTUAL_KERNEL_MODULES="${CONSTANT_VIRTUAL_HYPERV_KERNEL_MODUL
 ###########################################################################
 
 # Non-server driver kernel modules
-readonly CONSTANT_DESKTOP_KERNEL_MODULES="evdev mousedev psmouse usbmouse"
+readonly CONSTANT_DESKTOP_KERNEL_MODULES="mousedev psmouse usbmouse"
 
-readonly CONSTANT_PHYSICAL_KERNEL_MODULES="ac battery button i2c-piix4 \
+readonly CONSTANT_PHYSICAL_KERNEL_MODULES="ac battery button evdev i2c-piix4 \
             usb_common usb_storage usbmon"
 
 # Net

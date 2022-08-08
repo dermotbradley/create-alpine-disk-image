@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC1117,SC2039
 
 #############################################################################
@@ -104,22 +104,24 @@ configure_busybox_cron() {
 	    {
 	EOF
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	      # Debug
 	      {
 	        cp /etc/conf.d/crond /etc/conf.d/crond-orig
 	      }
 	
 	EOF
-    fi
+      fi
 
-    cat <<-'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
 	      :
 	
 	EOF
-  fi
+      ;;
+  esac
 
 
   cat <<-'EOF' >> "$run_script"
@@ -133,9 +135,10 @@ configure_busybox_cron() {
 	      } >> /chroot.log 2>&1
 	EOF
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
 	      {
@@ -143,8 +146,9 @@ configure_busybox_cron() {
 	        rm /etc/conf.d/crond-orig
 	      }
 	EOF
-    fi
-  fi
+      fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	    }
@@ -161,22 +165,24 @@ configure_busybox_syslogd() {
 	    {
 	EOF
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	      # Debug
 	      {
 	        cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
 	      }
 	
 	EOF
-    fi
+      fi
 
-    cat <<-'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
 	    :
 	
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	      write_log "Enable Busybox syslogd init.d service" 6
@@ -190,9 +196,10 @@ configure_busybox_syslogd() {
 	EOF
 
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
 	      {
@@ -200,8 +207,9 @@ configure_busybox_syslogd() {
 	        rm /etc/conf.d/syslog-orig
 	      }
 	EOF
-    fi
-  fi
+      fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	    }
@@ -218,22 +226,24 @@ configure_busybox_udhcpc() {
 	    {
 	EOF
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	      # Debug
 	      {
 	        cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
 	      }
 	
 	EOF
-    fi
+      fi
 
-    cat <<-'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
 	      :
 	
 	EOF
-  fi
+      ;;
+  esac
 
 
   cat <<-'EOF' >> "$run_script"
@@ -241,9 +251,10 @@ configure_busybox_udhcpc() {
 	EOF
 
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
 	      {
@@ -252,8 +263,9 @@ configure_busybox_udhcpc() {
 	        rm /usr/share/udhcpc/default.script-orig
 	      }
 	EOF
-    fi
-  fi
+      fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	    }
@@ -269,24 +281,28 @@ configure_chronyd() {
   local _ntp_pool_list _ntp_pool_options _ntp_server_list _ntp_server_options
   local _phc_dpoll _phc_offset _phc_poll _phc_ptp_device _phc_stratum
 
+  _makestep_threshold="1"
+  _makestep_limit="-1"
+
   cat <<-'EOF' >> "$run_script"
 	    write_log "Configuring Chrony NTP server" 4
 	    {
 	EOF
 
-  if [ "$image_cloud_software" = "none" ]; then
+  case $image_cloud_software in
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+    none )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	      # Debug
 	      {
 	        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
 	      }
 	
 	EOF
-    fi
+      fi
 
-    cat <<-'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
 	      write_log "Creating chrony.conf file" 6
 	      {
 	        echo "# /etc/chrony/chrony.conf"
@@ -297,45 +313,44 @@ configure_chronyd() {
 	      } > /etc/chrony/chrony.conf
 	EOF
 
-    _init_threshold="10"
+      _init_threshold="10"
 
-    if [ "${image_ntp_use_host+x}" = "true" ]; then
-      # Sync with hypervisor host's clock
+      if [ "${image_ntp_use_host+x}" = "true" ]; then
+        # Sync with hypervisor host's clock
 
-      _makestep_threshold="0.1"
-      _makestep_limit="3"
-      _phc_ptp_device="/dev/ptp0"
-      _phc_poll="4"
-      _phc_dpoll="0"
-      _phc_offset="0.0"
-      _phc_stratum="0"
+        _phc_ptp_device="/dev/ptp0"
+        _phc_poll="4"
+        _phc_dpoll="0"
+        _phc_offset="0.0"
+        _phc_stratum="0"
 
-      if [ "$image_class" = "cloud" ]; then
-        case $image_cloud_type in
-          azure )
-            _makestep_threshold="1.0"
-            _makestep_limit="-1"
-            _phc_ptp_device="/dev/ptp_hyperv"
-            _phc_poll="3"
-            _phc_dpoll="-2"
-            _phc_offset="0.0"
-            _phc_stratum="2"
+        case $image_class in
+          cloud )
+            case $image_cloud_type in
+              azure )
+                _phc_ptp_device="/dev/ptp_hyperv"
+                _phc_poll="3"
+                _phc_dpoll="-2"
+                _phc_offset="0.0"
+                _phc_stratum="2"
+                ;;
+            esac
+            ;;
+          virtual )
+            case $image_vm_type in
+              hyperv )
+                _phc_ptp_device="/dev/ptp_hyperv" ;;
+              libvirtd | lxd | proxmox | qemu | utm )
+                _phc_ptp_device="/dev/ptp_kvm" ;;
+              vmware )
+                _phc_ptp_device="/dev/ptp_vmw" ;;
+            esac
             ;;
         esac
-      elif [ "$image_class" = "virtual" ]; then
-        case $image_vm_type in
-          hyperv )
-            _phc_ptp_device="/dev/ptp_hyperv" ;;
-          libvirtd | lxd | proxmox | qemu | utm )
-            _phc_ptp_device="/dev/ptp_kvm" ;;
-          vmware )
-            _phc_ptp_device="/dev/ptp_vmw" ;;
-        esac
-      fi
 
-      _phc_options_list="poll ${_phc_poll} dpoll ${_phc_dpoll} offset ${_phc_offset} stratum ${_phc_stratum}"
+        _phc_options_list="poll ${_phc_poll} dpoll ${_phc_dpoll} offset ${_phc_offset} stratum ${_phc_stratum}"
 
-      cat <<-EOF >> "$run_script"
+        cat <<-EOF >> "$run_script"
 	
 	      write_log "Configuring chrony for time-sync from hypervisor host" 8
 	      {
@@ -347,20 +362,21 @@ configure_chronyd() {
 	        echo "#"
 	        echo "refclock PHC ${_phc_ptp_device} ${_phc_options_list}"
 	        echo "#"
-	        echo "# Step the system clock if the adjustment is larger than X seconds, but"
-	        echo "# only in the first Y clock updates (i.e. at system boot)."
+	        echo "# Step the system clock if the adjustment is larger than X seconds, either"
+	        echo "# only in the first Y clock updates (i.e. at system boot) or at any time"
+	        echo "# if Y is "-1" (used for VMs that might be suspended & resumed)."
 	        echo "#"
 	        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
 	      } >> /etc/chrony/chrony.conf
 	
 	EOF
-    elif [ -n "${image_ntp_servers+x}" ]; then
-    # Sync with specified NTP server(s)
+      elif [ -n "${image_ntp_servers+x}" ]; then
+        # Sync with specified NTP server(s)
 
-      _ntp_pool_list="$image_ntp_servers"
-      _ntp_pool_options="iburst"
+        _ntp_pool_list="$image_ntp_servers"
+        _ntp_pool_options="iburst"
 
-      cat <<-EOF >> "$run_script"
+        cat <<-EOF >> "$run_script"
 	
 	      write_log "Configuring chrony for specific NTP servers" 8
 	      {
@@ -371,65 +387,128 @@ configure_chronyd() {
 	        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
 	        echo "#"
 	        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
+	        echo "#"
+	        echo "# Step the system clock if the adjustment is larger than X seconds, either"
+	        echo "# only in the first Y clock updates (i.e. at system boot) or at any time"
+	        echo "# if Y is "-1" (used for VMs that might be suspended & resumed)."
+	        echo "#"
+	        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
 	      } >> /etc/chrony/chrony.conf
 	
 	EOF
-    else
-      # Sync with default NTP servers
-
-      if [ "$image_class" = "cloud" ]; then
-        case $image_cloud_type in
-          aws )
-            if [ -n "${image_disable_ipv4+x}" ]; then
-              _ntp_server_list="$CONSTANT_AWS_NTP_IPV6ADDRESS"
-            elif [ -n "${image_disable_ipv4+x}" ]; then
-              _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS"
-            else
-              _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS $CONSTANT_AWS_NTP_IPV6ADDRESS"
-            fi
-            _ntp_server_options="prefer iburst minpoll 4 maxpoll 4"
-            ;;
-          google )
-            _ntp_server_list="$CONSTANT_GOOGLE_NTP_INTERNAL_SERVER"
-            _ntp_server_options="prefer iburst"
-            ;;
-        esac
       else
-        _ntp_server_list=""
-      fi
+        # Sync with default NTP servers
 
-      cat <<-'EOF' >> "$run_script"
+        case $image_class in
+          cloud )
+            case $image_cloud_type in
+              aws )
+                if [ -n "${image_disable_ipv4+x}" ]; then
+                  _ntp_server_list="$CONSTANT_AWS_NTP_IPV6ADDRESS"
+                elif [ -n "${image_disable_ipv4+x}" ]; then
+                  _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS"
+                else
+                  _ntp_server_list="$CONSTANT_AWS_NTP_IPV4ADDRESS $CONSTANT_AWS_NTP_IPV6ADDRESS"
+                fi
+                _ntp_server_options="prefer iburst minpoll 4 maxpoll 4"
+                ;;
+              google )
+                _ntp_server_list="$CONSTANT_GOOGLE_NTP_INTERNAL_SERVER"
+                _ntp_server_options="prefer iburst"
+                ;;
+            esac
+            ;;
+          * )
+            _ntp_server_list="" ;;
+        esac
+
+        cat <<-'EOF' >> "$run_script"
 	
 	      write_log "Configuring chrony for default NTP servers/pool" 8
 	      {
 	        echo
 	EOF
 
-      if [ -n "${_ntp_server_list}" ]; then
-        cat <<-EOF >> "$run_script"
+        if [ -n "${_ntp_server_list}" ]; then
+          cat <<-EOF >> "$run_script"
 	        echo "server ${_ntp_server_list} ${_ntp_server_options}"
 	EOF
-      else
-        _ntp_pool_list="$CONSTANT_GENERAL_NTP_SERVER"
-        _ntp_pool_options="iburst"
+        else
+          _ntp_pool_list="$CONSTANT_GENERAL_NTP_SERVER"
+          _ntp_pool_options="iburst"
 
-        cat <<-EOF >> "$run_script"
+          cat <<-EOF >> "$run_script"
 	        echo "pool ${_ntp_pool_list} ${_ntp_pool_options}"
 	        echo "#"
 	        echo "# At boot time rapidly check the listed NTP servers and if the system clock"
 	        echo "# is more than X seconds wrong then step the clock, otherwise slew the clock"
 	        echo "#"
 	        echo "initstepslew ${_init_threshold} ${_ntp_pool_list}"
+	        echo "#"
+	        echo "# Step the system clock if the adjustment is larger than X seconds, either"
+	        echo "# only in the first Y clock updates (i.e. at system boot) or at any time"
+	        echo "# if Y is "-1" (used for VMs that might be suspended & resumed)."
+	        echo "#"
+	        echo "makestep ${_makestep_threshold} ${_makestep_limit}"
 	EOF
-      fi
+        fi
 
-      cat <<-'EOF' >> "$run_script"
+        cat <<-'EOF' >> "$run_script"
 	      } >> /etc/chrony/chrony.conf
 	
 	EOF
-    fi
-  fi
+      fi
+      ;;
 
+    cloud-init )
+      case $image_class in
+        cloud | virtual )
+          cat <<-'EOF' >> "$run_script"
+	      write_log "For Cloud/VMs modify chrony cloud-init template file" 6
+	      {
+	EOF
+
+          if [ -n "${debug_enabled+x}" ]; then
+            cat <<-'EOF' >> "$run_script"
+	        # Debug
+	        {
+	          cp /etc/cloud/templates/chrony.conf.alpine.tmpl \
+	            /etc/cloud/templates/chrony.conf.alpine.tmpl-orig
+	        }
+	EOF
+          fi
+
+          cat <<-EOF >> "$run_script"
+	
+	        write_log "Updating chrony template file to handle VM suspend/resume" 8
+	        {
+	          sed -i \\
+	            -e 's/^# one second, but only in the first three clock updates./# one second, at any time as VMs might be suspended \& resumed./' \\
+	            -e 's/^makestep .*$/makestep ${_makestep_threshold} ${_makestep_limit}/' \\
+	            /etc/cloud/templates/chrony.conf.alpine.tmpl
+	        }
+	EOF
+
+          if [ -n "${debug_enabled+x}" ]; then
+            cat <<-'EOF' >> "$run_script"
+	
+	        # Debug
+	        {
+	          diff /etc/cloud/templates/chrony.conf.alpine.tmpl-orig \
+	            /etc/cloud/templates/chrony.conf.alpine.tmpl >> /chroot.log || true
+	          rm /etc/cloud/templates/chrony.conf.alpine.tmpl-orig
+	        }
+	EOF
+          fi
+
+          cat <<-'EOF' >> "$run_script"
+	      }
+	EOF
+          ;;
+
+      esac
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	      write_log "Enable Chrony init.d service" 6
@@ -443,10 +522,10 @@ configure_chronyd() {
 	EOF
 
 
-  if [ "$image_cloud_software" = "none" ]; then
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    none )
+      if [ -n "${debug_enabled+x}" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
 	      {
@@ -455,13 +534,98 @@ configure_chronyd() {
 	        rm /etc/chrony/chrony.conf-orig
 	      }
 	EOF
-    fi
-
-  fi
-
+      fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	    }
+	EOF
+}
+
+
+#
+# Create a user for local console access
+#
+configure_console_user() {
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Configuring console-only user account" 2
+	  {
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/group /etc/group-orig
+	      cp /etc/passwd /etc/passwd-orig
+	      cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	    }
+	
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	    write_log "Creating '$image_console_only_group' group" 4
+	    addgroup $image_console_only_group
+	
+	    write_log "Configuring '$image_console_user' user account" 4
+	    {
+	      write_log "Creating '$image_console_user' user for console-only access" 6
+	      adduser -g "User for console-only access" -D $image_console_user
+	
+	EOF
+
+  if [ -n "${image_console_user_password+x}" ]; then
+    cat <<-EOF >> "$run_script"
+	      write_log "Setting password for '$image_console_user' user" 6
+	      echo "${image_console_user}:\$console_user_password" | chpasswd
+	EOF
+  else
+    cat <<-EOF >> "$run_script"
+	      write_log "Locking password for '$image_console_user' user" 6
+	      passwd -l $image_console_user >> /chroot.log
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	      write_log "Adding '$image_console_user' user to '$image_console_only_group' group" 6
+	      addgroup $image_console_user $image_console_only_group
+	    }
+	
+	    write_log "Disabling SSH-access for users in '$image_console_only_group' group" 4
+	    {
+	      echo
+	      echo "# Deny SSH access for users in '$image_console_only_group' group"
+	      echo "DenyGroups $image_console_only_group"
+	    } >> /etc/ssh/sshd_config
+	EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "/etc/group changes:" 4
+	      diff /etc/group-orig /etc/group >> /chroot.log || true
+	      rm /etc/group-orig
+	
+	      write_debug_log "/etc/passwd changes:" 4
+	      diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+	      rm /etc/passwd-orig
+	
+	      write_debug_log "/etc/sshd_config changes:" 4
+	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log || true
+	      rm /etc/ssh/sshd_config-orig
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
 	EOF
 }
 
@@ -475,11 +639,10 @@ configure_cron() {
 	  write_log "Configuring Cron daemon" 2
 	  {
 	EOF
-  if [ "$image_cron_daemon" = "busybox" ]; then
-    configure_busybox_cron
-###  elif [ "$image_cron_daemon" = "??" ]; then
-###    configure_??
-  fi
+  case $image_cron_daemon in
+    busybox )
+      configure_busybox_cron ;;
+  esac
 
   case $image_os_device_media in
     sd | ssd )
@@ -523,18 +686,14 @@ configure_dhcp_client() {
 	  {
 EOF
 
-  if [ "$image_dhcp_client" = "busybox" ]; then
-    # Busybox udhcpc
-    configure_busybox_udhcpc
-
-  elif [ "$image_dhcp_client" = "dhclient" ]; then
-    # Dhclient
-    configure_dhclient
-
-  elif [ "$image_dhcp_client" = "dhcpcd" ]; then
-    # Dhcpcd
-    configure_dhcpcd
-  fi
+  case $image_dhcp_client in
+    busybox )
+      configure_busybox_udhcpc ;;
+    dhclient )
+      configure_dhclient ;;
+    dhcpcd )
+      configure_dhcpcd ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
@@ -618,21 +777,24 @@ configure_dropbear() {
 add_firewall_rules_header() {
   local _ip_version=${1:-4}
 
-  if [ "$_ip_version" -eq 6 ]; then
-    cat <<'EOF' >> "$run_script"
-
-      write_log "Creating IPtables default IPv6 ruleset" 6
-      {
-        cat <<-_SCRIPT_ >> /etc/iptables/rules6-save
-EOF
-  else
-    cat <<'EOF' >> "$run_script"
+  case $_ip_version in
+    4 )
+      cat <<'EOF' >> "$run_script"
 
       write_log "Creating IPtables default IPv4 ruleset" 6
       {
         cat <<-_SCRIPT_ >> /etc/iptables/rules-save
 EOF
-  fi
+      ;;
+    6 )
+      cat <<'EOF' >> "$run_script"
+
+      write_log "Creating IPtables default IPv6 ruleset" 6
+      {
+        cat <<-_SCRIPT_ >> /etc/iptables/rules6-save
+EOF
+      ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
 	# Default ruleset
@@ -673,17 +835,20 @@ add_firewall_rule() {
   local _full_rule
 
   _full_rule="[0:0]"
-  if [ "$_in_out" = "in" ]; then
-    _full_rule="$_full_rule -A INPUT"
-    if [ -n "$_interface" ]; then
-      _full_rule="$_full_rule -i $_interface"
-    fi
-  else
-    _full_rule="$_full_rule -A OUTPUT"
-    if [ -n "$_interface" ]; then
-      _full_rule="$_full_rule -o $_interface"
-    fi
-  fi
+  case $_in_out in
+    in )
+      _full_rule="$_full_rule -A INPUT"
+      if [ -n "$_interface" ]; then
+        _full_rule="$_full_rule -i $_interface"
+      fi
+      ;;
+    out )
+      _full_rule="$_full_rule -A OUTPUT"
+      if [ -n "$_interface" ]; then
+        _full_rule="$_full_rule -o $_interface"
+      fi
+      ;;
+  esac
 
   if [ -n "$_rule" ]; then
     _full_rule="$_full_rule $_rule"
@@ -736,37 +901,33 @@ configure_firewall() {
 	  {
 	EOF
 
-  if [ "$image_firewall" = "iptables" ]; then
-    # IPtables
-    configure_firewall_iptables
-
-  elif [ "$image_firewall" = "nftables" ]; then
-    # NFtables
-
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Configuring NFtables" 4
-	EOF
-
-    :
-
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-  else
-    # Awall
-
-    cat <<-'EOF' >> "$run_script"
+  case $image_firewall in
+    awall )
+      cat <<-'EOF' >> "$run_script"
 	    write_log "Configuring Awall" 4
 	EOF
 
-    :
+      :
 
-
-    cat <<-'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
 	    }
 	EOF
-  fi
+      ;;
+    iptables )
+      configure_firewall_iptables
+      ;;
+    nftables )
+      cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring NFtables" 4
+	EOF
+
+      :
+
+      cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
@@ -852,9 +1013,10 @@ EOF
     add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 3" "??"
     add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 4" "??"
     add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 129" "??"
-    if [ "$image_ipv6_type" = "slaac" ]; then
-      add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 134 -m hl --hl-eq 255" "??"
-    fi
+    case $image_ipv6_type in
+      slaac )
+        add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 134 -m hl --hl-eq 255" "??" ;;
+    esac
     add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 135 -m hl --hl-eq 255" "??"
     add_firewall_rule "in" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 136 -m hl --hl-eq 255" "??"
 
@@ -868,12 +1030,13 @@ EOF
     add_firewall_rule "out" "accept" "" "-p tcp -m tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED" "HTTPS"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 1" "??"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 2" "??"
-		add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 3" "??"
+    add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 3" "??"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 4" "??"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 128" "??"
-    if [ "$image_ipv6_type" = "slaac" ]; then
-      add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 133 -m hl --hl-eq 255" "??"
-    fi
+    case $image_ipv6_type in
+      slaac )
+        add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 133 -m hl --hl-eq 255" "??" ;;
+    esac
     add_firewall_rule "out" "reject" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 134" "??"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 135 -m hl --hl-eq 255" "??"
     add_firewall_rule "out" "accept" "" "-p ipv6-icmp -m icmp6 --icmpv6-type 136 -m hl --hl-eq 255" "??"
@@ -928,34 +1091,35 @@ configure_gettys() {
 	    {
 	EOF
 
-  if [ "$image_console_type" = "normal" ]; then
+  case $image_console_type in
+    normal )
       _getty_port_name="tty1"
       _getty_options=" 38400 ${_getty_port_name}"
 
-    cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	      write_log "Enabling getty on normal console" 6
 	      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
 	    }
 	EOF
-  else
-
-    cat <<-EOF >> "$run_script"
+      ;;
+    * )
+      cat <<-EOF >> "$run_script"
 	      write_log "Disabling getty on normal console" 6
 	      sed -i -E -e 's|^tty1:|#tty1:|g' /etc/inittab
 	EOF
 
-    case $image_console_type in
-      hypervisor )
-        _getty_port_name="hvc0"
-        _getty_options=" 38400 ${_getty_port_name}"
-        ;;
-      serial )
-        _getty_port_name="${serial_port_name}"
-        _getty_options=" -L ${serial_port_name} ${serial_port_speed} vt100"
-        ;;
-    esac
+      case $image_console_type in
+        hypervisor )
+          _getty_port_name="hvc0"
+          _getty_options=" 38400 ${_getty_port_name}"
+          ;;
+        serial )
+          _getty_port_name="${image_serial_console_name}"
+          _getty_options=" -L ${image_serial_console_name} ${image_serial_console_port_speed} vt100"
+          ;;
+      esac
 
-    cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
 	      write_log "Enabling getty on ${_getty_port_name} for ${image_console_type} console" 6
 	      sed -i \\
@@ -963,21 +1127,22 @@ configure_gettys() {
 	        /etc/inittab
 	    }
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	
 	    write_log "Disabling unused gettys" 4
 	EOF
 
-  if [ "$image_class" = "cloud" ] || \
-     [ "$image_class" = "virtual" ]; then
-    # Only have 1 console getty for cloud/virtual machines
-    _first_getty_to_disable="2"
-  else
-    # Keep 2 console gettys for physical machines
-    _first_getty_to_disable="3"
-  fi
+  case $image_class in
+    cloud | virtual )
+      # Only have 1 console getty for cloud/virtual machines
+      _first_getty_to_disable="2" ;;
+    * )
+      # Keep 2 console gettys for physical machines
+      _first_getty_to_disable="3" ;;
+  esac
 
   cat <<-EOF >> "$run_script"
 	    sed -i -E -e 's|^tty([${_first_getty_to_disable}-6].*)|#tty\1|g' /etc/inittab
@@ -1134,6 +1299,7 @@ configure_ntpd() {
 # Configure OpenSSH server daemon
 #
 configure_opensshd() {
+  local _dropbear_rsa_key_length=3072
   local _rsa_key_length=4096
 
   cat <<-'EOF' >> "$run_script"
@@ -1153,8 +1319,7 @@ configure_opensshd() {
   fi
 
 
-  if [ -n "${image_harden+x}" ] || \
-     [ "$image_ssh_keytypes" = "ed25519" ]; then
+  if [ -n "${image_harden+x}" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
     cat <<-'EOF' >> "$run_script"
 	      write_log "Only generate ED25519 host key" 6
 	      sed -i \
@@ -1163,15 +1328,15 @@ configure_opensshd() {
 	EOF
   else
     if [ -n "${remote_unlock_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
-	      _rsa_key_length=4096
+	      _rsa_key_length=$_rsa_key_length
 	EOF
     else
       # Dropbear has shorter supported length of RSA key
-      cat <<-'EOF' >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
-	      _rsa_key_length=3072
+	      _rsa_key_length=$_dropbear_rsa_key_length
 	EOF
     fi
 
@@ -1189,8 +1354,7 @@ configure_opensshd() {
 	      # Configure sshd to:
 	EOF
 
-  if [ -n "${image_harden+x}" ] || \
-     [ "$image_ssh_keytypes" = "ed25519" ]; then
+  if [ -n "${image_harden+x}" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # - only use ED25519 host key
 	EOF
@@ -1236,21 +1400,24 @@ configure_opensshd() {
 	EOF
   fi
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_cloud_software in
+    cloud-init )
+      cat <<-'EOF' >> "$run_script"
 	
 	      # - enable PAM
 	      write_log "Enable PAM support" 6
 	      sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
 	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<-'EOF' >> "$run_script"
 	
 	      # - disable PAM
 	      write_log "Disabling PAM support" 6
 	      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -1265,16 +1432,20 @@ configure_opensshd() {
 	      } >> /etc/ssh/sshd_config
 	EOF
 
-  if [ "$image_ssh_keytypes" != "ed25519" ]; then
-		# Enable RSA key use
-    cat <<-'EOF' >> "$run_script"
+  case $image_ssh_keytypes in
+    ed25519 )
+      : ;;
+    * )
+      # Enable RSA key use
+      cat <<-'EOF' >> "$run_script"
 	
 	      write_log "Enable RSA key use" 6
 	      sed -i \
 	        -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
 	        /etc/ssh/sshd_config
 	EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${image_disable_ipv4+x}" ]; then
     cat <<-'EOF' >> "$run_script"
@@ -1518,21 +1689,27 @@ configure_services() {
 	{
 	EOF
 
-  configure_sysctl
   if [ -n "${image_harden+x}" ]; then
+    configure_sysctl
     configure_firewall
   fi
   # No acpid running on Cloud or Virtual machines as tiny-power-button
   # which does not require acpid. None on Raspberry Pi as it does not
   # support ACPI.
-  if [ "$image_class" = "physical" ]; then
-    if [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-      # Only for PCs, not Raspberry Pi
-      configure_acpid
-    fi
-  else
-    modprobe_enable_tiny_power_button
-  fi
+  case $image_class in
+    physical )
+      case $image_physical_type in
+        rpi* )
+          : ;;
+        * )
+          # Not for Raspberry Pis
+          configure_acpid ;;
+      esac
+      ;;
+    * )
+      modprobe_enable_tiny_power_button
+      ;;
+  esac
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 )
       # These releases do not have suitable acct package
@@ -1542,26 +1719,34 @@ configure_services() {
   esac
   configure_cron
   configure_dhcp_client
-	configure_gettys
+  configure_gettys
+  if [  "$image_no_console_user" = "false" ]; then
+    configure_console_user
+  fi
   ###configure_msmtp
   configure_ntpd
   configure_rngd
-  if [ "$image_class" = "physical" ]; then
-    case $image_os_device_media in
-      disk )
-        case $image_alpine_release in
-          v3.13 | v3.14 | v3.15 )
-            : ;;
-          * )
-            configure_hd_idle ;;
-        esac
-        ;;
-    esac
-    configure_smartmontools
-  fi
+  case $image_class in
+    physical )
+      case $image_os_device_media in
+        disk )
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 )
+              # These releases do not have hd-idle package
+              : ;;
+            * )
+              configure_hd_idle ;;
+          esac
+          ;;
+      esac
+      configure_smartmontools
+      ;;
+  esac
   configure_syslogd
   configure_sshd
-  configure_sshguard
+  if [ -n "${image_experimental+x}" ]; then
+    configure_sshguard
+  fi
   if [ -n "${image_enable_utmp+x}" ]; then
     configure_utmps
   fi
@@ -1583,11 +1768,12 @@ configure_services() {
 	EOF
   fi
 
-  if [ "$image_class" = "cloud" ]; then
-    configure_cloud_integration
-  elif [ "$image_class" = "virtual" ]; then
-    configure_hypervisor_integration
-  fi
+  case $image_class in
+    cloud )
+      configure_cloud_integration ;;
+    virtual )
+      configure_hypervisor_integration ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	}
@@ -1638,13 +1824,14 @@ configure_sshd() {
 	  {
 	EOF
 
-  if [ "$image_ssh_server" = "dropbear" ]; then
-    configure_dropbear
-  elif [ "$image_ssh_server" = "openssh" ]; then
-    configure_opensshd
-  elif [ "$image_ssh_server" = "tinyssh" ]; then
-    configure_tinysshd
-  fi
+  case $image_ssh_server in
+    dropbear )
+      configure_dropbear ;;
+    openssh )
+      configure_opensshd ;;
+    tinyssh )
+      configure_tinysshd ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
@@ -1821,11 +2008,12 @@ configure_syslogd() {
 	  write_log "Configuring Syslog server" 2
 	  {
 	EOF
-  if [ "$image_syslog_server" = "busybox" ]; then
-    configure_busybox_syslogd
-  elif [ "$image_syslog_server" = "rsyslog" ]; then
-    configure_rsyslog
-  fi
+  case $image_syslog_server in
+    busybox )
+      configure_busybox_syslogd ;;
+    rsyslog )
+      configure_rsyslog ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
@@ -1851,19 +2039,23 @@ configure_sshguard() {
 	# Full path to backend executable (required, no default)
 EOF
 
-  if [ "$image_firewall" = "iptables" ]; then
-    cat <<'EOF' >> "$run_script"
+  case $image_firewall in
+    iptables )
+      cat <<'EOF' >> "$run_script"
 	BACKEND="/usr/libexec/sshg-fw-iptables"
 EOF
-  elif [ "$image_firewall" = "nftables" ]; then
-    cat <<'EOF' >> "$run_script"
+      ;;
+    nftables )
+      cat <<'EOF' >> "$run_script"
 	BACKEND="/usr/libexec/sshg-fw-nft-sets"
 EOF
-  else
-    cat <<'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
 	BACKEND="/usr/libexec/sshg-fw-????"
 EOF
-  fi
+      ;;
+  esac
 
   cat <<'EOF' >> "$run_script"
 	
@@ -2019,10 +2211,6 @@ configure_utmps() {
 	
 	  write_log "Configuring UTMPS daemons" 4
 	  {
-	EOF
-
-  cat <<-'EOF' >> "$run_script"
-	
 	    write_log "Enable utmps init.d services" 6
 	    {
 	EOF

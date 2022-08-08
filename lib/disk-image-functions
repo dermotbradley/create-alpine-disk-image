@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC1117,SC2039
 
 #############################################################################
@@ -67,11 +67,14 @@ basic_os_configuration() {
       _login_banner="Alpine $image_arch $image_cloud_type Cloud server"
       ;;
     physical )
-      if [ "$image_physical_type" = "pc" ]; then
-        _login_banner="Alpine $image_arch PC server"
-      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-        _login_banner="Alpine $image_arch Raspberry Pi server"
-      fi
+      case $image_physical_type in
+        arm-server )
+          _login_banner="Alpine ARM server" ;;
+        pc )
+          _login_banner="Alpine $image_arch PC server" ;;
+        rpi* )
+          _login_banner="Alpine $image_arch Raspberry Pi server" ;;
+      esac
       ;;
     virtual )
       _login_banner="Alpine $image_arch $image_vm_type VM server"
@@ -266,58 +269,32 @@ calculate_boot_part_size() {
 calculate_image_size() {
   local _image_total_size
 
-  if [ -n "${debug_enabled+x}" ]; then
-    # Initialise disk sizing debug file
-    :> debug
-  fi
-
   if [ -n "${image_encrypted+x}" ]; then
     # LUKS (including LVM-on-LUKS)
     _image_total_size=$(($(calculate_luks_part_size)))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_image_size, initial image size for LUKS is $_image_total_size MiB" >> debug
-    fi
   elif [ -n "${image_lvm_rootfs+x}" ]; then
     # LVM
     _image_total_size=$(($(calculate_lvm_vg_size) + 4))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_image_size, initial image size for LVM (including 4MiB rounding) is $_image_total_size MiB" >> debug
-    fi
   else
     _image_total_size=$(calculate_root_part_size)
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_image_size, initial image size is $_image_total_size MiB" >> debug
-    fi
   fi
 
   if [ "$image_class" = "physical" ] && \
      [ "$image_cloud_software" = "cloud-init" ]; then
     _image_total_size="$((_image_total_size + CONSTANT_CIDATA_PART_SIZE))"
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_image_size, adding on CIDATA partition, giving $_image_total_size MiB" >> debug
-    fi
   fi
 
   if [ -n "${needs_boot_partition+x}" ]; then
     _image_total_size="$((_image_total_size + $(calculate_boot_part_size)))"
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_image_size, adding on Boot partition, giving $_image_total_size MiB" >> debug
-    fi
   fi
 
   case $image_boot_type in
     bios )
       # Allow for 2MiB boot sector
       _image_total_size="$((_image_total_size + 2))"
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_image_size, added on 1MiB for boot sector, giving $_image_total_size MiB" >> debug
-      fi
       ;;
-    uefi )
+    secure-uefi | uefi )
       _image_total_size="$((_image_total_size + $(calculate_uefi_part_size)))"
-      if [ -n "${debug_enabled+x}" ]; then
-        echo "calculate_image_size, adding on ESP partition, giving $_image_total_size MiB" >> debug
-      fi
       ;;
   esac
 
@@ -335,15 +312,9 @@ calculate_luks_part_size() {
   local _reserved_percent=0
 
   _luks_total_size=$general_root_part_size
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_luks_part_size, initial LUKS partition is $_luks_total_size MiB" >> debug
-  fi
 
   if [ -z "${needs_boot_partition+x}" ]; then
     _luks_total_size=$((_luks_total_size + general_boot_part_size))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_luks_part_size, no boot partition so adding boot files, size is $_luks_total_size MiB" >> debug
-    fi
   fi
 
   case $image_fs_type in
@@ -357,31 +328,19 @@ calculate_luks_part_size() {
 
   if [ $_reserved_percent -gt 0 ]; then
     _size=$((_luks_total_size + (_luks_total_size * _reserved_percent / 100)))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_luks_part_size, allowing for $_reserved_percent% reserved space, size is $_size MiB" >> debug
-    fi
   else
     _size=$_luks_total_size
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_luks_part_size, size is $_size MiB" >> debug
-    fi
   fi
 
 
   if [ -n "${image_lvm_rootfs+x}" ]; then
     # LVM-on-LUKS
     _size=$((_size + (_size * CONSTANT_LVM_OVERHEAD_PERCENT / 100) + 4))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_luks_part_size, allowing for LVM overhead, size is $_size MiB" >> debug
-    fi
   fi
 
   # add LUKS overhead, rounding up to nearest 4MiB
   _size=$((_size + (_size * CONSTANT_LUKS_OVERHEAD_PERCENT / 100)))
   _size=$(lvm_round_extents $_size)
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_luks_part_size, allowing for LUKS overhead, size is $_size MiB" >> debug
-  fi
 
   echo "$_size"
 }
@@ -396,9 +355,6 @@ calculate_lvm_boot_lv_size() {
   local _reserved_percent=0
 
   _boot_total_size=$general_boot_part_size
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_boot_lv_size, initial Boot LV size is $_boot_total_size MiB" >> debug
-  fi
 
   case $image_fs_type in
     ext4 )
@@ -411,16 +367,11 @@ calculate_lvm_boot_lv_size() {
 
   if [ $_reserved_percent -gt 0 ]; then
     _boot_total_size=$((_boot_total_size + (_boot_total_size * $_reserved_percent / 100)))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_boot_lv_size, allowing for $_reserved_percent% reserved space, size is $_boot_total_size MiB" >> debug
-    fi
   fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_boot_total_size)
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_boot_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
-  fi
+
   echo "$_lv_total_size"
 }
 
@@ -434,9 +385,6 @@ calculate_lvm_logs_lv_size() {
   local _reserved_percent=0
 
   _logs_total_size=$CONSTANT_LVM_LOGS_LV_SIZE
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_logs_lv_size, initial Logs LV size is $_logs_total_size MiB" >> debug
-  fi
 
   case $image_fs_type in
     ext4 )
@@ -449,16 +397,11 @@ calculate_lvm_logs_lv_size() {
 
   if [ $_reserved_percent -gt 0 ]; then
     _logs_total_size=$((_logs_total_size + (_logs_total_size * _reserved_percent / 100)))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_logs_lv_size, allowing for $_reserved_percent% reserved space, size is $_logs_total_size MiB" >> debug
-    fi
   fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_logs_total_size)
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_logs_lv_size, rounding up to next extent, size is $_lv_total_size MiB" >> debug
-  fi
+
   echo "$_lv_total_size"
 }
 
@@ -472,9 +415,6 @@ calculate_lvm_root_lv_size() {
   local _reserved_percent=0
 
   _root_total_size=$general_root_part_size
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_root_lv_size, initial Root LV size is $_root_total_size MiB" >> debug
-  fi
 
   case $image_fs_type in
     ext4 )
@@ -487,16 +427,11 @@ calculate_lvm_root_lv_size() {
 
   if [ $_reserved_percent -gt 0 ]; then
     _root_total_size=$((_root_total_size + (_root_total_size * _reserved_percent / 100)))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_root_lv_size, allowing for $_reserved_percent% reserved space, size is $_root_total_size MiB" >> debug
-    fi
   fi
 
   # Round up to next extent
   _lv_total_size=$(lvm_round_extents $_root_total_size)
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_root_lv_size, rounding up to next extend, size is $_lv_total_size MiB" >> debug
-  fi
+
   echo "$_lv_total_size"
 }
 
@@ -510,28 +445,16 @@ calculate_lvm_vg_size() {
 
   if [ -z "${needs_boot_partition+x}" ]; then
     _boot_total_size=$(calculate_lvm_boot_lv_size)
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_vg_size, Boot LV size is $_boot_total_size MiB" >> debug
-    fi
   fi
   _root_total_size=$(calculate_lvm_root_lv_size)
   _logs_total_size=$(calculate_lvm_logs_lv_size)
-  if [ -n "${debug_enabled+x}" ]; then
-    echo "calculate_lvm_vg_size, Root LV size is $_root_total_size MiB" >> debug
-    echo "calculate_lvm_vg_size, Logs LV size is $_logs_total_size MiB" >> debug
-  fi
 
   if [ -n "${needs_boot_partition+x}" ]; then
     _vg_total_size=$((_root_total_size + _logs_total_size))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_vg_size, adding Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
-    fi
   else
     _vg_total_size=$((_boot_total_size + _root_total_size + _logs_total_size))
-    if [ -n "${debug_enabled+x}" ]; then
-      echo "calculate_lvm_vg_size, adding Boot+Root+Logs LVs gives VG total size of $_vg_total_size MiB" >> debug
-    fi
   fi
+
   echo "$_vg_total_size"
 }
 
@@ -568,19 +491,20 @@ calculate_root_part_size() {
 
 
 #
-# Calculate size of the UEFI ESP partition taking into account if it will
-# also contain boot files.
+# Calculate size of the UEFI ESP partition taking into account the version
+# of FAT used and also if the partition will also contain boot files.
 #
 calculate_uefi_part_size() {
   local _fs_total_size
 
   _fs_total_size=$((general_uefi_part_size))
 
-  if [ "$image_bootloader" = "syslinux" ]; then
-    # There is size of boot files to account for when
-    # using Syslinux as then EFI partition is also /boot.
-    _fs_total_size="$((_fs_total_size + general_boot_part_size))"
-  fi
+  case $image_bootloader in
+    syslinux )
+      # There is size of boot files to account for when
+      # using Syslinux as then EFI partition is also /boot.
+      _fs_total_size="$((_fs_total_size + general_boot_part_size))" ;;
+  esac
 
   echo "$_fs_total_size"
 }
@@ -666,7 +590,7 @@ configure_fstab() {
 
   # UEFI ESP
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       _mountpoint="/efi"
 
       case $image_boot_reference in
@@ -682,11 +606,13 @@ configure_fstab() {
           ;;
       esac
 
-      if [ "$image_bootloader" = "syslinux" ]; then
-        cat <<-'EOF' >> "$run_script"
+      case $image_bootloader in
+        syslinux )
+          cat <<-'EOF' >> "$run_script"
 	  add_fstab_entry BIND "/efi/EFI/BOOT" "/boot" "none" "rw,relatime" "/boot ESP bind-mount"
 	EOF
-      fi
+          ;;
+      esac
       ;;
   esac
 
@@ -718,28 +644,32 @@ configure_fstab() {
           esac
           ;;
       esac
-      if [ "$image_boot_reference" = "label" ]; then
-        cat <<-EOF >> "$run_script"
+      case $image_boot_reference in
+        label )
+          cat <<-EOF >> "$run_script"
 	  add_fstab_entry LABEL "$CONSTANT_BOOTFS_LABEL" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
 	EOF
-      else
-        cat <<-EOF >> "$run_script"
+          ;;
+        * )
+          cat <<-EOF >> "$run_script"
 	  add_fstab_entry UUID "\$boot_fs_uuid" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
 	EOF
-      fi
+          ;;
+      esac
     fi
 
   elif [ -n "${image_lvm_rootfs+x}" ] && [ -z "${needs_boot_partition+x}" ]; then
     _boot_mount_options="rw,relatime"
-
-    if [ "$image_fs_type" = "ext4" ]; then
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # Sync every 5 minutes, rather than the default of every 5 seconds,
-          # to reduce writes to flash storage.
-          _boot_mount_options="$_boot_mount_options,commit=300" ;;
-      esac
-    fi
+    case $image_fs_type in
+      ext4 )
+        case $image_os_device_media in
+          flash | sd | ssd )
+            # Sync every 5 minutes, rather than the default of every 5 seconds,
+            # to reduce writes to flash storage.
+            _boot_mount_options="$_boot_mount_options,commit=300" ;;
+        esac
+        ;;
+    esac
 
     cat <<-EOF >> "$run_script"
 	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
@@ -749,14 +679,16 @@ configure_fstab() {
   # logs filesystem
   if [ -n "${image_lvm_rootfs+x}" ]; then
     _logs_mount_options="rw,relatime"
-    if [ "$image_fs_type" = "ext4" ]; then
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # Sync every 5 minutes, rather than the default of every 5
-          # seconds to reduce writes to flash storage.
-          _logs_mount_options="$_logs_mount_options,commit=300" ;;
-      esac
-    fi
+    case $image_fs_type in
+      ext4 )
+        case $image_os_device_media in
+          flash | sd | ssd )
+            # Sync every 5 minutes, rather than the default of every 5
+            # seconds to reduce writes to flash storage.
+            _logs_mount_options="$_logs_mount_options,commit=300" ;;
+        esac
+        ;;
+    esac
 
     cat <<-EOF >> "$run_script"
 	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}" "/var/log" "$image_fs_type" "$_logs_mount_options" "logsfs"
@@ -818,17 +750,20 @@ create_etc_filesystems() {
 	# Needed for cloud-init cidata $_config_fs_type
 EOF
 
-  if [ "$_config_fs_type" = "ISO" ]; then
-    cat <<'EOF' >> "$run_script"
+  case $_config_fs_type in
+    ISO )
+      cat <<'EOF' >> "$run_script"
 	iso9660
 	_SCRIPT_
 EOF
-  else
-    cat <<'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
 	vfat
 	_SCRIPT_
 EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${debug_enabled+x}" ]; then
     cat <<-'EOF' >> "$run_script"
@@ -996,8 +931,7 @@ define_additional_packages() {
 
   case $image_firewall in
     awall )
-      _initial_pkgs="$_initial_pkgs awall awall-masquerade awall-policies"
-      ;;
+      _initial_pkgs="$_initial_pkgs awall awall-masquerade awall-policies" ;;
     iptables )
       _initial_pkgs="$_initial_pkgs iptables"
       if [ -z "${image_disable_ipv6+x}" ]; then
@@ -1005,8 +939,7 @@ define_additional_packages() {
       fi
       ;;
     nftables )
-      _initial_pkgs="$_initial_pkgs nftables"
-      ;;
+      _initial_pkgs="$_initial_pkgs nftables" ;;
   esac
 
   case $image_fs_type in
@@ -1046,11 +979,11 @@ define_additional_packages() {
         cloud-init )
           _initial_pkgs="${_initial_pkgs} $(define_cloud_init_machine_packages)" ;;
         none )
-          ;;
+          : ;;
         tiny-cloud )
           _initial_pkgs="${_initial_pkgs} $(define_tiny_cloud_machine_packages)" ;;
       esac
-			;;
+      ;;
     physical )
       _initial_pkgs="${_initial_pkgs} $(define_physical_machine_packages)" ;;
     virtual )
@@ -1107,17 +1040,15 @@ delete_users_groups() {
 	    done
 	  }
 	
+	  write_log "Delete unnecessary groups" 2
 	  {
 	    _unreq_groups_list="abuild cdrw"
 	
-	    write_log "Delete unnecessary groups" 2
-	    {
-	      for _unrequired_group in \$_unreq_groups_list
-	      do
-	        write_debug_log "Delete group '\$_unrequired_group'" 4
-	        delgroup \$_unrequired_group
-	      done
-	    }
+	    for _unrequired_group in \$_unreq_groups_list
+	    do
+	      write_debug_log "Delete group '\$_unrequired_group'" 4
+	      delgroup \$_unrequired_group
+	    done
 	EOF
 
   if [ "$image_mdev" = false ]; then
@@ -1166,11 +1097,14 @@ delete_users_groups() {
 	EOF
     fi
 
-  cat <<-'EOF' >> "$run_script"
+    cat <<-'EOF' >> "$run_script"
 	  }
-	}
 	EOF
   fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
 }
 
 
@@ -1258,7 +1192,6 @@ disable_kernel_modules() {
 
   case $image_class in
     cloud | virtual )
-      #_disable_modules="$_disable_modules ac battery"
       _disable_modules="$_disable_modules $CONSTANT_PHYSICAL_KERNEL_MODULES"
       #### 'tiny-power-button' is used on Cloud and VM images
       ###_disable_modules="$_disable_modules button"
@@ -1358,7 +1291,7 @@ format_and_mount_fs() {
 
   # Format UEFI ESP filesystem if needed
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       cat <<-EOF >> "$run_script"
 	  uefi_part_device="\${loop_device}p${uefi_part_num}"
 	EOF
@@ -1381,8 +1314,6 @@ format_and_mount_fs() {
 	EOF
     if [ "$image_class" = "physical" ] && \
        [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      # RPI
-      #
       # Ensure that RPI boot filesystem label is *not* called "boot" due to
       # https://github.com/raspberrypi/firmware/issues/1529
       format_fat_fs "\$boot_part_device" "RPI boot" "fat32" \
@@ -1439,7 +1370,7 @@ format_and_mount_fs() {
 	EOF
       if [ "$image_class" != "physical" ] || \
          [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-        # Not RPI (which has a separate non-LVM boto partition)
+        # Not RPI (which has a separate non-LVM boot partition)
       _boot_on="LVM-on-LUKS device"
       cat <<-EOF >> "$run_script"
 	  boot_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}"
@@ -1558,7 +1489,7 @@ format_and_mount_fs() {
 
   # Mount UEFI ESP filesustem if necessary
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Mounting ESP filesystem onto $chroot_dir/efi" 2
@@ -1694,6 +1625,9 @@ format_btrfs_fs() {
 
   cat <<-EOF >> "$run_script"
 	
+	  write_log "Loading the btrfs module before formatting a btrfs filesystem" 2
+	  modprobe -q btrfs
+	
 	  write_log "Formatting Btrfs $fs_use filesystem on $formatting_where" 2
 	  mkfs.btrfs -q -L $label "$device" >> "\$logfile" 2>&1
 	EOF
@@ -1819,6 +1753,8 @@ install_alpine_base() {
 
   _base_packages="alpine-base"
   case $image_boot_type in
+    secure-uefi )
+      _base_packages="$_base_packages efi-mkkeys efivar secureboot-hook" ;;
     uefi )
       _base_packages="$_base_packages efivar" ;;
   esac
@@ -1836,7 +1772,7 @@ install_alpine_base() {
     grub )
       _bootloader_packages="grub"
       case $image_boot_type in
-        uefi )
+        secure-uefi | uefi )
           _bootloader_packages="$_bootloader_packages dosfstools grub-efi" ;;
         * )
           _bootloader_packages="$_bootloader_packages grub-bios" ;;
@@ -1871,13 +1807,20 @@ install_alpine_base() {
 	
 	write_log "Bootloader packages to be installed are: $_bootloader_packages"
 	
+	_host_arch=\$(detect_host_arch)
+	_host_os=\$(detect_host_os)
+	case \$_host_os in
+	  alpine )
+	    _apk_binary="apk" ;;
+	  * )
+	    _apk_binary="\$TMPDIR/apk.static" ;;
+	esac
+	
 	write_log "Install base Alpine (plus bootloader packages) for ${image_arch} arch inside chroot"
 	{
 	  # shellcheck disable=SC2086
-	  \$TMPDIR/apk.static \\
-	    --arch "${image_arch}" --initdb --allow-untrusted --root \$chroot_dir \\
-	    --update-cache \\
-	    add ${_base_packages} \\
+	  \$_apk_binary --arch "${image_arch}" --initdb --allow-untrusted \\
+	    --root \$chroot_dir --update-cache add ${_base_packages} \\
 	    >> "\$logfile" 2>&1
 	  _rc=\$?
 	  if [ \$_rc != 0 ]; then
@@ -1945,30 +1888,20 @@ insert_chroot_functions() {
 install_firmware() {
   local _firmware_pkgs=""
 
-  cat <<-'EOF' >> "$run_script"
+  if [ "$image_class" = "physical" ]; then
+    _firmware_pkgs="$(firmware_list_for_physical)"
+
+    if [ "$_firmware_pkgs" != "" ]; then
+      cat <<-EOF >> "$run_script"
 	
 	write_log "Selecting firmware packages to install"
 	{
-	EOF
-
-  if [ "$image_class" = "physical" ]; then
-    _firmware_pkgs="$(firmware_list_for_physical)"
-  fi
-
-  if [ "$_firmware_pkgs" = "" ]; then
-    cat <<-EOF >> "$run_script"
-	  write_log "No firmware required" 2
-	EOF
-  else
-    cat <<-EOF >> "$run_script"
 	  write_log "Installing firmware" 2
 	  apk add $_firmware_pkgs >> /chroot.log 2>&1
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
 	}
 	EOF
+    fi
+  fi
 }
 
 
@@ -1981,44 +1914,54 @@ install_kernel() {
   case $image_class in
     cloud | virtual )
       # Cloud or Virtual machine
-      if [ "$image_kernel_type" = "edge" ]; then
-        _kernel_pkg="linux-edge4virt"
-        _kernel_config_file="config-edge4virt"
-      else
-        _kernel_pkg="linux-virt"
-        _kernel_config_file="config-virt"
-      fi
+      case $image_kernel_type in
+        edge )
+          _kernel_pkg="linux-edge4virt"
+          _kernel_config_file="config-edge4virt"
+          ;;
+        * )
+          _kernel_pkg="linux-virt"
+          _kernel_config_file="config-virt"
+          ;;
+      esac
       ;;
     physical )
       # Physical machine
       _firmware_pkg="linux-firmware-none"
-
-      if [ "$image_physical_type" = "pc" ]; then
-        # PC
-        if [ "$image_kernel_type" = "edge" ]; then
-          _kernel_pkg="linux-edge"
-          _kernel_config_file="config-edge"
-        else
-          _kernel_pkg="linux-lts"
-          _kernel_config_file="config-lts"
-        fi
-      elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-        # Raspberry Pi
-        case $image_physical_type in
-          rpi2 | rpi3 )
-            if [ "$image_arch" = "armv7" ]; then
-              _kernel_pkg="linux-rpi2"
-              _kernel_config_file="config-rpi2"
-            else
-              _kernel_pkg="linux-rpi"
-              _kernel_config_file="config-rpi"
-            fi ;;
-          rpi4 )
-            _kernel_pkg="linux-rpi4"
-            _kernel_config_file="config-rpi4"
-            ;;
-        esac
-      fi
+      case $image_physical_type in
+        arm-server | pc )
+          case $image_kernel_type in
+            edge )
+              _kernel_pkg="linux-edge"
+              _kernel_config_file="config-edge"
+              ;;
+            * )
+              _kernel_pkg="linux-lts"
+              _kernel_config_file="config-lts"
+              ;;
+          esac
+          ;;
+        rpi* )
+          case $image_physical_type in
+            rpi2 | rpi3 )
+              case $image_arch in
+                armv7 )
+                  _kernel_pkg="linux-rpi2"
+                  _kernel_config_file="config-rpi2"
+                  ;;
+                aarch64 )
+                  _kernel_pkg="linux-rpi"
+                  _kernel_config_file="config-rpi"
+                  ;;
+              esac
+              ;;
+            rpi4 )
+              _kernel_pkg="linux-rpi4"
+              _kernel_config_file="config-rpi4"
+              ;;
+          esac
+          ;;
+      esac
       ;;
   esac
 
@@ -2063,14 +2006,8 @@ install_microcode() {
 	{
 	EOF
 
-  if [ "$image_class" = "physical" ]; then
-    # only Physical machines use microcode
-    install_microcode_for_physical
-  else
-    cat <<-'EOF' >> "$run_script"
-	  write_log "No microcode required" 2
-	EOF
-  fi
+  # only Physical machines use microcode
+  install_microcode_for_physical
 
   cat <<-'EOF' >> "$run_script"
 	}
@@ -2115,6 +2052,8 @@ partition_bios() {
       # unlock (whether with Grub or Syslinux) we need to create a separate
       # boot partition which will be unencrypted.
       boot_part_num=1
+      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+      # partition alignment and to leave sufficient space for GRUB to use.
       _boot_part_start="2"
       _boot_part_end="$((_boot_part_start+image_boot_part_size))"
 
@@ -2147,6 +2086,8 @@ partition_bios() {
       if [ "$image_class" = "physical" ] && \
          [ "$image_cloud_software" = "cloud-init" ]; then
         cidata_part_num=1
+        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _cidata_part_start="2"
         _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
 
@@ -2156,9 +2097,10 @@ partition_bios() {
         luks_part_num=2
         _luks_part_start="$_cidata_part_end"
         _luks_part_end="100%"
-
       else
         luks_part_num=1
+        # Start the 1st (LUKS) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _luks_part_start="2"
         _luks_part_end="100%"
       fi
@@ -2174,6 +2116,8 @@ partition_bios() {
       # When using Syslinux with LVM rootfs we need to create a separate
       # boot partition.
       boot_part_num=1
+      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+      # partition alignment and to leave sufficient space for GRUB to use.
       _boot_part_start="2"
       _boot_part_end="$((_boot_part_start+image_boot_part_size))"
 
@@ -2208,6 +2152,8 @@ partition_bios() {
          [ "$image_cloud_software" = "cloud-init" ]; then
         # Create a separate partition for cloud-init config
         cidata_part_num=1
+        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _cidata_part_start="2"
         _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
 
@@ -2217,9 +2163,10 @@ partition_bios() {
         lvm_part_num=2
         _lvm_part_start="$_cidata_part_end"
         _lvm_part_end="100%"
-
       else
         lvm_part_num=1
+        # Start the 1st (LVM) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _lvm_part_start="2"
         _lvm_part_end="100%"
       fi
@@ -2232,6 +2179,8 @@ partition_bios() {
     if [ -n "${needs_boot_partition+x}" ]; then
       # A separate boot partition is to be created.
       boot_part_num=1
+      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+      # partition alignment and to leave sufficient space for GRUB to use.
       _boot_part_start="2"
       _boot_part_end="$((_boot_part_start+image_boot_part_size))"
 
@@ -2263,6 +2212,8 @@ partition_bios() {
       if [ "$image_class" = "physical" ] && \
          [ "$image_cloud_software" = "cloud-init" ]; then
         cidata_part_num=1
+        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _cidata_part_start="2"
         _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
 
@@ -2274,6 +2225,8 @@ partition_bios() {
         _root_part_end="100%"
       else
         root_part_num=1
+        # Start the 1st (root) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
         _root_part_start="2"
         _root_part_end="100%"
       fi
@@ -2312,60 +2265,63 @@ partition_rpi() {
   create_disk_partition "$boot_part_num" "$_boot_part_start" \
     "$_boot_part_end" "$image_boot_part_size" "Boot" "" "fat32"
 
-  if [ "$image_cloud_software" = "cloud-init" ]; then
-    # Cloud-init partition
-    cidata_part_num="2"
-    _cidata_part_start="${image_boot_part_size}MiB"
-    _cidata_part_end="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+  case $image_cloud_software in
+    cloud-init )
+      # cloud-init partition
+      cidata_part_num="2"
+      _cidata_part_start="${image_boot_part_size}MiB"
+      _cidata_part_end="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
 
-    create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-      "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
+      create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
+        "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
 
-    _other_part_num="3"
-    _other_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
-    _other_part_end="100%"
+      _other_part_num="3"
+      _other_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
+      _other_part_end="100%"
 
-    if [ -n "${image_encrypted+x}" ]; then
-      # Disk encryption
-      luks_part_num=$_other_part_num
-      _other_part_size=$image_luks_part_size
-      _other_part_desc="LUKS"
-    elif [ -n "${image_lvm_rootfs+x}" ]; then
-      # LVM
-      lvm_part_num=$_other_part_num
-      _other_part_size=$image_lvm_part_size
-      _other_part_desc="LVM"
-      _other_part_flags="lvm"
-    else
-      # No disk encryption
-      root_part_num=$_other_part_num
-      _other_part_size=$image_root_part_size
-      _other_part_desc="Root"
-    fi
-  else
-    # No cloud-init partition
-    _other_part_num="2"
-    _other_part_start="${image_boot_part_size}MiB"
-    _other_part_end="100%"
+      if [ -n "${image_encrypted+x}" ]; then
+        # Disk encryption
+        luks_part_num=$_other_part_num
+        _other_part_size=$image_luks_part_size
+        _other_part_desc="LUKS"
+      elif [ -n "${image_lvm_rootfs+x}" ]; then
+        # LVM
+        lvm_part_num=$_other_part_num
+        _other_part_size=$image_lvm_part_size
+        _other_part_desc="LVM"
+        _other_part_flags="lvm"
+      else
+        # No disk encryption
+        root_part_num=$_other_part_num
+        _other_part_size=$image_root_part_size
+        _other_part_desc="Root"
+      fi
+      ;;
+    * )
+      # No cloud-init partition
+      _other_part_num="2"
+      _other_part_start="${image_boot_part_size}MiB"
+      _other_part_end="100%"
 
-    if [ -n "${image_encrypted+x}" ]; then
-      # Disk encryption
-      luks_part_num=$_other_part_num
-      _other_part_size=$image_luks_part_size
-      _other_part_desc="LUKS"
-    elif [ -n "${image_lvm_rootfs+x}" ]; then
-      # LVM
-      lvm_part_num=$_other_part_num
-      _other_part_size=$image_lvm_part_size
-      _other_part_desc="LVM"
-      _other_part_flags="lvm"
-    else
-      # No disk encryption
-      root_part_num=$_other_part_num
-      _other_part_size=$image_root_part_size
-      _other_part_desc="Root"
-    fi
-  fi
+      if [ -n "${image_encrypted+x}" ]; then
+        # Disk encryption
+        luks_part_num=$_other_part_num
+        _other_part_size=$image_luks_part_size
+        _other_part_desc="LUKS"
+      elif [ -n "${image_lvm_rootfs+x}" ]; then
+        # LVM
+        lvm_part_num=$_other_part_num
+        _other_part_size=$image_lvm_part_size
+        _other_part_desc="LVM"
+        _other_part_flags="lvm"
+      else
+        # No disk encryption
+        root_part_num=$_other_part_num
+        _other_part_size=$image_root_part_size
+        _other_part_desc="Root"
+      fi
+      ;;
+  esac
 
   create_disk_partition "$_other_part_num" "$_other_part_start" \
     "$_other_part_end" "$_other_part_size" "$_other_part_desc" "${_other_part_flags:-}"
@@ -2393,8 +2349,9 @@ partition_uefi() {
   create_disk_label "gpt"
 
   uefi_part_num=1
-  _uefi_part_start="0%"
-  _uefi_part_end="${image_uefi_part_size}"
+  # Start the 1st (ESP) partition at 1MiB (2048 sectors) for partition alignment.
+  _uefi_part_start="1"
+  _uefi_part_end="$((_uefi_part_start+image_uefi_part_size))"
 
   case $esp_type in
     fat12 | fat16 )
@@ -2522,7 +2479,6 @@ partition_uefi() {
     create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
       "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
     label_gpt_disk_partition $lvm_part_num "LVM"
-
   else
     # No disk encryption, no LVM
     if [ -n "${needs_boot_partition+x}" ]; then
@@ -2609,6 +2565,12 @@ prep_runscript_main_section() {
 	
 	EOF
 
+  if [ -n "${image_console_user_password+x}" ]; then
+    cat <<-EOF >> "$run_script"
+	console_user_password="${image_console_user_password}"
+	EOF
+  fi
+
   if [ -n "${image_default_user_password+x}" ]; then
     cat <<-EOF >> "$run_script"
 	default_user_password="${image_default_user_password}"
@@ -2642,10 +2604,9 @@ fi
 cat <<-EOF >> "$run_script"
 	
 	check_for_required_packages
-	check_binfmt_packages ${image_arch}
+	check_binfmt_packages
 	
 	mkdir -p \$images_dir
-	
 	EOF
 }
 
@@ -2883,18 +2844,21 @@ setup_luks_device() {
 	  luks_device="\${loop_device}p${luks_part_num}"
 	  write_log "Formatting partition as LUKS version ${image_luks_version}" 2
 	  echo "\$encryption_passphrase" | cryptsetup -q --verbose luksFormat \\
-	    --pbkdf pbkdf2 --type luks${image_luks_version} --label ${CONSTANT_LUKS_LABEL} \\
+	    --pbkdf pbkdf2 --sector-size ${image_os_device_sector_size} --type luks${image_luks_version} --label ${CONSTANT_LUKS_LABEL} \\
 	EOF
 
-  if [ "$image_encryption_cipher" = "adiantum" ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_encryption_cipher in
+    adiantum )
+      cat <<-'EOF' >> "$run_script"
 	    --cipher xchacha12,aes-adiantum-plain64 --hash sha256 --key-size 256 \
 	EOF
-	else
-    cat <<-'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<-'EOF' >> "$run_script"
 	    --cipher aes-xts-plain64 --hash sha256 --key-size 512 \
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	    "$luks_device" >> "$logfile" 2>&1

@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -37,6 +37,8 @@ cloud:,\
 cloud-init-network-fallback,\
 cloud-seed-url:,\
 console-type:,\
+console-user:,\
+console-user-password:,\
 cpu-vendor:,\
 create-boot-partition,\
 cron:,\
@@ -79,6 +81,7 @@ lvm,\
 mdev,\
 mirror:,\
 no-cloud-configuration,\
+no-console-user:,\
 no-grub-encryption,\
 ntp-servers:,\
 ntp-use-host,\
@@ -211,7 +214,7 @@ help\
         if [ "$script_type" = "creator" ]; then
           image_class="cloud"
           case $2 in
-            aliyun | aws | azure | bigstep | brightbox | digitalocean | e24 | exoscale | generic | google | hetzner | hyperone | ibmcloud | oracle | rootbox | scaleway | tencent | upcloud | vultr )
+            aliyun | aws | azure | bigstep | brightbox | digitalocean | e24 | exoscale | generic | google | hetzner | hyperone | ibmcloud | oracle | ovh | rootbox | scaleway | tencent | upcloud | vultr )
               image_cloud_type=$2 ;;
             * )
               cli_option_unknown_value "cloud type '$2'" ;;
@@ -248,6 +251,14 @@ help\
         else
           cli_option_not_handled
         fi
+        shift 2
+        ;;
+      --console-user )
+        image_console_user="$2"
+        shift 2
+        ;;
+      --console-user-password )
+        image_console_user_password="$2"
         shift 2
         ;;
       --cpu-vendor )
@@ -534,7 +545,12 @@ help\
         shift 2
         ;;
       --keyboard-type )
-        image_keyboard_type="$2"
+        case $2 in
+          both | ps2 | usb )
+            image_keyboard_type="$2" ;;
+          * )
+            cli_option_unknown_value "keyboard type '$2', can only be 'both', 'ps2', or 'usb'" ;;
+        esac
         shift 2
         ;;
       --keymap )
@@ -575,6 +591,14 @@ help\
         ;;
       --no-cloud-configuration )
         image_cloud_software="none"
+        shift
+        ;;
+      --no-console-user )
+        if [ "$script_type" = "creator" ]; then
+         image_no_console_user=true
+        else
+          cli_option_not_handled
+        fi
         shift
         ;;
       --no-grub-encryption )
@@ -632,7 +656,7 @@ help\
         if [ "$script_type" = "creator" ]; then
           image_class="physical"
           case $2 in
-            pc | rpi2 | rpi3 | rpi4 )
+            arm-server | pc | rpi2 | rpi3 | rpi4 )
               image_physical_type=$2 ;;
             * )
               cli_option_unknown_value "physical machine type '$2'" ;;
@@ -737,7 +761,7 @@ help\
         if [ "$script_type" = "creator" ]; then
           case $2 in
             '9600' | '19200' | '38400' | '57600' | '115200' )
-              image_serial_console_speed="$2" ;;
+              image_serial_console_port_speed="$2" ;;
             * )
               cli_option_unknown_value "serial console speed '$2', must be either '9600', '19200', '38400', '57600' or '115200'" ;;
           esac
@@ -909,6 +933,8 @@ usage() {
     option_help "--cloud-seed-url < url >" "Base url for cloud-init NoCloud DataSource to download configuration from."
   fi
   option_help "--console-type < hypervisor | normal | serial >" "The type of device used for the console."
+  option_help "--console-user < username >" "Username for the console-only (non-SSH) user account created unless '--no-console-user' is specified. Defaults to '$CONSTANT_DEFAULT_CONSOLE_USER_ACCOUNT'"
+  option_help "--console-user-password < password >" "Password for console-only (non-SSH) user account. If this option is not specified then the account password is locked."
   option_help "--cpu-vendor < amd | intel >" "Used to decide if only AMD or Intel relevant microcode is installed and whether vendor-specific CPU kernel modules are included in the initramfs."
   option_help "--create-boot-partition" "Create a separate /boot partition, even if not required."
   if [ -n "${image_experimental+x}" ]; then
@@ -942,7 +968,11 @@ usage() {
   if [ -n "${image_experimental+x}" ]; then
     option_help "--firewall < awall | iptables | nftables >" "Experimental. Selects the firewall software to use."
   fi
-  option_help "--fs-type < btrfs | ext4 | f2fs | xfs >" "Selects the filesystem type to use for the rootfs."
+  if [ -n "${image_experimental+x}" ]; then
+    option_help "--fs-type < btrfs | ext4 | f2fs | xfs >" "Selects the filesystem type to use for the rootfs."
+  else
+    option_help "--fs-type < ext4 | xfs >" "Selects the filesystem type to use for the rootfs."
+  fi
   if [ -z "${image_class+x}" ] || [ "$image_class" = "physical" ]; then
     option_help "--full-hostname < hostname >" "Only for physical machines. The hostname, including domain, to place in the generated cloud-init user-data YAML file."
   fi
@@ -970,7 +1000,7 @@ usage() {
     option_help "--kernel-type '< normal | edge >'" "Experimental. For Alpine Edge images selects whether to use linux-lts/linux-virt kernel or linux-edge/linux-edge4virt kernel."
   fi
   if [ -z "${image_class+x}" ] || [ "$image_class" != "physical" ] || \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+     [ "$image_physical_type" = "pc" ]; then
     option_help "--keyboard-type '< ps2 | usb >'" "Indicate the type of physical console keyboard. Defaults to 'ps2' for x86/x86_64 machines in many cases, however for aarch64 machines defaults to 'usb'."
   fi
   option_help "--keymap '< keymap >'" "Defaults to '$CONSTANT_DEFAULT_KEYMAP'."
@@ -985,6 +1015,7 @@ usage() {
   if [ -n "${image_experimental+x}" ]; then
     option_help "--no-cloud-configuration" "Experimental. Indicates that neither cloud-init nor tiny-cloud should be installed/configured."
   fi
+  option_help "--no-console-user" "Do not create a user account for console-only (non-SSH) access."
   option_help "--no-grub-encryption" "Do not enable GRUB's own LUKS handling (distinct from whether LUKS is in use in general) which means that /boot must then be unencrypted and so /boot will be created as a separate partition from the rootfs."
   if [ -n "${image_experimental+x}" ]; then
     option_help "--ntp-servers < comma separated list of NTP servers >" "Experimental. Synch with these NTP servers."
@@ -1015,12 +1046,12 @@ usage() {
   fi
   option_help "--root-part-size < size in MiB >" "Specify the size of the root partition. Useful in conjunction with '--add-packages' where more space is needed."
   if [ -z "${image_class+x}" ] || \
-     { [ "$image_class" = "physical" ] && [ "$(expr "$image_physical_type" : '.*rpi.*')" -ne 0 ]; }; then
+     { [ "$image_class" = "physical" ] && [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; }; then
     option_help "--rpi-poe-hat" "When creating an image for a Raspberry Pi (i.e. '--physical rpi2') indicates that the RPI has a Raspberry Pi official PoE HAT fitted."
     option_help "--rpi-rtc" "When creating an image for a Raspberry Pi (i.e. '--physical rpi2') indicates that the RPI has a hardware RTC fitted."
   fi
   option_help "--script-filename < filename >" "MANDATORY. The filename of the script to be created."
-  option_help "--serial-console-speed < speed >" "The speed of the interface used as console."
+  option_help "--serial-console-speed < speed >" "The speed of the serial port used as console."
   if [ -z "${image_class+x}" ] || [ "$image_class" = "physical" ]; then
     option_help "--short-hostname < hostname >" "Only for physical machines. The hostname, without domain, to place in the generated cloud-init user-data YAML file."
   fi
@@ -1063,13 +1094,16 @@ validate_cli_options() {
 
   # Arch
   if [ -z ${image_arch+x} ]; then
-    image_arch=$CONSTANT_DEFAULT_ARCH
+    if [ -n "${image_class+x}" ] && [ "$image_class" = "physical" ] && \
+       [ "$image_physical_type" = "arm-server" ]; then
+      image_arch="aarch64"
+    else
+      image_arch=$CONSTANT_DEFAULT_ARCH
+    fi
   fi
 
   # Alpine Release
-  if [ -z ${image_alpine_release+x} ]; then
-    image_alpine_release=$CONSTANT_DEFAULT_ALPINE_RELEASE
-  fi
+  image_alpine_release=${image_alpine_release:-$CONSTANT_DEFAULT_ALPINE_RELEASE}
 
   # Machine type defaults to QEMU VM
   if [ -z ${image_class+x} ]; then
@@ -1078,49 +1112,22 @@ validate_cli_options() {
   fi
 
   # Kernel
-  if [ -z ${image_kernel_type+x} ]; then
-    image_kernel_type="normal"
-  fi
-
-  # Filesystem type
-  if [ -z ${image_fs_type+x} ]; then
-    image_fs_type=$CONSTANT_DEFAULT_FS_TYPE
-  fi
+  image_kernel_type="${image_kernel_type:-normal}"
 
   # Whether /tmp is on disk or tmpfs
-  if [ -z ${image_tmp_on_tmpfs+x} ]; then
-    image_tmp_on_tmpfs=true
-  fi
-
-  # Console type
-  if [ -z ${image_console_type+x} ]; then
-    image_console_type="normal"
-  fi
-
-  # Tools for creating/updating initramfs
-  if [ -z ${image_initramfs_tool+x} ]; then
-    image_initramfs_tool="mkinitfs"
-  fi
+  image_tmp_on_tmpfs=${image_tmp_on_tmpfs:-true}
 
   # APK-static version
-  if [ -z ${apk_static_version+x} ]; then
-    apk_static_version=$CONSTANT_APK_STATIC_VERSION
-  fi
+  apk_static_version=${apk_static_version:-$CONSTANT_APK_STATIC_VERSION}
 
   # URL to download APK-static down
-  if [ -z ${apk_static_url+x} ]; then
-    apk_static_url=$CONSTANT_APK_STATIC_URL
-  fi
+  apk_static_url=${apk_static_url:-$CONSTANT_APK_STATIC_URL}
 
   # Chroot directory
-  if [ -z ${chroot_directory+x} ]; then
-    chroot_directory=$CONSTANT_DEFAULT_CHROOT_DIRECTORY
-  fi
+  chroot_directory=${chroot_directory:-$CONSTANT_DEFAULT_CHROOT_DIRECTORY}
 
   # Images directory
-  if [ -z ${images_directory+x} ]; then
-    images_directory=$CONSTANT_DEFAULT_IMAGES_DIRECTORY
-  fi
+  images_directory=${images_directory:-$CONSTANT_DEFAULT_IMAGES_DIRECTORY}
 
   # Whether to use ramdisk
   if [ -n "${use_ramdisk+x}" ] && [ -z "${ramdisk_directory+x}" ]; then
@@ -1129,99 +1136,7 @@ validate_cli_options() {
   fi
 
   # Alpine repo mirror site
-  if [ -z ${alpine_mirror_site+x} ]; then
-    alpine_mirror_site=$CONSTANT_DEFAULT_MIRROR_SITE
-  fi
-
-  # Whether to use boot_by_label
-  if [ -z ${image_boot_reference+x} ]; then
-    image_boot_reference=$CONSTANT_DEFAULT_BOOT_REFERENCE
-  fi
-
-  # Admin username
-  if [ -z ${image_admin_username+x} ]; then
-    image_admin_username=$CONSTANT_DEFAULT_ADMIN_USERNAME
-  fi
-
-  # Whether to enable Bootchart
-  if [ -n "${image_bootchart+x}" ] && [ -z "${image_experimental+x}" ]; then
-    error_message "Bootchart support is an experimental option!"
-  fi
-
-  # Cron daemon software
-  if [ -z ${image_cron_daemon+x} ]; then
-    image_cron_daemon=$CONSTANT_DEFAULT_CRON_DAEMON
-  fi
-
-  # DHCP client software
-  if [ -z ${image_dhcp_client+x} ]; then
-    image_dhcp_client=$CONSTANT_DEFAULT_DHCP_CLIENT
-  fi
-
-  # Doas
-  if [ -z ${image_auth_control+x} ]; then
-    case $image_alpine_release in
-      v3.13 | v3.14 )
-        image_auth_control="sudo" ;;
-      * )
-        image_auth_control=$CONSTANT_DEFAULT_AUTH_CONTROL ;;
-    esac
-  elif [ "$image_auth_control" = "doas" ] || \
-       [ "$image_auth_control" = "both" ]; then
-    case $image_alpine_release in
-      v3.13 | v3.14 )
-        error_message "Alpine v3.13 and v3.14 do not work correctly with doas and cloud-init. Please use sudo only." ;;
-    esac
-  fi
-
-  # Firewall software
-  if [ -z ${image_firewall+x} ]; then
-    image_firewall=$CONSTANT_DEFAULT_FIREWALL
-  fi
-
-  # IPv6 type (DHCPv6 / SLAAC)
-  if [ -z ${ipv6_type+x} ]; then
-    image_ipv6_type=$CONSTANT_DEFAULT_IPV6_TYPE
-  fi
-
-  # Keymap
-  if [ -z ${image_keymap+x} ]; then
-    image_keymap=$CONSTANT_DEFAULT_KEYMAP
-  fi
-
-  # Locale
-  if [ -z ${image_locale+x} ]; then
-    image_locale=$CONSTANT_DEFAULT_LOCALE
-  fi
-
-  # If mdev/udev not specified, use default.
-  if [ -z ${image_mdev+x} ]; then
-    image_mdev=$CONSTANT_DEFAULT_MDEV
-  fi
-
-  if [ -z ${image_resize_free_percent+x} ]; then
-    image_resize_free_percent=$CONSTANT_DEFAULT_DISK_RESIZE_FREE_PERCENT
-  fi
-
-  # If SSH host key types not specified then assume default
-  if [ -z ${image_ssh_keytypes+x} ]; then
-    image_ssh_keytypes=$CONSTANT_DEFAULT_SSH_KEYTYPES
-  fi
-
-  # SSH server software
-  if [ -z ${image_ssh_server+x} ]; then
-    image_ssh_server=$CONSTANT_DEFAULT_SSH_SERVER
-  fi
-
-  # Syslog server software
-  if [ -z ${image_syslog_server+x} ]; then
-    image_syslog_server=$CONSTANT_DEFAULT_SYSLOG_SERVER
-  fi
-
-  # Overrride default root partition size
-  if [ -n "${override_root_part_size+x}" ]; then
-    general_root_part_size=$override_root_part_size
-  fi
+  alpine_mirror_site=${alpine_mirror_site:-$CONSTANT_DEFAULT_MIRROR_SITE}
 
 
   # Cloud/Physical/Virtual specific settings
@@ -1235,36 +1150,130 @@ validate_cli_options() {
   esac
 
 
+  # Admin username
+  image_admin_username=${image_admin_username:-$CONSTANT_DEFAULT_ADMIN_USERNAME}
+
+  # Console-only user
+  image_no_console_user=${image_no_console_user:-false}
+  if [ "$image_no_console_user" = "false" ]; then
+    image_console_user=${image_console_user:-$CONSTANT_DEFAULT_CONSOLE_USER_ACCOUNT}
+    image_console_only_group="${image_console_only_group:-$CONSTANT_DEFAULT_CONSOLE_ONLY_GROUP}"
+  fi
+
+  # Whether to use boot_by_label
+  image_boot_reference=${image_boot_reference:-$CONSTANT_DEFAULT_BOOT_REFERENCE}
+
+  # Whether to enable Bootchart
+  if [ -n "${image_bootchart+x}" ] && [ -z "${image_experimental+x}" ]; then
+    error_message "Bootchart support is an experimental option!"
+  fi
+
+  # Console type
+  image_console_type="${image_console_type:-normal}"
+
+  # Cron daemon software
+  image_cron_daemon=${image_cron_daemon:-$CONSTANT_DEFAULT_CRON_DAEMON}
+
+  # DHCP client software
+  image_dhcp_client=${image_dhcp_client:-$CONSTANT_DEFAULT_DHCP_CLIENT}
+
+  # Doas
+  if [ -z ${image_auth_control+x} ]; then
+    case $image_alpine_release in
+      v3.13 | v3.14 )
+        image_auth_control="sudo" ;;
+      * )
+        image_auth_control=$CONSTANT_DEFAULT_AUTH_CONTROL ;;
+    esac
+  elif [ "$image_auth_control" = "doas" ] || [ "$image_auth_control" = "both" ]; then
+    case $image_alpine_release in
+      v3.13 | v3.14 )
+        error_message "Alpine v3.13 and v3.14 do not work correctly with doas and cloud-init. Please use sudo only." ;;
+    esac
+  fi
+
+  # Filesystem type
+  image_fs_type=${image_fs_type:-$CONSTANT_DEFAULT_FS_TYPE}
+  if [ -z "${image_experimental+x}" ]; then
+    case $image_fs_type in
+      btrfs | f2fs )
+        error_message "Support for this filesystem type is experimental!" ;;
+    esac
+  fi
+
+  # Firewall software
+  image_firewall=${image_firewall:-$CONSTANT_DEFAULT_FIREWALL}
+
+  # Tools for creating/updating initramfs
+  if [ -z ${image_initramfs_tool+x} ]; then
+    image_initramfs_tool="mkinitfs"
+  else
+    case $image_initramfs_tool in
+      booster )
+        case $image_alpine_release in
+          edge )
+            : ;;
+          * )
+            error_message "Booster is not available for this version of Alpine." ;;
+        esac
+        ;;
+    esac
+  fi
+
+  # IPv6 type (DHCPv6 / SLAAC)
+  image_ipv6_type=${image_ipv6_type:-$CONSTANT_DEFAULT_IPV6_TYPE}
+
+  # Keymap
+  image_keymap=${image_keymap:-$CONSTANT_DEFAULT_KEYMAP}
+
+  # Locale
+  image_locale=${image_locale:-$CONSTANT_DEFAULT_LOCALE}
+
+  # If mdev/mdevd/udev not specified, use default.
+  image_mdev=${image_mdev:-$CONSTANT_DEFAULT_MDEV}
+
+  image_resize_free_percent=${image_resize_free_percent:-$CONSTANT_DEFAULT_DISK_RESIZE_FREE_PERCENT}
+
+  # If SSH host key types not specified then assume default
+  image_ssh_keytypes=${image_ssh_keytypes:-$CONSTANT_DEFAULT_SSH_KEYTYPES}
+
+  # SSH server software
+  image_ssh_server=${image_ssh_server:-$CONSTANT_DEFAULT_SSH_SERVER}
+
+  # Syslog server software
+  image_syslog_server=${image_syslog_server:-$CONSTANT_DEFAULT_SYSLOG_SERVER}
+
+  # Overrride default root partition size
+  if [ -n "${override_root_part_size+x}" ]; then
+    general_root_part_size=$override_root_part_size
+  fi
+
+
   # Settings that may depend on other per cloud/physical/virtual settings:
   #-----------------------------------------------------------------------
 
-  # If console name not specified then assume default
-  if [ -z ${image_console_name+x} ]; then
-    case $image_console_type in
-      hypervisor )
-        image_console_name="hvc0" ;;
-      normal )
-        image_console_name="tty0" ;;
-      serial )
-        image_console_name="ttyS0"
-        if [ -z "${serial_port_speed+x}" ]; then
-          if [ -n "${image_serial_console_speed+x}" ]; then
-            serial_port_speed=$image_serial_console_speed
-          else
-            serial_port_speed=$CONSTANT_DEFAULT_SERIAL_PORT_SPEED
-          fi
-        fi
-        ;;
-    esac
+  # Whether to use Limine bootloader
+  if [ "$image_bootloader" = "limine" ] && [ -z "${image_experimental+x}" ]; then
+    error_message "Limine bootloader support is an experimental option!"
   fi
 
   # Log filename is based on image filename
   logs_output_file=$(echo "$filename_for_image" | sed -e 's|\.img$|\.log|')
 
   # Boot device type
-  if [ -z "${image_os_device_type+x}" ]; then
-    image_os_device_type=$CONSTANT_DEFAULT_BOOT_DEVICE_TYPE
-  fi
+  case $image_physical_type in
+    rpi* )
+      image_os_device_type=${image_os_device_type:-$CONSTANT_DEFAULT_RPI_BOOT_DEVICE_TYPE}
+      case $image_os_device_type in
+        sd )
+          : ;;
+        * )
+          error_message "Raspberry Pi's only support booting from SDcard!"
+      esac
+      ;;
+    * )
+      image_os_device_type=${image_os_device_type:-$CONSTANT_DEFAULT_BOOT_DEVICE_TYPE} ;;
+  esac
 
   # Boot device media
   if [ -z ${image_os_device_media+x} ]; then
@@ -1280,32 +1289,31 @@ validate_cli_options() {
     esac
   fi
 
+  # Boot device logical sector size (in bytes)
+  image_os_device_sector_size=${image_os_device_sector_size:-512}
+
   # Encryption
   if [ -n "${image_encrypted+x}" ]; then
-    if [ -z ${image_encryption_cipher+x} ]; then
-      image_encryption_cipher=$CONSTANT_DEFAULT_LUKS_CIPHER
-    fi
-    if [ -z "${image_encryption_passphrase+x}" ]; then
-      image_encryption_passphrase="$CONSTANT_DEFAULT_LUKS_PASSPHRASE"
-    fi
+    image_encryption_cipher=${image_encryption_cipher:-$CONSTANT_DEFAULT_LUKS_CIPHER}
+    image_encryption_passphrase="${image_encryption_passphrase:-$CONSTANT_DEFAULT_LUKS_PASSPHRASE}"
   fi
 
   # Keyboard type
-  if [ -z ${image_keyboard_type+x} ]; then
-    if [ "$image_arch" = "aarch64" ]; then
-      # aarch64 VMs have USB keyboard
-      image_keyboard_type="usb"
-    else
-      image_keyboard_type="both"
-    fi
+  if [ "$image_console_type" = "normal" ] && [ -z ${image_keyboard_type+x} ]; then
+    case $image_arch in
+      aarch64 )
+        # aarch64 machines have USB keyboard
+        image_keyboard_type="usb" ;;
+      * )
+        image_keyboard_type="both" ;;
+    esac
   fi
 
 
   # Sanity checks
   #---------------
 
-  if [ -n "${create_boot_partition+x}" ] && \
-     [ "$image_bootloader" = "grub" ]; then
+  if [ -n "${create_boot_partition+x}" ] && [ "$image_bootloader" = "grub" ]; then
     # By creating a separate boot partition this means that GRUB
     # should also not enable its own encryption support for /boot.
     image_no_grub_encryption=true
@@ -1344,7 +1352,7 @@ validate_cli_options() {
   image_boot_part_size=$(calculate_boot_part_size)
 
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       image_uefi_part_size=$(calculate_uefi_part_size) ;;
   esac
 }

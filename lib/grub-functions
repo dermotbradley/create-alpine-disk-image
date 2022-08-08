@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -89,12 +89,14 @@ configure_bootloader_grub() {
     btrfs | ext4 )
       case $image_os_device_media in
         flash | sd | ssd )
-          # For older Alpine releases add commit mount option for rootfs when
-          # on flash device as this is *not* read from /etc/fstab by
-          # initramfs' init when it mounts rootfs.
           case $image_alpine_release in
             v3.13 | v3.14 | v3.15 | v3.16 | edge )
-            _cmdline="$_cmdline rootflags=commit=300" ;;
+              # For older Alpine releases add commit mount option for rootfs
+              # when on flash device as this is *not* read from /etc/fstab by
+              # initramfs' init when it mounts rootfs.
+              _cmdline="$_cmdline rootflags=commit=300" ;;
+            * )
+              : ;;
           esac
           ;;
       esac
@@ -104,7 +106,7 @@ configure_bootloader_grub() {
     normal )
       _cmdline="$_cmdline console=$image_console_name" ;;
     serial )
-      _cmdline="$_cmdline console=${serial_port_name},${serial_port_speed}" ;;
+      _cmdline="$_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}" ;;
   esac
   if [ "$image_boot_type" = "bios" ] && \
      [ -z "${debug_enabled+x}" ]; then
@@ -120,6 +122,21 @@ configure_bootloader_grub() {
       # handle the usual signal this sends, so specify USR2 which Busybox
       # accepts for "poweroff" situations.
       _cmdline="$_cmdline tiny_power_button.power_signal=12" ;;
+  esac
+  # Set the clocksource
+  case $image_class in
+    cloud )
+      case $image_vm_type in
+        aws )
+          _cmdline="$_cmdline clocksource=kvm-clock" ;;
+      esac
+      ;;
+    virtual )
+      case $image_vm_type in
+        libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
+          _cmdline="$_cmdline clocksource=kvm-clock" ;;
+      esac
+      ;;
   esac
   if [ -n "${image_bootchart+x}" ]; then
     _cmdline="$_cmdline chart rootflags=rw"
@@ -217,12 +234,15 @@ configure_bootloader_grub() {
   fi
 
   case $image_console_type in
-    serial | both )
+    hypervisor )
+      # Grub does not support virtio console
+      : ;;
+    serial )
       enable_grub_serial_console ;;
   esac
 
   cat <<-'EOF' >> "$run_script"
-	    ###chmod g=,o= /etc/default/grub
+	    chmod g=,o= /etc/default/grub
 	  }
 	EOF
 
@@ -247,6 +267,26 @@ configure_bootloader_grub() {
 	
 	  chmod g=,o= /boot/grub/grub.cfg
 	}
+	EOF
+}
+
+
+#
+# Enable serial console for Grub
+#
+enable_grub_serial_console() {
+  cat <<-EOF >> "$run_script"
+	    {
+	      write_log "Configure GRUB serial command" 4
+	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${image_serial_console_port_number} --speed=${image_serial_console_port_speed}"' \\
+	        >> /etc/default/grub
+	EOF
+
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Configure GRUB for serial console" 4
+	      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial"/' \
+	        /etc/default/grub
+	    }
 	EOF
 }
 
@@ -310,46 +350,65 @@ install_grub() {
       _grub_modules_list="$_grub_modules_list password_pbkdf2"
     fi
 
-    # Serial
-    if [ "$image_console_type" = "serial" ] || \
-       [ "$image_console_type" = "both" ]; then
-      _grub_modules_list="$_grub_modules_list serial"
-    fi
-
-    # USB
-    if [ "$image_arch" != "aarch64" ] && \
-       [ "$keyboard_type" = "usb" ] || \
-       [ "$keyboard_type" = "both" ]; then
-      _grub_modules_list="$_grub_modules_list ehci usb usb_keyboard"
-
-      if [ -z "${image_cpu_vendor+x}" ] || \
-         [ "$image_cpu_vendor" = "amd" ]; then
-        _grub_modules_list="$_grub_modules_list ohci"
-      fi
-      if [ -z "${image_cpu_vendor+x}" ] || \
-         [ "$image_cpu_vendor" = "intel" ]; then
-        _grub_modules_list="$_grub_modules_list uhci"
-      fi
-    fi
-
-    # PS/2 keyboard
-    if { [ "$image_arch" = "x86" ] || \
-         [ "$image_arch" = "x86_64" ]; } && \
-       { [ "$keyboard_type" = "ps2" ] || \
-         [ "$keyboard_type" = "both" ]; }; then
-      _grub_modules_list="$_grub_modules_list at_keyboard"
-    fi
+    case $image_console_type in
+      normal )
+        case $image_arch in
+          aarch64 )
+            _grub_modules_list="$_grub_modules_list ehci ohci usb usb_keyboard"
+            ;;
+          x86 | x86_64 )
+            case $image_keyboard_type in
+              both )
+                _grub_modules_list="$_grub_modules_list at_keyboard usb usb_keyboard"
+                case $image_class in
+                  cloud | virtual )
+                    _grub_modules_list="$_grub_modules_list ohci" ;;
+                  physical )
+                    _grub_modules_list="$_grub_modules_list ehci"
+                    if [ -z "${image_cpu_vendor+x}" ] || [ "$image_cpu_vendor" = "amd" ]; then
+                      _grub_modules_list="$_grub_modules_list ohci"
+                    fi
+                    if [ -z "${image_cpu_vendor+x}" ] || [ "$image_cpu_vendor" = "intel" ]; then
+                      _grub_modules_list="$_grub_modules_list uhci"
+                    fi
+                    ;;
+                esac
+                ;;
+              ps2 )
+                _grub_modules_list="$_grub_modules_list at_keyboard" ;;
+              usb )
+                _grub_modules_list="$_grub_modules_list usb usb_keyboard"
+                case $image_class in
+                  cloud | virtual )
+                    _grub_modules_list="$_grub_modules_list ohci" ;;
+                  physical )
+                    _grub_modules_list="$_grub_modules_list ehci"
+                    if [ -z "${image_cpu_vendor+x}" ] || [ "$image_cpu_vendor" = "amd" ]; then
+                      _grub_modules_list="$_grub_modules_list ohci"
+                    fi
+                    if [ -z "${image_cpu_vendor+x}" ] || [ "$image_cpu_vendor" = "intel" ]; then
+                      _grub_modules_list="$_grub_modules_list uhci"
+                    fi
+                    ;;
+                esac
+                ;;
+            esac
+            ;;
+        esac
+        ;;
+      serial )
+        _grub_modules_list="$_grub_modules_list serial" ;;
+    esac
 
     # Storage
-    if [ "$image_class" = "physical" ] && \
-       [ "$image_physical_type" = "pc" ]; then
+    if [ "$image_class" = "physical" ]; then
       case $image_os_device_type in
         nvme )
           _grub_modules_list="$_grub_modules_list ahci" ;;
         pata )
           _grub_modules_list="$_grub_modules_list ata pata" ;;
         sata )
-          _grub_modules_list="$_grub_modules_list ata ahci scsi" ;;
+          _grub_modules_list="$_grub_modules_list ata ahci" ;;
         scsi | sd )
           _grub_modules_list="$_grub_modules_list scsi" ;;
         usb )
@@ -358,48 +417,59 @@ install_grub() {
     fi
   fi
 
-  if [ "$image_arch" = "aarch64" ] && [ "$image_boot_type" = "uefi" ]; then
-    _grub_options="--target=arm64-efi $_grub_efi_options"
-    if [ -n "${image_optimise+x}" ]; then
-      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
-    fi
-  elif [ "$image_arch" = "x86" ]; then
-    _grub_options="--target=i386-pc"
-    if [ -n "${image_optimise+x}" ]; then
-      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
-      if [ "$image_class" = "cloud" ]; then
-        _grub_modules_list="$_grub_modules_list video_bochs"
-      elif [ "$image_class" = "virtual" ]; then
-        case $image_vm_type in
-          libvirtd | lxd | proxmox | qemu | utm | generic )
-            _grub_modules_list="$_grub_modules_list video_bochs"
-            ;;
-        esac
+  case $image_arch in
+    aarch64 )
+      if [ "$image_boot_type" = "uefi" ]; then
+        _grub_options="--target=arm64-efi $_grub_efi_options"
+        if [ -n "${image_optimise+x}" ]; then
+          _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+        fi
       fi
-    fi
-  elif [ "$image_arch" = "x86_64" ] && [ "$image_boot_type" = "bios" ]; then
-    _grub_options="--target=i386-pc"
-    if [ -n "${image_optimise+x}" ]; then
-      _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
-      if [ "$image_class" = "cloud" ]; then
-        _grub_modules_list="$_grub_modules_list video_bochs"
-      elif [ "$image_class" = "virtual" ]; then
-        case $image_vm_type in
-          libvirtd | lxd | proxmox | qemu | utm | generic )
-            _grub_modules_list="$_grub_modules_list video_bochs"
-            ;;
-        esac
+      ;;
+    x86 )
+      _grub_options="--target=i386-pc"
+      if [ -n "${image_optimise+x}" ]; then
+        _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+        if [ "$image_class" = "cloud" ]; then
+          _grub_modules_list="$_grub_modules_list video_bochs"
+        elif [ "$image_class" = "virtual" ]; then
+          case $image_vm_type in
+            libvirtd | lxd | proxmox | qemu | utm | generic )
+              _grub_modules_list="$_grub_modules_list video_bochs"
+              ;;
+          esac
+        fi
       fi
-    fi
-  else
-    _grub_options="--target=x86_64-efi $_grub_efi_options"
-    if [ -n "${image_optimise+x}" ]; then
-      _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
-    fi
-  fi
+      ;;
+    x86_64 )
+      case $image_boot_type in
+        bios )
+          _grub_options="--target=i386-pc"
+          if [ -n "${image_optimise+x}" ]; then
+            _grub_modules_list="$_grub_modules_list biosdisk part_msdos vga vga_text"
+            if [ "$image_class" = "cloud" ]; then
+              _grub_modules_list="$_grub_modules_list video_bochs"
+            elif [ "$image_class" = "virtual" ]; then
+              case $image_vm_type in
+                libvirtd | lxd | proxmox | qemu | utm | generic )
+                  _grub_modules_list="$_grub_modules_list video_bochs"
+                  ;;
+              esac
+            fi
+          fi
+          ;;
+        secure-uefi | uefi )
+          _grub_options="--target=x86_64-efi $_grub_efi_options"
+          if [ -n "${image_optimise+x}" ]; then
+            _grub_modules_list="$_grub_modules_list all_video efi_gop efifwsetup gfxterm part_gpt"
+          fi
+          ;;
+      esac
+      ;;
+  esac
 
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       cat <<-'EOF' >> "$run_script"
 	
 	mkdir -p /efi/EFI

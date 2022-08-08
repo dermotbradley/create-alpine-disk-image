@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -36,6 +36,10 @@ configure_booster() {
       _fsck_programs="/usr/sbin/fsck.f2fs" ;;
     xfs )
       _fsck_programs="/sbin/fsck.xfs" ;;
+  esac
+  case $image_boot_type in
+    secure-uefi | uefi )
+      _fsck_programs="$_fsck_programs,/sbin/fsck.vfat" ;;
   esac
   if [ -n "${_fsck_programs+x}" ]; then
     _extra_files_list="$_extra_files_list,$_fsck_programs"
@@ -126,14 +130,21 @@ configure_booster() {
 define_booster_base_load_modules() {
   local _list
 
-  case $image_alpine_release in
-    v3.13 | v3.14 )
-      # FBdev
-      : ;;
-    * )
-      # DRM
-      _list="simpledrm";;
-  esac
+  if [ "$image_class" = "physical" ] && \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+    # Is a Raspberry Pi which still uses FBDEV rather than DRM
+    :
+  else
+    # Not a Raspberry Pi
+    case $image_alpine_release in
+      v3.13 | v3.14 )
+        # FBdev
+        : ;;
+      * )
+        # DRM
+        _list="$(module_name "kernel/drivers/gpu/drm/tiny/simpledrm.ko")" ;;
+    esac
+  fi
 
   if [ -n "${_list+x}" ];then
     _list="${_list},${image_fs_type}"
@@ -141,13 +152,31 @@ define_booster_base_load_modules() {
     _list="${image_fs_type}"
   fi
 
-  _list="${_list},virtio_blk,tiny_power_button,vmwgfx,sd_mod,virtio_scsi"
+  case $image_class in
+    cloud )
+      _specific_list=$(get_cloud_modules_list) ;;
+    physical )
+      _specific_list=$(get_physical_modules_list) ;;
+    virtual )
+      _specific_list=$(get_virtual_modules_list) ;;
+  esac
+
+  if [ -n "${_specific_list+x}" ];then
+    _list="${_list},${_specific_list}"
+  fi
+
+
+  _list="${_list},$(module_name "kernel/drivers/block/virtio_blk.ko")"
+  _list="${_list},$(module_name "kernel/drivers/acpi/tiny-power-button.ko")"
+  _list="${_list},$(module_name "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko")"
+  _list="${_list},$(module_name "kernel/drivers/scsi/sd_mod.ko")"
+  _list="${_list},$(module_name "kernel/drivers/scsi/virtio_scsi.ko")"
 
   ###if [ -n "${image_lvm_rootfs+x}" ]; then
   ###  _list="${_list},dm-mod,dm-snapshot"
   ###fi
   if [ -n "${image_encrypted+x}" ]; then
-    _list="${_list},dm-crypt"
+    _list="${_list},$(module_name "kernel/drivers/md/dm-crypt.ko")"
   fi
 
   echo "${_list}"
