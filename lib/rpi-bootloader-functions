@@ -1,0 +1,315 @@
+#!/bin/sh
+# shellcheck disable=SC1117,SC2039
+
+#############################################################################
+##
+##  rpi-bootloader-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Setup the config files used by Raspberry Pi bootloader
+#
+configure_bootloader_rpi() {
+  local _cmdline _modules
+
+  ###_modules="sd-mod,usb-storage"
+
+  # Increase the kernel message buffer so all messages during boot are retained
+  _cmdline="log_buf_len=32768"
+
+  _cmdline="$_cmdline rootfstype=$image_fs_type ro"
+  if [ -n "${_modules+x}" ]; then
+    _cmdline="$_cmdline modules=$_modules"
+  fi
+  case $image_fs_type in
+    btrfs | ext4 )
+      case $image_os_device_media in
+        flash | sd | ssd )
+          # For older Alpine releases add commit mount option for rootfs when
+          # on flash device as this is *not* read from /etc/fstab by
+          # initramfs' init when it mounts rootfs.
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 | v3.16 )
+              _cmdline="$_cmdline rootflags=commit=300" ;;
+            * )
+              # MR outstanding to fix this
+              : ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  if [ -n "${image_encrypted+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME} \\\$(define_cmdline_for_encryption)"
+  elif [ -n "${image_lvm_rootfs+x}" ]; then
+    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  else
+    _cmdline="$_cmdline root=/dev/mmcblk0p${root_part_num}"
+  fi
+  if [ -n "${image_disable_ipv6+x}" ]; then
+	  _cmdline="$_cmdline ipv6.disable=1"
+	fi
+  if [ -n "${image_bootchart+x}" ]; then
+    _cmdline="$_cmdline chart rootflags=rw"
+  fi
+  _cmdline="$_cmdline console=${image_console_name} quiet"
+
+  if [ -n "${image_extra_cmdline_options+x}" ]; then
+    # Add any additionally specified cmdline options
+    _cmdline="$_cmdline $image_extra_cmdline_options"
+  fi
+
+  create_rpi_bootloader_cmdline_file "$_cmdline"
+  create_rpi_bootloader_config_file
+  create_rpi_bootloader_usercfg_file
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Create RPI cmdline.txt bootloader file
+#
+create_rpi_bootloader_cmdline_file() {
+  local _cmdline="$1"
+
+  cat <<EOF >> "$run_script"
+
+write_log "Create RPI bootloader configuration"
+{
+  write_log "Creating /boot/cmdline.txt" 2
+  cat <<-_SCRIPT_ > /boot/cmdline.txt
+	$_cmdline
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "/boot/cmdline.txt contents:" 2
+	    cat /boot/cmdline.txt >> /chroot.log
+	  }
+	EOF
+  fi
+}
+
+
+#
+# Create a single entry for RPI config.txt bootloader file
+#
+create_rpi_bootloader_config_entry() {
+  local _entry_name="$1"
+  local _entry_suffix="$2"
+
+  cat <<EOF >> "$run_script"
+	[${_entry_name}]
+EOF
+
+  if [ "$_entry_name" = "pi4" ]; then
+    cat <<EOF >> "$run_script"
+	enable_gic=1
+EOF
+  fi
+
+	cat <<EOF >> "$run_script"
+	kernel=vmlinuz-${_entry_suffix}
+	initramfs initramfs-${_entry_suffix}
+EOF
+}
+
+
+#
+# Create RPI config.txt bootloader file
+#
+create_rpi_bootloader_config_file() {
+  local _filename_suffix
+
+  cat <<EOF >> "$run_script"
+
+  write_log "Creating /boot/config.txt" 2
+  cat <<-_SCRIPT_ > /boot/config.txt
+EOF
+
+  case $image_physical_type in
+    rpi2 )
+      case $image_arch in
+        aarch64 )
+          _filename_suffix="rpi" ;;
+        armv7 )
+          _filename_suffix="rpi2" ;;
+      esac
+
+      create_rpi_bootloader_config_entry "pi2" "$_filename_suffix"
+      ;;
+
+    rpi3 )
+      case $image_arch in
+        aarch64 )
+          _filename_suffix="rpi" ;;
+        armv7 )
+          _filename_suffix="rpi2" ;;
+      esac
+
+      create_rpi_bootloader_config_entry "pi3" "$_filename_suffix"
+      create_rpi_bootloader_config_entry "pi3+" "$_filename_suffix"
+      ;;
+
+    rpi4 )
+      _filename_suffix="rpi4"
+
+      create_rpi_bootloader_config_entry "pi4" "$_filename_suffix"
+      ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
+	[all]
+EOF
+
+  case $image_arch in
+    aarch64 )
+      cat <<'EOF' >> "$run_script"
+	arm_64bit=1
+EOF
+      ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
+	# Set GPU memory to 16MB when using cutdown bootloader
+	gpu_mem=16
+	include usercfg.txt
+	_SCRIPT_
+EOF
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "/boot/config.txt contents:" 2
+	    cat /boot/config.txt >> /chroot.log
+	  }
+	EOF
+  fi
+}
+
+
+#
+# Create RPI usercfg.txt bootloader file
+#
+create_rpi_bootloader_usercfg_file() {
+  local _fixup_file _start_file
+
+  case $image_physical_type in
+    rpi4 )
+      _fixup_file="fixup4cd.dat"
+      _start_file="start4cd.elf"
+      ;;
+    * )
+      _fixup_file="fixup_cd.dat"
+      _start_file="start_cd.elf"
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+
+  write_log "Creating /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ > /boot/usercfg.txt
+	fixup_file=${_fixup_file}
+	start_file=${_start_file}
+	
+	# Default is 1
+	boot_delay=1
+	
+	# Do not display rainbow screen.
+	disable_splash=1
+	
+	# Prevent GPU ever going into turbo mode
+	disable_auto_turbo=1
+	
+	# Rotate HDMI output 90 degrees clockwise
+	###display_hdmi_rotate=1
+	
+	# Don't send CEC message during boot
+	hdmi_ignore_cec_init=1
+	
+	# Enable I2C
+	dtparam=i2c_arm=on
+	
+	# Disable Bluetooth
+	dtoverlay=disable-bt
+	# Disable Wifi
+	dtoverlay=disable-wifi
+	
+	# Disable audio
+	dtparam=audio=off
+	
+	# Disable I2S
+	dtparam=i2s=off
+	
+	# Disable SPI
+	dtparam=spi=off
+	
+	# Disable UART
+	enable_uart=0	
+	_SCRIPT_
+EOF
+
+  if [ -n "${image_enable_watchdog+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Adding watchdog configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	
+	# Enable hardware watchdog
+	dtparam=watchdog=on
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${rpi_use_rtc+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Adding RTC configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	
+	# Enable hardware I2C-based RTC
+	dtoverlay=i2c-rtc,ds1307
+	_SCRIPT_
+EOF
+  fi
+
+  if [  -n "${rpi_use_poe_hat+x}" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+  write_log "Adding PoE HAT configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	# PoE Hat Fan Speeds - start at 50, full speed by 80
+	dtparam=poe_fan_temp0=50000
+	dtparam=poe_fan_temp1=60000
+	dtparam=poe_fan_temp2=70000
+	dtparam=poe_fan_temp3=80000
+	_SCRIPT_
+EOF
+  fi
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "/boot/usercfg.txt contents:" 2
+	    cat /boot/usercfg.txt >> /chroot.log
+	  }
+	EOF
+  fi
+}

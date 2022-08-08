@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC1117,SC2039
 
 #############################################################################
@@ -58,25 +58,35 @@ add_base_init_d() {
   add_init_d_service "hostname" "boot" 2
   add_init_d_service "modules" "boot" 2
   add_init_d_service "swap" "boot" 2
-  add_init_d_service "urandom" "boot" 2
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 )
+      add_init_d_service "urandom" "boot" 2 ;;
+    * )
+      add_init_d_service "seedrng" "boot" 2 ;;
+  esac
 
-  if [ "$image_class" = "cloud" ] || \
-     [ "$image_class" = "virtual" ] || \
-     { [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; }; then
-    # Everything except RPIs
-    add_init_d_service "osclock" "boot" 2
-  elif [ "$image_class" = "physical" ] && \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-    # RPIs
-    if [ -n "${rpi_use_rtc+x}" ]; then
-      # With hardware RTC
-      add_init_d_service "osclock" "boot" 2
-    else
-      # Without hardware RTC
-      add_init_d_service "swclock" "boot" 2
-    fi
-  fi
+  case $image_class in
+    cloud | virtual )
+      add_init_d_service "osclock" "boot" 2 ;;
+    physical )
+      case $image_physical_type in
+        arm-server )
+          # Has RTC but loaded as module so can't rely on osclock service
+          add_init_d_service "hwclock" "boot" 2 ;;
+        rpi* )
+          if [ -n "${rpi_use_rtc+x}" ]; then
+            # With hardware RTC
+            add_init_d_service "osclock" "boot" 2
+          else
+            # Without hardware RTC
+            add_init_d_service "swclock" "boot" 2
+          fi
+          ;;
+        * )
+          add_init_d_service "osclock" "boot" 2 ;;
+      esac
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -243,11 +253,13 @@ create_repositories_file_inside_chroot() {
 	  echo "${alpine_mirror_site}/${image_alpine_release}/community"
 	EOF
 
-  if [ "$image_alpine_release" = "edge" ]; then
-    cat <<-EOF >> "$run_script"
+  case $image_alpine_release in
+    edge )
+      cat <<-EOF >> "$run_script"
 	  echo "${alpine_mirror_site}/${image_alpine_release}/testing"
 	EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${local_alpine_repository+x}" ]; then
     cat <<-EOF >> "$run_script"
@@ -333,66 +345,31 @@ download_static_apk() {
   cat <<-EOF >> "$run_script"
 	
 	_host_arch="\$(detect_host_arch)"
-	write_log "Downloading statically built APK tool for \${_host_arch} arch"
-	{
-	  wget -q -O ${TMPDIR}/apk.static \\
-	    ${apk_static_url}/"\${_host_arch}"/apk.static \\
-	    2>> "\$logfile"
-	  chmod +x ${TMPDIR}/apk.static
-	}
-	EOF
-}
-
-
-#
-# Enable serial console for Grub
-#
-enable_grub_serial_console() {
-  cat <<-EOF >> "$run_script"
+	_host_os="\$(detect_host_os)"
+	case \$_host_os in
+	  alpine )
+	    :
+	    ;;
+	  * )
+	    write_log "Downloading statically built APK tool for \${_host_arch} arch"
 	    {
-	      write_log "Configure GRUB serial command" 4
-	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${serial_port_number} --speed=${serial_port_speed}"' \\
-	        >> /etc/default/grub
-	      write_log "Configure GRUB for serial console" 4
-	EOF
-
-  if [ "$image_console_type" = "both" ]; then
-    cat <<-'EOF' >> "$run_script"
-	      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial console"/' \
-	        /etc/default/grub
-	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
-	      sed -i -e 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="serial"/' \
-	        /etc/default/grub
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
+	      wget -q -O ${TMPDIR}/apk.static \\
+	        ${apk_static_url}/"\${_host_arch}"/apk.static \\
+	        2>> "\$logfile"
+	      _rc=\$?
+	      case \$_rc in
+	        5 )
+	          error_message "Error with wget HTTPS certificate validation!"
+	          ;;
+	        1 | 3 | 4 | 7 | 8 )
+	          error_message "A wget error (\$_rc) occurred during download!"
+	          ;;
+	      esac
+	      chmod +x ${TMPDIR}/apk.static
 	    }
+	    ;;
+	esac
 	EOF
-}
-
-
-#
-# Enable serial console for Syslinux
-#
-enable_syslinux_serial_console() {
-  cat <<-EOF >> "$run_script"
-	
-	    write_log "Configure Syslinux serial port and speed" 4
-	    sed -i -e "s|^serial_port=.*|serial_port=${serial_port_number}|g" \\
-	      -e "s|^serial_baud=.*|serial_baud=${serial_port_speed}|g" \\
-	      /etc/update-extlinux.conf
-	EOF
-
-  if [ "$image_console_type" = "serial" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    write_log "Disable normal Syslinux console" 4
-	    sed -i -e "s|^console=.*|console=0|g" /etc/update-extlinux.conf
-	EOF
-  fi
 }
 
 
@@ -479,36 +456,36 @@ get_kernel_type() {
   local _kernel_type
 
   case $image_class in
-
     cloud | virtual )
-      if [ "$image_kernel_type" = "edge" ]; then
-        _kernel_type="edge4virt"
-      else
-        _kernel_type="virt"
-      fi
+      case $image_kernel_type in
+        edge )
+          _kernel_type="edge4virt" ;;
+        * )
+          _kernel_type="virt" ;;
+      esac
       ;;
-
     physical )
       case $image_physical_type in
-        pc )
-          if [ "$image_kernel_type" = "edge" ]; then
-            _kernel_type="edge"
-          else
-            _kernel_type="lts"
-          fi
+        arm-server | pc )
+          case $image_kernel_type in
+            edge )
+              _kernel_type="edge" ;;
+            * )
+              _kernel_type="lts" ;;
+          esac
           ;;
         rpi2 | rpi3 )
-          if [ "$image_arch" = "armv7" ]; then
-            _kernel_type="rpi2"
-          else
-            _kernel_type="rpi"
-          fi
+          case $image_arch in
+            armv7 )
+              _kernel_type="rpi2" ;;
+            * )
+              _kernel_type="rpi" ;;
+          esac
           ;;
         rpi4 )
           _kernel_type="rpi4" ;;
       esac
       ;;
-
   esac
 
   echo "$_kernel_type"
@@ -541,8 +518,7 @@ insert_chroot_function_add_fstab_entry() {
 	    local _fs_passno="2"
 	  fi
 	
-	  if [ "\$_entry_type" = "BIND" ] ||
-	     [ "\$_entry_type" = "DEVICE" ]; then
+	  if [ "\$_entry_type" = "BIND" ] || [ "\$_entry_type" = "DEVICE" ]; then
 	    _fstab_entry="\${_entry_value}"
 	  else
 	    _fstab_entry="\${_entry_type}=\${_entry_value}"
@@ -590,6 +566,7 @@ insert_chroot_function_write_debug_log() {
     cat <<-'EOF' >> "$run_script"
 	
 	  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  # shellcheck disable=SC1117
 	  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
 	EOF
   else
@@ -618,7 +595,9 @@ cat <<-'EOF' >> "$run_script"
 	  local _current_time
 	
 	  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  # shellcheck disable=SC1117
 	  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
+	  # shellcheck disable=SC1117
 	  printf "chroot: %\${_indent}s\${_log_entry}\n"
 	}
 	EOF
@@ -629,16 +608,42 @@ cat <<-'EOF' >> "$run_script"
 # Insert function check_binfmt_packages into the run script
 #
 insert_runscript_function_check_binfmt_packages() {
-  cat <<-'EOF' >> "$run_script"
+  local _alpine_arch_package _binfmt_file
+
+  case $image_arch in
+    aarch64 )
+      _alpine_arch_package="qemu-aarch64"
+      _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-aarch64"
+      ;;
+    armv7 )
+      _alpine_arch_package="qemu-arm"
+      _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-arm"
+      ;;
+    x86 )
+      _alpine_arch_package="qemu-i386"
+      _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-i386"
+      ;;
+    x86_64 )
+      _alpine_arch_package="qemu-x86_64"
+      _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-x86_64"
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
 	
 	#
 	# Check that the host OS has necessary packages installed for
 	# running user-mode QEMU via binfmt and that it is configured.
 	#
 	check_binfmt_packages() {
-	  local _arch=$1
+	  local _alpine_arch_package="$_alpine_arch_package"
+	  local _arch="$image_arch"
+	  local _binfmt_file="$_binfmt_file"
+	EOF
+
+  cat <<-'EOF' >> "$run_script"
 	
-	  local _binfmt_arch_enabled _binfmt_file _host_arch _host_os _required_packages
+	  local _binfmt_arch_enabled _host_arch _host_os _required_packages
 	
 	  _host_arch=$(detect_host_arch)
 	
@@ -647,21 +652,7 @@ insert_runscript_function_check_binfmt_packages() {
 	    case $_host_os in
 	
 	      alpine )
-	        _required_packages="qemu-openrc"
-	        case $_arch in
-	          aarch64 )
-	            _required_packages="$_required_packages qemu-aarch64" ;;
-	          armv7 )
-	            _required_packages="$_required_packages qemu-arm" ;;
-	          x86 )
-	            _required_packages="$_required_packages qemu-i386" ;;
-	          x86_64 )
-	            _required_packages="$_required_packages qemu-x86_64" ;;
-	          * )
-	            echo "Unsupported architecture: $_arch!"
-	            exit 1
-	            ;;
-	        esac
+	        _required_packages="qemu-openrc $_alpine_arch_package"
 	        # shellcheck disable=SC2086
 	        if ! apk info -e -q $_required_packages; then
 	          echo
@@ -694,16 +685,6 @@ insert_runscript_function_check_binfmt_packages() {
 	    esac
 	
 	    # Is binfmt configured for this QEMU arch?
-	    case $_arch in
-	      aarch64 )
-	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-aarch64" ;;
-	      armv7 )
-	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-arm" ;;
-	      x86 )
-	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-i386" ;;
-	      x86_64 )
-	        _binfmt_file="/proc/sys/fs/binfmt_misc/qemu-x86_64" ;;
-	    esac
 	    if [ -e "$_binfmt_file" ]; then
 	      _binfmt_arch_enabled=$(head -1 ${_binfmt_file})
 	      if [ "$_binfmt_arch_enabled" = "enabled" ]; then
@@ -714,12 +695,18 @@ insert_runscript_function_check_binfmt_packages() {
 	        echo
 	        exit 1
 	      fi
-	    elif [ "$_arch" = "x86" ] && \
-	         { [ "$_host_os" = "debian" ] || \
-	           [ "$_host_os" = "ubuntu" ]; }; then
+	EOF
+
+  if [ "$image_arch" = "x86" ]; then
+    cat <<-'EOF' >> "$run_script"
+	    elif [ "$_host_os" = "debian" ] || [ "$_host_os" = "ubuntu" ]; then
 	      # The Debian & Ubuntu binfmt-support package does not set up binfmt for x86
 	      echo ':qemu-i386:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xfe\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-i386-static:' \
 	        | tee /proc/sys/fs/binfmt_misc/register > /dev/null
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
 	    else
 	      echo
 	      echo "Binfmt and QEMU are not configured for $_arch"
@@ -757,16 +744,17 @@ insert_runscript_function_check_for_required_packages() {
   #    coreutils for: truncate
   _package_list="blkid busybox coreutils lsblk parted tar wget"
 
-  if [ "$image_fs_type" = "btrfs" ]; then
-    _package_list="$_package_list btrfs-progs btrfs-progs-extra"
-  elif [ "$image_fs_type" = "ext4" ]; then
-    # e2fsprogs for: mkfs.ext4
-    _package_list="$_package_list e2fsprogs"
-  elif [ "$image_fs_type" = "f2fs" ]; then
-    _package_list="$_package_list f2fs-tools"
-  elif [ "$image_fs_type" = "xfs" ]; then
-    _package_list="$_package_list xfsprogs xfsprogs-extra"
-  fi
+  case $image_fs_type in
+    btrfs )
+      _package_list="$_package_list btrfs-progs btrfs-progs-extra" ;;
+    ext4 )
+      # e2fsprogs for: mkfs.ext4
+      _package_list="$_package_list e2fsprogs" ;;
+    f2fs )
+      _package_list="$_package_list f2fs-tools" ;;
+    xfs )
+      _package_list="$_package_list xfsprogs xfsprogs-extra" ;;
+  esac
   if [ -n "${image_encrypted+x}" ]; then
     _package_list="$_package_list cryptsetup"
   fi
@@ -815,15 +803,16 @@ insert_runscript_function_check_for_required_packages() {
 	EOF
 
   _package_list="coreutils dosfstools mount parted wget util-linux"
-  if [ "$image_fs_type" = "btrfs" ]; then
-    _package_list="$_package_list btrfs-progs"
-  elif [ "$image_fs_type" = "ext4" ]; then
-    _package_list="$_package_list e2fsprogs"
-  elif [ "$image_fs_type" = "f2fs" ]; then
-    _package_list="$_package_list f2fs-tools"
-  elif [ "$image_fs_type" = "xfs" ]; then
-    _package_list="$_package_list xfsprogs"
-  fi
+  case $image_fs_type in
+    btrfs )
+      _package_list="$_package_list btrfs-progs" ;;
+    ext4 )
+      _package_list="$_package_list e2fsprogs" ;;
+    f2fs )
+      _package_list="$_package_list f2fs-tools" ;;
+    xfs )
+      _package_list="$_package_list xfsprogs" ;;
+  esac
   if [ -n "${image_encrypted+x}" ]; then
     _package_list="$_package_list cryptsetup-bin"
   fi
@@ -988,8 +977,7 @@ insert_runscript_function_normal_cleanup() {
 	  unmount_chroot_fs "/proc"
 	EOF
 
-  if [ -n "${needs_boot_partition+x}" ] || \
-     [ -n "${image_lvm_rootfs+x}" ]; then
+  if [ -n "${needs_boot_partition+x}" ] || [ -n "${image_lvm_rootfs+x}" ]; then
     cat <<-'EOF' >> "$run_script"
 	  unmount_chroot_fs "/boot"
 	EOF
@@ -1001,7 +989,7 @@ insert_runscript_function_normal_cleanup() {
   fi
 
   case $image_boot_type in
-    uefi )
+    secure-uefi | uefi )
       cat <<-'EOF' >> "$run_script"
 	  unmount_chroot_fs "/efi"
 	EOF
@@ -1134,6 +1122,7 @@ insert_runscript_function_write_debug_log() {
   if [ -n "${debug_enabled+x}" ]; then
 	  cat <<-'EOF' >> "$run_script"
 	  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  # shellcheck disable=SC1117
 	  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
 	EOF
   else
@@ -1165,7 +1154,9 @@ insert_runscript_function_write_log() {
 	  local _current_time
 	
 	  _current_time=$(printf "[%s]" "$(date -u "+%Y-%m-%d %H:%M:%S")")
+	  # shellcheck disable=SC1117
 	  printf "${_current_time} %${_indent}s${_log_entry}\n" >> "$logfile"
+	  # shellcheck disable=SC1117
 	  printf "%${_indent}s$_log_entry\n"
 	}
 	EOF
@@ -1385,12 +1376,12 @@ option_help() {
 # In the script, setup the loop device for the disk image
 #
 setup_loop_device() {
-  cat <<-'EOF' >> "$run_script"
+  cat <<-EOF >> "$run_script"
 	
-	write_log "Setting up loop device for disk image"
+	write_log "Setting up loop device with ${image_os_device_sector_size} byte sector size for disk image"
 	{
-	  loop_device=$(losetup -P --show -f $image_full_filename 2>> $logfile)
-	  if [ -z "${loop_device+x}" ]; then
+	  loop_device=\$(losetup -P --show -b $image_os_device_sector_size -f \$image_full_filename 2>> \$logfile)
+	  if [ -z "\${loop_device+x}" ]; then
 	    echo
 	    echo "There was a problem creating the loop device. Aborting!"
 	    echo

@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -57,20 +57,15 @@ configure_mkinitfs_feature_cloud_aws() {
 
   initramfs_entry_initialise "cloud-aws"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  if [ "$image_arch" = "aarch64" ]; then
-    initramfs_entry_add "kernel/drivers/gpio/gpio-pl061.ko*"
-  fi
-  initramfs_entry_add "kernel/drivers/net/ethernet/amazon/ena"
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  case $image_arch in
+    aarch64 )
+      initramfs_entry_add "kernel/drivers/gpio/gpio-pl061.ko*" ;;
   esac
+  initramfs_entry_add "kernel/drivers/net/ethernet/amazon/ena"
+  initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
   initramfs_entry_finish
 
@@ -145,18 +140,12 @@ configure_mkinitfs_feature_cloud_exoscale() {
 
   initramfs_entry_initialise "cloud-exoscale"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/rng-core.ko*"
   initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
-  esac
+  initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
   initramfs_entry_finish
 
@@ -189,16 +178,10 @@ configure_mkinitfs_feature_cloud_google() {
 
   initramfs_entry_initialise "cloud-google"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
-  esac
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
   initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
   initramfs_entry_finish
 
@@ -220,41 +203,77 @@ configure_mkinitfs_feature_cloud_google() {
 
 
 #
+# Create virtio-based generic mkinitfs feature file
+#
+configure_mkinitfs_feature_cloud_virtio() {
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/cloud-virtio.modules" 2
+	EOF
+
+  initramfs_entry_initialise "cloud-virtio"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+  initramfs_entry_add "kernel/drivers/crypto/virtio"
+  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+  initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
+  initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "cloud-virtio.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/cloud-virtio.modules >> /chroot.log
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
 # Define default settings for Cloud
 #
 default_cloud_settings() {
-  if [ -z ${esp_type+x} ]; then
-    esp_type=$CONSTANT_CLOUD_ESP_TYPE
-  fi
-
-  if [ -z "${filename_for_image+x}" ]; then
-    filename_for_image="alpine-$image_alpine_release-$image_arch-$image_class-$image_cloud_type.img"
-  fi
+  esp_type="${esp_type:-$CONSTANT_CLOUD_ESP_TYPE}"
+  filename_for_image="${filename_for_image:-alpine-$image_alpine_release-$image_arch-$image_class-$image_cloud_type.img}"
 
   # AWS Encryption
   if [ -n "${image_encrypted+x}" ] && [ "$image_cloud_type" = "aws" ]; then
     error_message "For AWS you should use an encrypted EBS device!"
   fi
 
-  # Cloud software (cloud-init por tiny-cloud)
-  if [ -z "${image_cloud_software+x}" ]; then
-    image_cloud_software="cloud-init"
-  elif [ "$image_cloud_software" = "tiny-cloud" ]; then
-    case $image_cloud_type in
-      aws | azure | google | oracle )
-        ;;
-      * )
-        error_message "tiny-cloud is not supported for this cloud provider!"
-        ;;
-    esac
-  fi
+  # Cloud software (cloud-init or tiny-cloud)
+  image_cloud_software="${image_cloud_software:-cloud-init}"
+  case $image_cloud_software in
+    tiny-cloud )
+      case $image_cloud_type in
+        aws | azure | google | oracle )
+          : ;;
+        * )
+          error_message "tiny-cloud is not supported for this cloud provider!"
+          ;;
+      esac
+      ;;
+  esac
 
   # NTP
-  if [ -n "${image_ntp_use_host+x}" ] && \
-     [ "$image_ntp_use_host" = "true" ] && \
-     [ -z "${image_experimental+x}" ]; then
+  if [ -z "${image_experimental+x}" ] && [ "${image_ntp_use_host+x}" = "true" ]; then
     error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
   fi
+  # The majority of Cloud Providers do not support PTP host time sync.
+  image_ntp_use_host=${image_ntp_use_host:-false}
   if [ -n "${image_ntp_servers+x}" ]; then
     error_message "NTP servers can only be specified for physical servers, other servers obtain this information from user-data!"
   fi
@@ -266,55 +285,97 @@ default_cloud_settings() {
 
   # Arch-specific settings
   case $image_arch in
+    armv7 )
+      error_message "armv7 is not supported for any Cloud Provider!" ;;
     aarch64 )
-      if [ -z "${keyboard_type+x}" ]; then
-        # aarch64 VMs normally use USB keyboard
-        keyboard_type="usb"
-      fi
       # aarch64 Cloud VMs always use UEFI
       image_boot_type="uefi"
-      if [ -n "${image_bootloader+x}" ] && \
-         [ "$image_bootloader" != "grub" ]; then
+      if [ -n "${image_bootloader+x}" ] && [ "$image_bootloader" != "grub" ]; then
         error_message "aarch64 cloud machine can only use Grub bootloader!"
+      else
+        image_bootloader="grub"
       fi
-      image_bootloader="grub"
-      case $image_cloud_type in
-        aws | azure | oracle )
-          ;;
-        * )
-          error_message "aarch64 cloud images cannot be created for this cloud provider!"
-          ;;
-      esac
       ;;
     x86 | x86_64 )
-      if [ -z "${keyboard_type+x}" ]; then
-        keyboard_type="ps2"
-      fi
-      image_boot_type="bios"
-      # Bootloader may be overriden below at per-cloud level
-      image_bootloader="grub"
+      image_boot_type="${image_boot_type:-bios}"
+      # Bootloader may be overridden below at per-cloud level
+      image_bootloader="${image_bootloader:-grub}"
       ;;
   esac
 
   # Cloud-specific settings
+  if [ -n "${image_console_type+x}" ] & [ "$image_console_type" = "hypervisor" ]; then
+    error_message "virtio console is not supported by any Cloud Provider!"
+  fi
+  case $image_arch in
+    armv7 )
+      error_message "armv7 is not supported for any Cloud Provider!" ;;
+    aarch64 )
+      case $image_cloud_type in
+        aws | azure | oracle )
+          : ;;
+        * )
+          error_message "aarch64 cloud images cannot be created for this cloud provider!" ;;
+      esac
+      ;;
+  esac
   case $image_cloud_type in
+    aws )
+      image_console_type="serial" ;;
     azure )
       image_bootloader="grub"
-      keyboard_type="serial"
+      image_console_type="serial"
       if [ -n "${image_experimental+x}" ]; then
         image_ntp_use_host=true
       fi
       ;;
+    oracle )
+      image_console_type="serial" ;;
+    vultr )
+      # Vultr only supports x86/x86_64 BIOS booting with separate boot partition
+      create_boot_partition=true
+      image_bootloader="grub"
+      image_boot_type="bios"
+      image_console_type="normal"
+      ;;
   esac
 
-  if [ -z "${image_ntp_use_host+x}" ]; then
-    # By default the majority of Cloud providers do not support
-    # hypervisor PTP/NTP host time sync
-    image_ntp_use_host=false
+  # Console-related settings based on Cloud Provider-specific settings above
+  if [ -n "${image_console_type+x}" ]; then
+    case $image_console_type in
+      normal )
+        image_console_name="tty0"
+        case $image_arch in
+          aarch64 )
+            # aarch64 VMs normally use USB keyboards
+            image_keyboard_type="${image_keyboard_type:-usb}" ;;
+          x86 | x86_64 )
+            image_keyboard_type="${image_keyboard_type:-both}" ;;
+        esac
+        ;;
+      serial )
+        image_serial_console_port_number="${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}"
+        image_serial_console_port_speed=${image_serial_console_port_speed:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_SPEED}
+        case $image_arch in
+          aarch64 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}" ;;
+          x86 | x86_64 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number}" ;;
+        esac
+        ;;
+    esac
+    if [ "$image_console_type" = "serial" ]; then
+      image_console_name=$image_serial_console_name
+    fi
+  else
+    image_console_type="normal"
+    image_console_name="${image_console_name:-tty0}"
   fi
 
+  # By default majority of Cloud providers do not support hypervisor PTP time sync
+  image_ntp_use_host=${image_ntp_use_host:-false}
+
   # Sort out partition sizing
-  #---------------------------
   case $image_arch in
     aarch64 )
       general_boot_part_size=$CONSTANT_CLOUD_AARCH64_BOOT_PART_SIZE ;;
@@ -323,12 +384,6 @@ default_cloud_settings() {
     x86_64 )
       general_boot_part_size=$CONSTANT_CLOUD_X86_64_BOOT_PART_SIZE ;;
   esac
-  if [ -z "${general_root_part_size+x}" ]; then
-    general_root_part_size=$CONSTANT_CLOUD_ROOT_PART_SIZE
-  fi
-  if [ -z "${esp_part_size+x}" ]; then
-    general_uefi_part_size=$CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE
-  else
-    general_uefi_part_size=$esp_part_size
-  fi
+  general_root_part_size=${general_root_part_size:-$CONSTANT_CLOUD_ROOT_PART_SIZE}
+  general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE}
 }

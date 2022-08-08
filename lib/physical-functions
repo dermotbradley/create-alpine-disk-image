@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC1117,SC2039
 
 #############################################################################
@@ -22,67 +22,6 @@ add_rpi_boot_fstab_entries() {
 	  mkdir /media/sdcard
 	  add_fstab_entry LABEL "RPIBOOT" "/media/sdcard" "vfat" "${_mount_options}" "/media/sdcard"
 	  add_fstab_entry BIND "/media/sdcard" "/boot" "none" "${_mount_options}" "/boot bind-mount"
-	EOF
-}
-
-
-#
-# Setup the config files used by Raspberry Pi bootloader
-#
-configure_bootloader_rpi() {
-  local _cmdline _modules
-
-  ###_modules="sd-mod,usb-storage"
-  _modules=""
-
-  # Increase the kernel message buffer so all messages during boot are retained
-  _cmdline="log_buf_len=32768"
-
-  _cmdline="$_cmdline rootfstype=$image_fs_type ro"
-  if [ -n "${_modules}" ]; then
-    _cmdline="$_cmdline modules=$_modules"
-  fi
-  case $image_fs_type in
-    btrfs | ext4 )
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # For older Alpine releases add commit mount option for rootfs when
-          # on flash device as this is *not* read from /etc/fstab by
-          # initramfs' init when it mounts rootfs.
-          case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 | v3.16 | edge )
-            _cmdline="$_cmdline rootflags=commit=300" ;;
-          esac
-          ;;
-      esac
-      ;;
-  esac
-  if [ -n "${image_encrypted+x}" ]; then
-    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME} \\\$(define_cmdline_for_encryption)"
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
-  else
-    _cmdline="$_cmdline root=/dev/mmcblk0p${root_part_num}"
-  fi
-  if [ -n "${image_disable_ipv6+x}" ]; then
-	  _cmdline="$_cmdline ipv6.disable=1"
-	fi
-  if [ -n "${image_bootchart+x}" ]; then
-    _cmdline="$_cmdline chart rootflags=rw"
-  fi
-  _cmdline="$_cmdline console=${image_console_name} quiet"
-
-  if [ -n "${image_extra_cmdline_options+x}" ]; then
-    # Add any additionally specified cmdline options
-    _cmdline="$_cmdline $image_extra_cmdline_options"
-  fi
-
-  create_rpi_bootloader_cmdline_file "$_cmdline"
-  create_rpi_bootloader_config_file
-  create_rpi_bootloader_usercfg_file
-
-  cat <<-'EOF' >> "$run_script"
-	}
 	EOF
 }
 
@@ -138,15 +77,18 @@ EOF
 	    community_enabled: True
 EOF
 
-  if [ "$image_alpine_release" = "edge" ]; then
-    cat <<'EOF' >> "$run_script"
+  case $image_alpine_release in
+    edge )
+      cat <<'EOF' >> "$run_script"
 	    testing_enabled: True
 EOF
-  else
-    cat <<'EOF' >> "$run_script"
+      ;;
+    * )
+      cat <<'EOF' >> "$run_script"
 	    testing_enabled: False
 EOF
-  fi
+      ;;
+  esac
 
   if [ -n "${local_alpine_repository+x}" ]; then
     cat <<EOF >> "$run_script"
@@ -198,8 +140,7 @@ EOF
 	    - pool.ntp.org
 EOF
 
-  if [ -n "${image_encrypted+x}" ] || \
-     [ -n "${image_lvm_rootfs+x}" ] || \
+  if [ -n "${image_encrypted+x}" ] || [ -n "${image_lvm_rootfs+x}" ] || \
      { [ "$image_os_device_media" = "flash" ] || \
        [ "$image_os_device_media" = "sd" ] || \
        [ "$image_os_device_media" = "ssd" ]; }; then
@@ -239,17 +180,15 @@ EOF
       _grow_part_num="$root_part_num"
     fi
 
-    if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
-       [ "$image_os_device_type" = "sd" ]; then
-      # RPI or PC with SDcard boot device
-      _grow_device_short="mmcblk0"
-    elif [ "$image_os_device_type" = "nvme" ]; then
-      # PC with NVME boot device
-      _grow_device_short="nvme0n1"
-    else
-      # SATA, SCSI, or USB boot device
-      _grow_device_short="sda"
-    fi
+    case $image_os_device_type in
+      nvme )
+        _grow_device_short="nvme0n1" ;;
+      sd )
+        _grow_device_short="mmcblk0" ;;
+      * )
+        # SATA, SCSI, or USB boot device
+        _grow_device_short="sda" ;;
+    esac
     _grow_device="/dev/${_grow_device_short}"
 
 
@@ -321,17 +260,15 @@ EOF
 
       _resize_logs_fs_part="/dev/mapper/$CONSTANT_LVM_VG_NAME-$CONSTANT_LVM_LOGS_LV_NAME"
       _resize_root_fs_part="/dev/mapper/$CONSTANT_LVM_VG_NAME-$CONSTANT_LVM_ROOT_LV_NAME"
-      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
-         [ "$image_os_device_type" = "sd" ]; then
-        # RPI or PC with SDcard boot device
-        _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}"
-      elif [ "$image_os_device_type" = "nvme" ]; then
-        # PC with NVME boot device
-        _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}"
-      else
-        # SATA, SCSI, or USB boot device
-        _resize_pv_part="/dev/${_grow_device_short}${lvm_part_num}"
-      fi
+      case $image_os_device_type in
+        nvme )
+          _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}" ;;
+        sd )
+          _resize_pv_part="/dev/${_grow_device_short}p${lvm_part_num}" ;;
+        * )
+          # SATA, SCSI, or USB boot device
+          _resize_pv_part="/dev/${_grow_device_short}${lvm_part_num}" ;;
+      esac
 
       if [ $_disk_leave_free_percent != 0 ]; then
         # Overprovisioning required
@@ -381,17 +318,15 @@ EOF
     else
       # Neither LUKS nor LVM
 
-      if [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ] ||
-         [ "$image_os_device_type" = "sd" ]; then
-        # RPI or PC with SDcard boot device
-        _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}"
-      elif [ "$image_os_device_type" = "nvme" ]; then
-        # PC with NVME boot device
-        _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}"
-      else
-        # SATA, SCSI, or USB boot device
-        _resize_root_fs_part="/dev/${_grow_device_short}${root_part_num}"
-      fi
+      case $image_os_device_type in
+        nvme )
+          _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}" ;;
+        sd )
+          _resize_root_fs_part="/dev/${_grow_device_short}p${root_part_num}" ;;
+        * )
+          # SATA, SCSI, or USB boot device
+          _resize_root_fs_part="/dev/${_grow_device_short}${root_part_num}" ;;
+      esac
 
       if [ $_disk_leave_free_percent != 0 ]; then
         # Overprovisioning required
@@ -537,374 +472,191 @@ EOF
 
 
 #
-# Create a single entry for RPI config.txt bootloader file
-#
-create_rpi_bootloader_config_entry() {
-  local _entry_name="$1"
-  local _entry_suffix="$2"
-
-  cat <<EOF >> "$run_script"
-	[${_entry_name}]
-EOF
-
-  if [ "$_entry_name" = "pi4" ]; then
-    cat <<EOF >> "$run_script"
-	enable_gic=1
-EOF
-  fi
-
-	cat <<EOF >> "$run_script"
-	kernel=vmlinuz-${_entry_suffix}
-	initramfs initramfs-${_entry_suffix}
-EOF
-}
-
-
-#
-# Create RPI cmdline.txt bootloader file
-#
-create_rpi_bootloader_cmdline_file() {
-  local _cmdline="$1"
-
-  cat <<EOF >> "$run_script"
-
-write_log "Create RPI bootloader configuration"
-{
-  write_log "Creating /boot/cmdline.txt" 2
-  cat <<-_SCRIPT_ > /boot/cmdline.txt
-	$_cmdline
-	_SCRIPT_
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "/boot/cmdline.txt contents:" 2
-	    cat /boot/cmdline.txt >> /chroot.log
-	  }
-	EOF
-  fi
-}
-
-
-#
-# Create RPI config.txt bootloader file
-#
-create_rpi_bootloader_config_file() {
-  local _filename_suffix
-
-  cat <<EOF >> "$run_script"
-
-  write_log "Creating /boot/config.txt" 2
-  cat <<-_SCRIPT_ > /boot/config.txt
-EOF
-
-  if [ "$image_physical_type" = "rpi2" ]; then
-	  # RPI 2
-    case $image_arch in
-      aarch64 )
-        _filename_suffix="rpi"
-        ;;
-      armv7 )
-        _filename_suffix="rpi2"
-        ;;
-    esac
-
-    create_rpi_bootloader_config_entry "pi2" "$_filename_suffix"
-  fi
-
-  if [ "$image_physical_type" = "rpi3" ]; then
-	  # RPI 3
-    case $image_arch in
-      aarch64 )
-        _filename_suffix="rpi"
-        ;;
-      armv7 )
-        _filename_suffix="rpi2"
-        ;;
-    esac
-
-    create_rpi_bootloader_config_entry "pi3" "$_filename_suffix"
-    create_rpi_bootloader_config_entry "pi3+" "$_filename_suffix"
-  fi
-
-  if [ "$image_physical_type" = "rpi4" ]; then
-	  # RPI 4
-    _filename_suffix="rpi4"
-
-    create_rpi_bootloader_config_entry "pi4" "$_filename_suffix"
-  fi
-
-  cat <<'EOF' >> "$run_script"
-	[all]
-EOF
-
-  if [ "$image_arch" = "aarch64" ]; then
-	  cat <<'EOF' >> "$run_script"
-	arm_64bit=1
-EOF
-  fi
-
-  cat <<'EOF' >> "$run_script"
-	# Set GPU memory to 16MB when using cutdown bootloader
-	gpu_mem=16
-	include usercfg.txt
-	_SCRIPT_
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "/boot/config.txt contents:" 2
-	    cat /boot/config.txt >> /chroot.log
-	  }
-	EOF
-  fi
-}
-
-
-#
-# Create RPI usercfg.txt bootloader file
-#
-create_rpi_bootloader_usercfg_file() {
-  local _fixup_file _start_file
-
-  case $image_physical_type in
-    rpi4 )
-      _fixup_file="fixup4cd.dat"
-      _start_file="start4cd.elf"
-      ;;
-    * )
-      _fixup_file="fixup_cd.dat"
-      _start_file="start_cd.elf"
-      ;;
-  esac
-
-  cat <<EOF >> "$run_script"
-
-  write_log "Creating /boot/usercfg.txt" 2
-  cat <<-_SCRIPT_ > /boot/usercfg.txt
-	fixup_file=${_fixup_file}
-	start_file=${_start_file}
-	
-	# Default is 1
-	boot_delay=1
-	
-	# Do not display rainbow screen.
-	disable_splash=1
-	
-	# Prevent GPU ever going into turbo mode
-	disable_auto_turbo=1
-	
-	# Rotate HDMI output 90 degrees clockwise
-	###display_hdmi_rotate=1
-	
-	# Don't send CEC message during boot
-	hdmi_ignore_cec_init=1
-	
-	# Enable I2C
-	dtparam=i2c_arm=on
-	
-	# Disable Bluetooth
-	dtoverlay=disable-bt
-	# Disable Wifi
-	dtoverlay=disable-wifi
-	
-	# Disable audio
-	dtparam=audio=off
-	
-	# Disable I2S
-	dtparam=i2s=off
-	
-	# Disable SPI
-	dtparam=spi=off
-	
-	# Disable UART
-	enable_uart=0	
-	_SCRIPT_
-EOF
-
-  if [ -n "${image_enable_watchdog+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  write_log "Adding watchdog configuration to /boot/usercfg.txt" 2
-  cat <<-_SCRIPT_ >> /boot/usercfg.txt
-	
-	# Enable hardware watchdog
-	dtparam=watchdog=on
-	_SCRIPT_
-EOF
-  fi
-
-  if [ -n "${rpi_use_rtc+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-
-  write_log "Adding RTC configuration to /boot/usercfg.txt" 2
-  cat <<-_SCRIPT_ >> /boot/usercfg.txt
-	
-	# Enable hardware I2C-based RTC
-	dtoverlay=i2c-rtc,ds1307
-	_SCRIPT_
-EOF
-  fi
-
-  if [  -n "${rpi_use_poe_hat+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-	
-  write_log "Adding PoE HAT configuration to /boot/usercfg.txt" 2
-  cat <<-_SCRIPT_ >> /boot/usercfg.txt
-	# PoE Hat Fan Speeds - start at 50, full speed by 80
-	dtparam=poe_fan_temp0=50000
-	dtparam=poe_fan_temp1=60000
-	dtparam=poe_fan_temp2=70000
-	dtparam=poe_fan_temp3=80000
-	_SCRIPT_
-EOF
-  fi
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "/boot/usercfg.txt contents:" 2
-	    cat /boot/usercfg.txt >> /chroot.log
-	  }
-	EOF
-  fi
-}
-
-
-#
 # Define default settings for Physical
 #
 default_physical_settings() {
-  if [ -z ${esp_type+x} ]; then
-    esp_type=$CONSTANT_PHYSICAL_ESP_TYPE
-  fi
-
-  if [ -z "${filename_for_image+x}" ]; then
-    filename_for_image="alpine-$image_alpine_release-$image_arch-$image_class-$image_physical_type.img"
-  fi
+  filename_for_image="${filename_for_image:-alpine-$image_alpine_release-$image_arch-$image_class-$image_physical_type.img}"
 
   # Cloud software (cloud-init or tiny-cloud)
-  if [ -z "${image_cloud_software+x}" ]; then
-    image_cloud_software="cloud-init"
-  elif [ "$image_cloud_software" = "tiny-cloud" ]; then
-    error_message "tiny-cloud is not supported for physical machines!"
-  fi
+  image_cloud_software="${image_cloud_software:-cloud-init}"
+  case $image_cloud_software in
+    tiny-cloud )
+      error_message "tiny-cloud is not supported for physical machines!" ;;
+  esac
 
   # NTP
   if [ "${image_ntp_use_host+x}" = "true" ]; then
-    error_message "PTP/NTP host sync can not be specified for physical servers!"
+    error_message "PTP host sync can not be specified for physical servers!"
+  else
+    # For physical machines there is no hypervisor host to sync time with.
+    image_ntp_use_host=false
   fi
 
   # Timezone
-  if [ -z ${image_timezone+x} ]; then
-    image_timezone=$CONSTANT_DEFAULT_TIMEZONE
+  image_timezone="${image_timezone:-$CONSTANT_DEFAULT_TIMEZONE}"
+
+  # Console settings
+  if [ -n "${image_console_type+x}" ]; then
+    case $image_console_type in
+      hypervisor )
+        error_message "a physical machine cannot use a hypervisor console!"
+        ;;
+      normal )
+        image_console_name="tty0"
+        case $image_arch in
+          aarch64 | armv7 )
+            if [ -n "${image_keyboard_type+x}" ] && \
+               [ "$image_keyboard_type" != "usb" ]; then
+              case $image_physical_type in
+                arm-server )
+                  error_message "arm-server physical keyboard can only be USB!" ;;
+                rpi* )
+                  error_message "Raspberry Pi keyboard is always USB!" ;;
+              esac
+            fi
+            # aarch64 and armv7 devices normally use USB keyboards
+            image_keyboard_type="${image_keyboard_type:-usb}" ;;
+          x86 | x86_64 )
+            # Unless overridden then support both PS/2 & USB keyboards
+            image_keyboard_type="${image_keyboard_type:-both}" ;;
+        esac
+        ;;
+      serial )
+        image_serial_console_port_number="${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}"
+        image_serial_console_port_speed="${image_serial_console_port_speed:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_SPEED}"
+        case $image_arch in
+          aarch64 | armv7 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}" ;;
+          x86 | x86_64 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number}" ;;
+        esac
+        image_console_name=$image_serial_console_name
+        ;;
+    esac
+  else
+    image_console_type="normal"
+    image_console_name="${image_console_name:-tty0}"
+    case $image_arch in
+      aarch64 | armv7 )
+        if [ -n "${image_keyboard_type+x}" ] && [ "$image_keyboard_type" != "usb" ]; then
+          case $image_physical_type in
+            arm-server )
+              error_message "arm-server physical keyboard can only be USB!" ;;
+            rpi* )
+              error_message "RPI keyboard is always USB!" ;;
+          esac
+        fi
+        # aarch64 and armv7 normally use USB keyboards
+        image_keyboard_type="${image_keyboard_type:-usb}" ;;
+      x86 | x86_64 )
+        # Unless overridden then support both PS/2 & USB keyboards
+        image_keyboard_type="${image_keyboard_type:-both}" ;;
+    esac
   fi
+
 
   # Specific machine settings
   case $image_physical_type in
+    arm-server )
+      image_boot_type="${image_boot_type:-uefi}"
+      case $image_boot_type in
+        secure-uefi | uefi )
+          esp_type=${esp_type:-$CONSTANT_PHYSICAL_ESP_TYPE} ;;
+        * )
+          error_message "Only UEFI is supported for arm-server!" ;;
+      esac
+      image_bootloader="${image_bootloader:-grub}"
+      ;;
     pc )
-      # Unless overridden then support both PS/2 & USB keyboards
-      keyboard_type="${image_keyboard_type:-both}"
-
       case $image_arch in
         x86 )
-          if [ -z "${image_boot_type+x}" ]; then
-            image_boot_type="bios"
-          fi
+          image_boot_type="${image_boot_type:-bios}"
           case $image_boot_type in
-            uefi )
+            secure-uefi | uefi )
               error_message "UEFI is not supported for x86!" ;;
           esac
-          if [ -z "${image_bootloader+x}" ]; then
-            image_bootloader="grub"
-          fi
+          image_bootloader="${image_bootloader:-grub}"
           ;;
         x86_64 )
-          if [ -z "${image_boot_type+x}" ]; then
-            image_boot_type="uefi"
-          elif [ "$image_boot_type" = "uefi" ] && \
-               [ "$image_bootloader" = "syslinux" ] && \
-               [ -z "${image_experimental+x}" ]; then
+          image_boot_type="${image_boot_type:-uefi}"
+          esp_type=${esp_type:-$CONSTANT_PHYSICAL_ESP_TYPE}
+          image_bootloader="${image_bootloader:-grub}"
+          if [ "$image_boot_type" = "uefi" ] && [ "$image_bootloader" = "syslinux" ] && \
+             [ -z "${image_experimental+x}" ]; then
             error_message "Syslinux UEFI is an experimental option!"
-          fi
-          if [ -z "${image_bootloader+x}" ]; then
-            image_bootloader="grub"
           fi
           ;;
       esac
       ;;
-    rpi2 | rpi3 | rpi4 )
+    rpi* )
       # Boot device type default for RPI is SDcard
-      if [ -z "${image_os_device_type+x}" ]; then
-        image_os_device_type="sd"
-      fi
-      if [ -n "${image_keyboard_type+x}" ] && \
-         [ "$image_keyboard_type" != "usb" ]; then
-        error_message "RPI keyboard is always USB!"
-      else
-        keyboard_type="usb"
-      fi
-      if [ -z "${image_bootloader+x}" ]; then
-        image_bootloader="rpi"
-        if [ -z ${image_boot_type+x} ]; then
-          image_boot_type="rpi"
-        elif [ "$image_boot_type" != "rpi" ]; then
-          error_message "An invalid boot type was specified! For an RPI only 'rpi' is valid"
-        fi
-      elif [ "${image_bootloader}" != "rpi" ]; then
-        error_message "An invalid bootloader was specified!"
-      fi
-      if [ -n "${image_encrypted+x}" ] && \
-         [ -z ${image_encryption_cipher+x} ]; then
+      image_os_device_type="${image_os_device_type:-sd}"
+      image_bootloader="${image_bootloader:-rpi}"
+      image_boot_type="${image_boot_type:-rpi}"
+
+      case $image_boot_type in
+        rpi )
+          : ;;
+        * )
+          error_message "An invalid boot type was specified! For an RPI only 'rpi' is valid" ;;
+      esac
+      case $image_bootloader in
+        rpi )
+          : ;;
+        * )
+          error_message "An invalid bootloader was specified!" ;;
+      esac
+
+      if [ -n "${image_encrypted+x}" ]; then
         # For Raspberry Pis default to Adiantum encryption
-        image_encryption_cipher="adiantum"
+        image_encryption_cipher="${image_encryption_cipher:-adiantum}"
       fi
       # A separate boot partition is needed for RPI bootloader
       needs_boot_partition=true
       ;;
   esac
 
-  # For physical machines there is no hypervisor host to sync time with.
-  image_ntp_use_host=false
 
   # Sort out partition sizing
   #---------------------------
   case $image_physical_type in
-    pc )
+
+    arm-server | pc )
       general_boot_part_size=$CONSTANT_PHYSICAL_BOOT_PART_SIZE
-      if [ -z "${general_root_part_size+x}" ]; then
-        general_root_part_size=$CONSTANT_PHYSICAL_ROOT_PART_SIZE
-      fi
-      if [ -z "${esp_part_size+x}" ]; then
-        general_uefi_part_size=$CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE
-      else
-        general_uefi_part_size=$esp_part_size
-      fi
-      ;;
-    rpi2 | rpi3 | rpi4 )
-      case $image_arch in
-        aarch64 )
-          general_boot_part_size=$CONSTANT_RPI_AARCH64_BOOT_PART_SIZE
-          if [ -z "${general_root_part_size+x}" ]; then
-            general_root_part_size=$CONSTANT_RPI_AARCH64_ROOT_PART_SIZE
-          fi
-          ;;
-        armv7 )
-          general_boot_part_size=$CONSTANT_RPI_ARMV7_BOOT_PART_SIZE
-          if [ -z "${general_root_part_size+x}" ]; then
-            general_root_part_size=$CONSTANT_RPI_ARMV7_ROOT_PART_SIZE
-          fi
+      general_root_part_size=${general_root_part_size:-$CONSTANT_PHYSICAL_ROOT_PART_SIZE}
+      case $image_boot_type in
+        secure-uefi | uefi )
+          case $esp_type in
+            fat12 | fat16 )
+              general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE}
+              ;;
+            fat32 )
+              # The minimum valid size of a FAT32 filesystem depends on the device's sector size
+              case $image_os_device_sector_size in
+                4096 )
+                  general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_PHYSICAL_FAT32_4096_ESP_PART_SIZE} ;;
+                * )
+                  general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_PHYSICAL_FAT32_512_ESP_PART_SIZE} ;;
+              esac
+              ;;
+          esac
           ;;
       esac
       ;;
+
+    rpi* )
+      case $image_arch in
+        aarch64 )
+          general_boot_part_size=$CONSTANT_RPI_AARCH64_BOOT_PART_SIZE
+          general_root_part_size=${general_root_part_size:-$CONSTANT_RPI_AARCH64_ROOT_PART_SIZE}
+          ;;
+        armv7 )
+          general_boot_part_size=$CONSTANT_RPI_ARMV7_BOOT_PART_SIZE
+          general_root_part_size=${general_root_part_size:-$CONSTANT_RPI_ARMV7_ROOT_PART_SIZE}
+          ;;
+      esac
+      ;;
+
   esac
 }
 
@@ -919,26 +671,31 @@ define_physical_machine_packages() {
   _physical_pkgs="cpufrequtils ethtool hdparm irqbalance lm-sensors"
   _physical_pkgs="$_physical_pkgs lm-sensors-sensord smartmontools"
 
-  if [ "$image_physical_type" = "pc" ]; then
-    # PC
-    _physical_pkgs="${_physical_pkgs} nvme-cli"
-    if [ "$image_os_device_type" = "sd" ]; then
-      _physical_pkgs="${_physical_pkgs} mmc-utils"
-    fi
-  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-    # RPI
-    _physical_pkgs="${_physical_pkgs} raspberrypi"
-    case $image_alpine_release in
-      v3.13 | v3.14 )
-        # These releases do not have the mmc-utils or uhubctl packages
-        : ;;
-      v3.15 | v3.16 )
-        # These releases do not have the uhubctl package
-        _physical_pkgs="${_physical_pkgs} mmc-utils" ;;
-      * )
-        _physical_pkgs="${_physical_pkgs} mmc-utils uhubctl" ;;
-    esac
-  fi
+  case $image_physical_type in
+    arm-server )
+      _physical_pkgs="${_physical_pkgs} nvme-cli"
+      ;;
+    pc )
+      _physical_pkgs="${_physical_pkgs} nvme-cli"
+      case $image_os_device_type in
+        sd )
+          _physical_pkgs="${_physical_pkgs} mmc-utils" ;;
+      esac
+      ;;
+    rpi* )
+      _physical_pkgs="${_physical_pkgs} raspberrypi"
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          # These releases do not have the mmc-utils or uhubctl packages
+          : ;;
+        v3.15 | v3.16 )
+          # These releases do not have the uhubctl package
+          _physical_pkgs="${_physical_pkgs} mmc-utils" ;;
+        * )
+          _physical_pkgs="${_physical_pkgs} mmc-utils uhubctl" ;;
+      esac
+      ;;
+  esac
 
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 )
@@ -968,36 +725,54 @@ define_physical_machine_packages() {
 disable_kernel_modules_on_physical() {
   local _disable_list=""
 
-  if [ "$(expr "$image_physical_type" : '.*rpi.*')" -ne 0 ]; then
-    # Raspberry Pi
+  case $image_physical_type in
+    arm-server )
+      # 'button' is instead used on ARM server machines
+      _disable_list="$_disable_list tiny-power-button"
 
-    # RPI has no ACPI so neither 'button' nor 'tiny-power-button' are used
-    _disable_list="$_disable_list button tiny-power-button"
-    # RPI as server does not need multimedia-related modules
-    _disable_list="$_disable_list bcm2835_codec bcm2835_isp"
-    _disable_list="$_disable_list bcm2835_mmal_vchiq bcm2835_v4l2"
-    _disable_list="$_disable_list backlight cec drm drm_kms_helper"
-    _disable_list="$_disable_list drm_panel_orientiation_quirks"
-    _disable_list="$_disable_list fb_sys_fops i2c-bcm2708 input_leds mc"
-    _disable_list="$_disable_list snd snd-pcm snd-pcm-dmaengine"
-    _disable_list="$_disable_list snd-soc-core snd-timer"
-    _disable_list="$_disable_list syscopyarea sysfillrect sysimgblt"
-    _disable_list="$_disable_list uio uio_pdrv_genirq"
-    _disable_list="$_disable_list vc_sm_cma vc4"
-    _disable_list="$_disable_list videobuf2_common videobuf2_dma_contig"
-    _disable_list="$_disable_list videobuf2_memops videobuf2_vmalloc"
-    _disable_list="$_disable_list videobuf2_v4l2 videodev v4l2_mem2mem"
-  else
-    # x86/x86_64 physical machine
+      # Disable all cloud provider and virtual modules
+      _disable_list="$_disable_list $CONSTANT_CLOUD_KERNEL_MODULES"
+      _disable_list="$_disable_list $CONSTANT_VIRTUAL_KERNEL_MODULES"
+      _disable_list="$_disable_list $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
+      ;;
 
-    # 'button' is instead used on PC Physical machines
-    _disable_list="$_disable_list tiny-power-button"
+    rpi* )
+      # RPI has no ACPI so neither 'button' nor 'tiny-power-button' are used
+      _disable_list="$_disable_list button tiny-power-button"
 
-    # Disable all cloud provider and virtual modules
-    _disable_list="$_disable_list $CONSTANT_CLOUD_KERNEL_MODULES"
-    _disable_list="$_disable_list $CONSTANT_VIRTUAL_KERNEL_MODULES"
-    _disable_list="$_disable_list $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
-  fi
+      # RPI as server does not need HDMI-related modules
+      _disable_list="$_disable_list backlight cec drm drm_kms_helper"
+      _disable_list="$_disable_list drm_panel_orientiation_quirks fb_sys_fops"
+      _disable_list="$_disable_list syscopyarea sysfillrect sysimgblt vc4"
+
+      # RPI as server does not need multimedia-related modules
+      _disable_list="$_disable_list bcm2835_codec bcm2835_isp"
+      ###_disable_list="$_disable_list bcm2835_mmal_vchiq"
+      _disable_list="$_disable_list bcm2835_v4l2 mc"
+      _disable_list="$_disable_list snd snd-pcm snd-pcm-dmaengine snd-soc-core snd-timer"
+      ###_disable_list="$_disable_list vc_sm_cma"
+      _disable_list="$_disable_list videobuf2_common videobuf2_dma_contig"
+      _disable_list="$_disable_list videobuf2_memops videobuf2_vmalloc"
+      _disable_list="$_disable_list videobuf2_v4l2 videodev v4l2_mem2mem"
+
+      # Devices
+      ###_disable_list="$_disable_list i2c-bcm2708"
+      _disable_list="$_disable_list uio uio_pdrv_genirq"
+
+      # Misc
+      _disable_list="$_disable_list input_leds joydev"
+      ;;
+
+    pc )
+      # 'button' is instead used on PC Physical machines
+      _disable_list="$_disable_list tiny-power-button"
+
+      # Disable all cloud provider and virtual modules
+      _disable_list="$_disable_list $CONSTANT_CLOUD_KERNEL_MODULES"
+      _disable_list="$_disable_list $CONSTANT_VIRTUAL_KERNEL_MODULES"
+      _disable_list="$_disable_list $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
+      ;;
+  esac
 
   echo "$_disable_list"
 }
@@ -1012,33 +787,33 @@ etc_modules_list_for_physical() {
 	# Physical machine modules
 EOF
 
-  if [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-    # Physical machine except RPIs
-
-    cat <<'EOF' >> "$run_script"
+  case $image_physical_type in
+    rpi* )
+      cat <<'EOF' >> "$run_script"
+	rng-core
+EOF
+      ;;
+    * )
+      # Physical machines except RPIs
+      cat <<'EOF' >> "$run_script"
 	button
 EOF
 
-    if [ -n "${image_hwrng+x}" ]; then
-      cat <<'EOF' >> "$run_script"
+      if [ -n "${image_hwrng+x}" ]; then
+        cat <<'EOF' >> "$run_script"
 	rng-core
 EOF
-    fi
+      fi
 
-    if [ "$image_os_device_type" = "nvme" ]; then
-      cat <<'EOF' >> "$run_script"
+      case $image_os_device_type in
+        nvme )
+          cat <<'EOF' >> "$run_script"
 	nvme
 EOF
-    fi
-
-  else
-    # Raspberry Pi
-
-    cat <<'EOF' >> "$run_script"
-	rng-core
-EOF
-
-  fi
+          ;;
+      esac
+      ;;
+  esac
 }
 
 
@@ -1048,38 +823,48 @@ EOF
 firmware_list_for_physical() {
   local _firmware_list=""
 
-  if [ "$image_physical_type" = "pc" ]; then
-    # PC
-    if [ -n "${image_graphics_vendor+x}" ] && \
-       [ "$image_graphics_vendor" = "amd" ]; then
-      cat <<-'EOF' >> "$run_script"
+  case $image_physical_type in
+    arm-server )
+      _firmware_list="linux-firmware-mellanox"
+      ;;
+
+    pc )
+      if [ -n "${image_graphics_vendor+x}" ]; then
+        case $image_graphics_vendor in
+          amd )
+            cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting AMD graphics firmware" 2
 	EOF
-      if [ -n "${image_graphics_vendor_driver+x}" ] && \
-         [ "$image_graphics_vendor_driver" = "amdgpu" ]; then
-        _firmware_list="linux-firmware-amdgpu"
-      elif [ -n "${image_graphics_vendor_driver+x}" ] && \
-           [ "$image_graphics_vendor_driver" = "radeon" ]; then
-        _firmware_list="linux-firmware-radeon"
-      else
-        _firmware_list="linux-firmware-amdgpu linux-firmware-radeon"
-      fi
-    elif [ -n "${image_graphics_vendor+x}" ] && \
-         [ "$image_graphics_vendor" = "intel" ]; then
-      cat <<-'EOF' >> "$run_script"
+            if [ -n "${image_graphics_vendor_driver+x}" ]; then
+              case $image_graphics_vendor_driver in
+                amdgpu )
+                  _firmware_list="linux-firmware-amdgpu" ;;
+                radeon )
+                  _firmware_list="linux-firmware-radeon" ;;
+              esac
+            else
+              _firmware_list="linux-firmware-amdgpu linux-firmware-radeon"
+            fi
+            ;;
+          intel )
+            cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting Intel graphics firmware" 2
 	EOF
-      _firmware_list="linux-firmware-i915"
-    else
-      cat <<-'EOF' >> "$run_script"
+            _firmware_list="linux-firmware-i915"
+            ;;
+        esac
+      else
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting AMD and Intel graphics firmware" 2
 	EOF
-      _firmware_list="linux-firmware-amdgpu linux-firmware-radeon linux-firmware-i915"
-    fi
-  elif [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-    # No RPI firmware used currently
-    :
-  fi
+        _firmware_list="linux-firmware-amdgpu linux-firmware-radeon linux-firmware-i915"
+      fi
+      ;;
+
+    rpi* )
+      # No RPI firmware used currently
+      : ;;
+  esac
 
   echo "$_firmware_list"
 }
@@ -1101,18 +886,21 @@ install_microcode_for_physical() {
 EOF
   fi
 
-  if [ -n "${image_cpu_vendor+x}" ] && \
-     [ "$image_cpu_vendor" = "amd" ]; then
-    cat <<-'EOF' >> "$run_script"
+  if [ -n "${image_cpu_vendor+x}" ]; then
+    case $image_cpu_vendor in
+      amd )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting AMD CPU microcode" 2
 	EOF
-    _microcode_list="amd-ucode"
-  elif [ -n "${image_cpu_vendor+x}" ] && \
-       [ "$image_cpu_vendor" = "intel" ]; then
-    cat <<-'EOF' >> "$run_script"
+        _microcode_list="amd-ucode"
+        ;;
+      intel )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting Intel CPU microcode" 2
 	EOF
-      _microcode_list="intel-ucode"
+        _microcode_list="intel-ucode"
+        ;;
+    esac
   else
     cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting AMD and Intel microcode" 2

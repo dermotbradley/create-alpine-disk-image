@@ -1,4 +1,4 @@
-#!/bin/sh -u
+#!/bin/sh
 # shellcheck disable=SC2039
 
 #############################################################################
@@ -27,10 +27,13 @@ configure_mkinitfs_feature_vm_hyperv() {
   initramfs_entry_initialise "vm-hyperv"
   initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
   if [ -n "${image_optimise+x}" ]; then
+    ###initramfs_entry_add "kernel/drivers/hv/hv_balloon.ko*"
     initramfs_entry_add "kernel/drivers/hv/hv_utils.ko*"
     initramfs_entry_add "kernel/drivers/hv/hv_vmbus.ko*"
+    ###initramfs_entry_add "kernel/drivers/net/hyperv/hv_netsvc.ko*"
   else
     initramfs_entry_add "kernel/drivers/hv"
+    ###initramfs_entry_add "kernel/drivers/net/hyperv"
   fi
   initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
   initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
@@ -67,6 +70,7 @@ configure_mkinitfs_feature_vm_qemu() {
 
   cat <<-'EOF' >> "$run_script"
 	
+	  # vm-qemu
 	  {
 	    write_log "Setting up features.d/vm-qemu.modules" 2
 	EOF
@@ -104,6 +108,46 @@ configure_mkinitfs_feature_vm_qemu() {
 	    {
 	      write_debug_log "vm-qemu.modules contents:" 2
 	      cat /etc/mkinitfs/features.d/vm-qemu.modules >> /chroot.log
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
+# Create VM QEMU Microvm mkinitfs feature file
+#
+configure_mkinitfs_feature_vm_qemu_microvm() {
+  # vm-qemu.modules
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  {
+	    write_log "Setting up features.d/vm-qemu-microvm.modules" 2
+	EOF
+
+  initramfs_entry_initialise "vm-qemu"
+  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
+  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
+  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
+  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
+  initramfs_entry_add "kernel/drivers/crypto/virtio"
+  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
+  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
+  ###initramfs_entry_add "kernel/drivers/virtio"
+  initramfs_entry_finish
+
+  if [ -n "${debug_enabled+x}" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "vm-qemu-microvm.modules contents:" 2
+	      cat /etc/mkinitfs/features.d/vm-qemu-microvm.modules >> /chroot.log
 	    }
 	EOF
   fi
@@ -265,99 +309,116 @@ configure_mkinitfs_feature_vm_vmware() {
 # Define default settings for Virtual
 #
 default_virtual_settings() {
-  if [ -z ${esp_type+x} ]; then
-    esp_type=$CONSTANT_VIRTUAL_ESP_TYPE
-  fi
-
-  if [ -z "${filename_for_image+x}" ]; then
-    filename_for_image="alpine-$image_alpine_release-$image_arch-$image_class-$image_vm_type.img"
-  fi
+  esp_type="${esp_type:-$CONSTANT_VIRTUAL_ESP_TYPE}"
+  filename_for_image="${filename_for_image:-alpine-$image_alpine_release-$image_arch-$image_class-$image_vm_type.img}"
 
   # Cloud software (cloud-init or tiny-cloud)
-  if [ -z "${image_cloud_software+x}" ]; then
-    image_cloud_software="cloud-init"
-  elif [ "$image_cloud_software" = "tiny-cloud" ]; then
-    error_message "tiny-cloud is not supported for virtual machines!"
-  fi
+  image_cloud_software="${image_cloud_software:-cloud-init}"
+  case $image_cloud_software in
+    tiny-cloud )
+      error_message "tiny-cloud is not supported for virtual machines!" ;;
+  esac
 
   # NTP
-  if [ -z "${image_experimental+x}" ] && \
-     [ "${image_ntp_use_host+x}" = "true" ]; then
+  if [ -z "${image_experimental+x}" ] && [ "${image_ntp_use_host+x}" = "true" ]; then
     error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
   fi
+  # The majority of VM hypervisors do not support PTP host time sync.
+  image_ntp_use_host=${image_ntp_use_host:-false}
   if [ -n "${image_ntp_servers+x}" ]; then
     error_message "NTP servers can only be specified for physical servers, other servers obtain this information from user-data!"
+  fi
+
+  if [ -n "${image_console_type+x}" ]; then
+    case $image_console_type in
+      hypervisor )
+        image_console_name="hvc0" ;;
+      normal )
+        image_console_name="tty0"
+        case $image_arch in
+          aarch64 )
+            # aarch64 VMs normally use USB keyboards
+            image_keyboard_type="${image_keyboard_type:-usb}" ;;
+          x86 | x86_64 )
+            case $image_vm_type in
+              virtualbox )
+                image_keyboard_type="ps2" ;;
+              * )
+                image_keyboard_type="${image_keyboard_type:-both}" ;;
+            esac
+            ;;
+        esac
+        ;;
+      serial )
+        case $image_arch in
+          aarch64 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}" ;;
+          x86 | x86_64 )
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number}" ;;
+        esac
+        image_console_name=$image_serial_console_name
+        ;;
+    esac
+  else
+    image_console_type="normal"
+    image_console_name="${image_console_name:-tty0}"
   fi
 
   # Arch-specific settings
   case $image_arch in
     armv7 )
-      error_message "armv7 virtual machines are not supported!"
-      ;;
+      error_message "armv7 virtual machines are not supported!" ;;
     aarch64 )
-      if [ -z "${keyboard_type+x}" ]; then
-        # aarch64 VMs normally use USB keyboards
-        keyboard_type="usb"
-      fi
-      if [ -n "${image_bootloader+x}" ] && \
-         [ "$image_bootloader" = "syslinux" ]; then
+      if [ -n "${image_bootloader+x}" ] && [ "$image_bootloader" = "syslinux" ]; then
         error_message "aarch64 virtual machine can not use Syslinux bootloader!"
+      elif [ "${image_vm_type}" = "qemu-microvm" ]; then
+        image_bootloader="none"
       else
         image_bootloader="grub"
       fi
       # aarch64 VMs always use UEFI
       image_boot_type="uefi"
 
-      if [ "$image_vm_type" = "virtualbox" ]; then
-        error_message "aarch64 Virtualbox images cannot be created!"
-      fi
-      ;;
-    x86 )
       case $image_vm_type in
         virtualbox )
-          keyboard_type="ps2" ;;
-        * )
-          keyboard_type="${image_keyboard_type:-both}" ;;
+          error_message "aarch64 Virtualbox images cannot be created!" ;;
       esac
+      ;;
+    x86 )
       if [ -n "${image_boot_type+x}" ]; then
         case $image_boot_type in
-          uefi )
+          secure-uefi | uefi )
             error_message "UEFI is not supported for x86!" ;;
         esac
       else
         image_boot_type="bios"
       fi
       if [ -z "${image_bootloader+x}" ]; then
-        image_bootloader="syslinux"
+        if [ "${image_vm_type}" = "qemu-microvm" ]; then
+          image_bootloader="none"
+        else
+          image_bootloader="syslinux"
+        fi
       fi
       ;;
     x86_64 )
-      case $image_vm_type in
-        virtualbox )
-          keyboard_type="ps2" ;;
-        * )
-          keyboard_type="${image_keyboard_type:-both}" ;;
-      esac
-
       if [ -z ${image_boot_type+x} ]; then
         image_boot_type="bios"
       fi
       if [ -z ${image_bootloader+x} ]; then
-        image_bootloader="grub"
+        if [ "${image_vm_type}" = "qemu-microvm" ]; then
+          image_bootloader="none"
+        else
+          image_bootloader="grub"
+        fi
       fi
 
-      if [ "$image_bootloader" = "syslinux" ] && \
-         [ "$image_boot_type" = "uefi" ] && \
+      if [ "$image_bootloader" = "syslinux" ] && [ "$image_boot_type" = "uefi" ] && \
          [ -z "${image_experimental+x}" ]; then
         error_message "Syslinux UEFI is an experimental option!"
       fi
       ;;
   esac
-
-  if [ -z "${image_ntp_use_host+x}" ]; then
-    # The majority of VM hypervisors do not support PTP/NTP host time sync.
-    image_ntp_use_host=false
-  fi
 
   # Sort out partition sizing
   #---------------------------
@@ -369,14 +430,8 @@ default_virtual_settings() {
     x86_64 )
       general_boot_part_size=$CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE ;;
   esac
-  if [ -z "${general_root_part_size+x}" ]; then
-    general_root_part_size=$CONSTANT_VIRTUAL_ROOT_PART_SIZE
-  fi
-  if [ -z "${esp_part_size+x}" ]; then
-    general_uefi_part_size=$CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE
-  else
-    general_uefi_part_size=$esp_part_size
-  fi
+  general_root_part_size=${general_root_part_size:-$CONSTANT_VIRTUAL_ROOT_PART_SIZE}
+  general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE}
 }
 
 
@@ -389,7 +444,7 @@ define_virtual_machine_packages() {
   case $image_vm_type in
     hyperv )
       _virtual_pkgs="hvtools" ;;
-    libvirtd | lxd | proxmox | qemu | utm )
+    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
       _virtual_pkgs="qemu-guest-agent" ;;
     virtualbox )
       _virtual_pkgs="virtualbox-guest-additions" ;;
@@ -415,30 +470,29 @@ define_virtual_settings() {
   case $image_vm_type in
     hyperv )
       datasource_list="'NoCloud'" ;;
-    libvirtd | lxd | proxmox | qemu | utm )
+    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
       datasource_list="'NoCloud'"
       if [ "$image_console_type" = "serial" ] && \
-         { [ "$image_arch" = "armv7" ] || \
-           [ "$image_arch" = "aarch64" ]; }; then
-        serial_port_number="0"
-        serial_port_name="ttyAMA${serial_port_number}"
+         { [ "$image_arch" = "armv7" ] || [ "$image_arch" = "aarch64" ]; }; then
+        image_serial_console_port_number="${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}"
+        image_serial_console_name="${image_serial_console_name:-${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}}"
       fi
       ;;
     opennebula )
-      datasource_list="'Opennebula'" ;;
+      datasource_list="'OpenNebula'" ;;
     openstack )
-      datasource_list="'Openstack'" ;;
+      datasource_list="'OpenStack'" ;;
     rhvm )
-      datasource_list="'AltCloud','Openstack'" ;;
+      datasource_list="'AltCloud','OpenStack'" ;;
     virtualbox )
       datasource_list="'NoCloud'" ;;
     vmware )
       datasource_list="'AltCloud','OVF','VMware'" ;;
     generic )
-      datasource_list="'AltCloud','ConfigDrive','Opennebula','Openstack','NoCloud','OVF'" ;;
+      datasource_list="'AltCloud','ConfigDrive','OpenNebula','OpenStack','NoCloud','OVF'" ;;
   esac
-  if [ "$datasource_list" = "'NoCloud'" ] && \
-     [ -n "${cloud_seed_url+x}" ]; then
+
+  if [ "$datasource_list" = "'NoCloud'" ] && [ -n "${cloud_seed_url+x}" ]; then
     datasource_settings="$(printf \\t%s\\n "  NoCloud:" "    seedfrom: $cloud_seed_url")"
   fi
 }
@@ -466,17 +520,19 @@ EOF
 	hv_vmbus
 EOF
       ;;
-    libvirtd | lxd | proxmox | qemu | utm | generic )
+    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm | generic )
       cat <<'EOF' >> "$run_script"
 	
 	# KVM-based hypervisor specific modules
 EOF
 
-      if [ "$image_os_device_type" = "nvme" ]; then
-        cat <<'EOF' >> "$run_script"
+      case $image_os_device_type in
+        nvme )
+          cat <<'EOF' >> "$run_script"
 	nvme
 EOF
-      fi
+          ;;
+      esac
       cat <<'EOF' >> "$run_script"
 	ptp_kvm
 	virtio_net
@@ -489,11 +545,13 @@ EOF
 	# Virtualbox-specific modules
 EOF
 
-      if [ "$image_os_device_type" = "nvme" ]; then
-        cat <<'EOF' >> "$run_script"
+      case $image_os_device_type in
+        nvme )
+          cat <<'EOF' >> "$run_script"
 	nvme
 EOF
-      fi
+          ;;
+      esac
 
       cat <<'EOF' >> "$run_script"
 	virtio_net
