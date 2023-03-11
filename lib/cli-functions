@@ -81,7 +81,7 @@ lvm,\
 mdev,\
 mirror:,\
 no-cloud-configuration,\
-no-console-user:,\
+no-console-user,\
 no-grub-encryption,\
 ntp-servers:,\
 ntp-use-host,\
