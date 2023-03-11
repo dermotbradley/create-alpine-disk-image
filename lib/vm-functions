@@ -352,9 +352,9 @@ default_virtual_settings() {
       serial )
         case $image_arch in
           aarch64 )
-            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}" ;;
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}" ;;
           x86 | x86_64 )
-            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number}" ;;
+            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}" ;;
         esac
         image_console_name=$image_serial_console_name
         ;;
