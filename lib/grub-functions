@@ -90,7 +90,7 @@ configure_bootloader_grub() {
       case $image_os_device_media in
         flash | sd | ssd )
           case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 | v3.16 | edge )
+            v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | edge )
               # For older Alpine releases add commit mount option for rootfs
               # when on flash device as this is *not* read from /etc/fstab by
               # initramfs' init when it mounts rootfs.

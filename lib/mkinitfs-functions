@@ -449,7 +449,7 @@ configure_mkinitfs_feature_base() {
 	EOF
 
     case $image_alpine_release in
-      v3.13 | v3.14 | v3.15 | v3.16 | edge )
+      v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | edge )
         # Use kmod/modprobe from kmod package
         cat <<-'EOF' >> "$run_script"
 	      echo "/sbin/modprobe"
@@ -551,7 +551,7 @@ configure_mkinitfs_feature_base() {
     # base.files
 
     case $image_alpine_release in
-      v3.13 | v3.14 | v3.15 | v3.16 | edge )
+      v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | edge )
         # These mkinitfs versions do not include /etc/modules in initramfs
         if [ -n "${debug_enabled+x}" ]; then
           cat <<-'EOF' >> "$run_script"

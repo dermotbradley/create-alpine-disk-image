@@ -673,7 +673,7 @@ help\
       --release )
         if [ "$script_type" = "creator" ]; then
           case $2 in
-            3.13 | 3.14 | 3.15 | 3.16 )
+            3.13 | 3.14 | 3.15 | 3.16 | 3.17 )
               image_alpine_release=v$2 ;;
             edge )
               image_alpine_release=$2 ;;
@@ -1035,7 +1035,7 @@ usage() {
     option_help "--physical < pc | rpi2 | rpi3 | rpi4 >" "The type of physical machine to be created."
   fi
   option_help "--ramdisk-directory < directory >" "When '--use-ramdisk' is also specified this value indicates the directory in which to store the ramdisk file."
-  option_help "--release < 3.13 | 3.14 | 3.15 | edge >" "Which Alpine Release to use for the disk image. If not specified then defaults to 'edge'."
+  option_help "--release < 3.13 | 3.14 | 3.15 | 3.16 | 3.17 | edge >" "Which Alpine Release to use for the disk image. If not specified then defaults to 'edge'."
   if [ -n "${image_experimental+x}" ]; then
     option_help "--remote-unlock-network-module < kernel module name >" "Experimental. Specifies the name of the network device kernel module to be loaded."
     option_help "--remote-unlock-ssh-port < port number >" "Experimental. Specifies the TCP port that the temporary SSH daemon should listen on. If not specified then defaults to '22'."
