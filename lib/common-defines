@@ -4,37 +4,44 @@
 ##
 ##  common-defines
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
 #############################################################################
 
-readonly CONSTANT_APK_STATIC_VERSION="2.12.9"
-readonly CONSTANT_APK_STATIC_URL="https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic/v${CONSTANT_APK_STATIC_VERSION}"
-readonly CONSTANT_RAMDISK_SIZE=3G
+readonly CADI_APK_STATIC_AARCH64_CHECKSUM="d49a63b8b6780fc1342d3e7e14862aa006c30bafbf74beec8e1dfe99e6f89471"
+readonly CADI_APK_STATIC_ARMV7_CHECKSUM="9d68d7cb0bbb46e02b7616e030eba7be1697d84cabf61e0a186a6b7522ffb09e"
+readonly CADI_APK_STATIC_X86_CHECKSUM="cb8160be3f57b2e7b071b63cb9acb4f06c1e2521b69db178b63e2130acd5504a"
+readonly CADI_APK_STATIC_X86_64_CHECKSUM="1c65115a425d049590bec7c729c7fd88357fbb090a6fc8c31d834d7b0bc7d6f2"
+readonly CADI_APK_STATIC_VERSION="2.14.0"
+readonly CADI_APK_STATIC_URL="https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic/v${CADI_APK_STATIC_VERSION}"
+readonly CADI_RAMDISK_SIZE=3G
 
 # Defaults
-readonly CONSTANT_DEFAULT_ALPINE_RELEASE="edge"
-readonly CONSTANT_DEFAULT_ARCH="x86_64"
-readonly CONSTANT_DEFAULT_BOOT_DEVICE_TYPE="sata"
-readonly CONSTANT_DEFAULT_CHROOT_DIRECTORY="./chroot"
-readonly CONSTANT_DEFAULT_CONSOLE_ONLY_GROUP="local-only"
-readonly CONSTANT_DEFAULT_CONSOLE_USER_ACCOUNT="localadmin"
-readonly CONSTANT_DEFAULT_IMAGES_DIRECTORY="./alpine-images"
-readonly CONSTANT_DEFAULT_IPV6_TYPE="dhcp"
-readonly CONSTANT_DEFAULT_KEYMAP="us us"
-readonly CONSTANT_DEFAULT_LOCALE="en_US"
-readonly CONSTANT_DEFAULT_MDEV=false
-readonly CONSTANT_DEFAULT_MIRROR_SITE="https://dl-cdn.alpinelinux.org/alpine"
-readonly CONSTANT_DEFAULT_PTP_DPOLL=-2
-readonly CONSTANT_DEFAULT_PTP_OFFSET="0.0"
-readonly CONSTANT_DEFAULT_PTP_POLL=3
-readonly CONSTANT_DEFAULT_PTP_STRATUM=2
-readonly CONSTANT_DEFAULT_RAMDISK_DIRECTORY="./ramdisk"
-readonly CONSTANT_DEFAULT_RPI_BOOT_DEVICE_TYPE="sd"
-readonly CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME="ttyAMA"
-readonly CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME="ttyS"
-readonly CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_SPEED="115200"
-readonly CONSTANT_DEFAULT_TIMEZONE="America/New_York"
+readonly CADI_DEFAULT_ALPINE_RELEASE="edge"
+readonly CADI_GLOBAL_DEFAULT_OS_DEVICE_TYPE="sata"
+readonly CADI_DEFAULT_CHROOT_DIRECTORY="./chroot"
+readonly CADI_DEFAULT_CONSOLE_ONLY_GROUP="local-only"
+readonly CADI_DEFAULT_CONSOLE_USER_ACCOUNT="localadmin"
+readonly CADI_DEFAULT_IMAGES_DIRECTORY="./alpine-images"
+readonly CADI_DEFAULT_IPV6_TYPE="dhcp"
+readonly CADI_DEFAULT_KEYMAP="us us"
+readonly CADI_DEFAULT_LOCALE="en_US.UTF-8"
+readonly CADI_DEFAULT_MIRROR_SITE="https://dl-cdn.alpinelinux.org/alpine"
+readonly CADI_DEFAULT_RAMDISK_DIRECTORY="./ramdisk"
+readonly CADI_DEFAULT_SERIAL_CONSOLE_PORT_SPEED="115200"
+readonly CADI_GLOBAL_DEFAULT_TIMEZONE="America/New_York"
+
+# Default type of software selections
+readonly CADI_DEFAULT_AUTH_CONTROL="doas"
+readonly CADI_DEFAULT_CRON_DAEMON="busybox"
+readonly CADI_DEFAULT_DEVICE_MANAGEMENT_TYPE="mdev"
+readonly CADI_DEFAULT_DHCP_CLIENT="udhcpc"
+readonly CADI_DEFAULT_FIREWALL="iptables"
+# Set to either "busybox", "shadow", or "util-linux"
+readonly CADI_DEFAULT_LOGIN_PACKAGE="util-linux"
+readonly CADI_GLOBAL_DEFAULT_NTP_DAEMON="chrony"
+readonly CADI_DEFAULT_SSH_SERVER="openssh"
+readonly CADI_DEFAULT_SYSLOG_SERVER="rsyslog"
+readonly CADI_DEFAULT_USER_MANAGEMENT_PACKAGE="shadow"

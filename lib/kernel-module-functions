@@ -1,0 +1,603 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  kernel-module-functions
+##
+##  Copyright 2022-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Disable a set of specified kernel modules
+#
+blacklist_list_of_kernel_modules() {
+  local _modules_section=$1
+  local _modules_blacklist="$2"
+
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Blacklisting ${_modules_section} kernel modules" 2
+	{
+	  cat <<-_SCRIPT_ > /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
+	EOF
+
+  for MODULE_NAME in $_modules_blacklist; do
+    cat <<EOF >> "$run_script"
+	blacklist ${MODULE_NAME}
+EOF
+  done
+
+  cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+EOF
+
+  cat <<-EOF >> "$run_script"
+	
+	  sort -u -o /etc/modprobe.d/blacklist-${_modules_section}-modules.conf \\
+	    /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Contents of blacklist-${_modules_section}-modules.conf:" 4
+	    cat /etc/modprobe.d/blacklist-${_modules_section}-modules.conf >> /chroot.log
+	  }
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Create an init.d script for preventing the loading of kernel modules
+#
+create_module_blocking_initd() {
+  cat <<'EOF' >> "$run_script"
+
+write_log "Creating init.d script for disabling kernel module loading" 2
+{
+  cat <<-_SCRIPT_ > /etc/init.d/block-modules-loading
+	#!/sbin/openrc-run
+	
+	description="Disable loading of kernel modules"
+	
+	depend() {
+		after *
+		keyword -openvz -prefix -uml -vserver -xenu -lxc
+	}
+	
+	start() {
+		ebegin "Disabling loading of kernel modules"
+		sysctl -q -w kernel.modules_disabled=1
+		eend $?
+	}
+	_SCRIPT_
+  chmod a+x /etc/init.d/block-modules-loading
+
+  {
+EOF
+
+  add_init_d_service "block-modules-loading" "default" 4
+
+  cat <<-'EOF' >> "$run_script"
+	  } >> /chroot.log 2>&1
+	EOF
+
+  case $image_class in
+    virtual )
+      case $image_vm_type in
+        virtualbox )
+          if [ -z "$image_barebones" ]; then
+            if [ -n "$debug_enabled" ]; then
+              cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    cp /etc/init.d/virtualbox-guest-additions \
+	      /etc/init.d/virtualbox-guest-additions-orig
+	  }
+	EOF
+            fi
+
+            cat <<-'EOF' >> "$run_script"
+	
+	  # Disable the module removal upon stop as otherwise this will give an error
+	  sed -i -E -e 's|^(.*/sbin/modprobe -r .*)$|#\1|g' \
+	    /etc/init.d/virtualbox-guest-additions
+	EOF
+
+            if [ -n "$debug_enabled" ]; then
+              cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "/etc/init.d/virtualbox-guest-additions differences:" 2
+	    diff /etc/init.d/virtualbox-guest-additions-orig \
+	      /etc/init.d/virtualbox-guest-additions >> /chroot.log || true
+	    rm /etc/init.d/virtualbox-guest-additions-orig
+	  }
+	EOF
+            fi
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Disable non-server specific kernel modules
+#
+disable_kernel_modules() {
+  local _disable_modules=""
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Disable non-server kernel modules"
+	EOF
+
+  # Arch
+  #------
+
+
+  # Block
+  #-------
+
+
+  # Crypto
+  #--------
+
+
+  # Drivers
+  #---------
+
+  # KMS/DRM modules
+  case $image_console_output_type in
+    generic )
+      case $image_class in
+        cloud | virtual )
+          _disable_modules="$CADI_PHYSICAL_GENERAL_KMS_MODULES"
+          case $image_arch in
+            aarch64 | armv7 )
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+            x86 | x86_64 )
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+          esac
+          ;;
+        physical )
+          _disable_modules="$CADI_VIRTUAL_KMS_MODULES" ;;
+      esac
+      ;;
+
+    graphics )
+      # If using simpleDRM then display all other DRM modules
+      if [ -n "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" ] && \
+         [ "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" = "simpledrm" ]; then
+        _disable_modules="$CADI_PHYSICAL_GENERAL_KMS_MODULES"
+        _disable_modules="$_disable_modules $CADI_VIRTUAL_KMS_MODULES"
+      else
+        case $image_class in
+          cloud | virtual )
+            _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
+            _disable_modules="$_disable_modules simpledrm"
+            case $image_arch in
+              aarch64 | armv7 )
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+              x86 | x86_64 )
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+            esac
+            ;;
+        esac
+      fi
+      ;;
+
+    none | text )
+      # Disable all KMS/DRM modules
+      _disable_modules="$CADI_COMMON_KMS_MODULES"
+      _disable_modules="$_disable_modules $CADI_GENERAL_KMS_MODULES"
+      _disable_modules="$_disable_modules simpledrm"
+      case $image_class in
+        cloud | virtual )
+          _disable_modules="$_disable_modules $CADI_VIRTUAL_KMS_MODULES" ;;
+        physical )
+          _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
+          case $image_arch in
+            aarch64 | armv7 )
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+            x86 | x86_64 )
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+
+  # UEFI-related
+  #
+  # The "efivars" interface in sysfs has been deprecated since 2012;
+  # in Linux 6.0 it will be removed entirely.
+  _disable_modules="$_disable_modules efivars"
+  case $image_boot_type in
+    secure-uefi | uefi )
+      : ;;
+    * )
+      # Disable all UEFI modules on non-UEFI machine
+      _disable_modules="$_disable_modules $CADI_UEFI_KERNEL_MODULES" ;;
+  esac
+
+
+  # Non server related modules
+  _disable_modules="$_disable_modules $CADI_GENERAL_KERNEL_MODULES"
+  _disable_modules="$_disable_modules $CADI_DESKTOP_KERNEL_MODULES"
+  if [ "$image_class" != "physical" ] || \
+     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+    _disable_modules="$_disable_modules $CADI_VIRTUAL_XEN_KERNEL_MODULES"
+  fi
+
+  # USB
+  case $image_console_type in
+    normal | normal_and_serial )
+      case $image_keyboard_type in
+        usb | both )
+          : ;;
+        * )
+          # Disable USB keyboard-related modules
+          _disable_modules="$_disable_modules $CADI_USB_KEYBOARD_KERNEL_MODULES"
+          case $image_os_device_type in
+            usb )
+              : ;;
+            * )
+            # Disable USB controller modules
+            _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+          esac
+          ;;
+      esac
+      ;;
+    * )
+      # Disable USB keyboard-related modules
+      _disable_modules="$_disable_modules $CADI_USB_KEYBOARD_KERNEL_MODULES"
+      case $image_os_device_type in
+        usb )
+          : ;;
+        * )
+        # Disable USB controller modules
+        _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+      esac
+      ;;
+  esac
+
+  case $image_acpi_power_method in
+    none )
+      _disable_list="button tiny-power-button" ;;
+    button )
+      _disable_list="tiny-power-button" ;;
+    tiny-power-button )
+      _disable_list="button" ;;
+  esac
+
+  if ! is_in_comma_list "virtio" "$CADI_SUPPORTED_RNGS"; then
+    _disable_list="$_disable_list virtio_rng"
+  fi
+
+  case $image_class in
+    cloud )
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_cloud)" ;;
+    physical )
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_physical)" ;;
+    virtual )
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_virtual)" ;;
+  esac
+
+  # PTP-related
+  _disable_modules="$_disable_modules ptp"
+  if ! is_in_comma_list "ptp" "$CADI_SUPPORTED_NTP_METHODS"; then
+    _disable_modules="$_disable_modules ptp_kvm ptp_vmw"
+  fi
+
+  blacklist_list_of_kernel_modules "drivers" "$_disable_modules"
+  disable_list_of_kernel_modules "drivers" "$_disable_modules"
+
+
+  # FS
+  #----
+
+  _disable_modules="$CADI_UNUSED_FS_KERNEL_MODULES"
+  case $image_class in
+
+    cloud )
+      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_FS_KERNEL_MODULES" ;;
+
+    virtual )
+      case $image_vm_type in
+        virtualbox | generic )
+          # Don't disable for Virtualbox or generic
+          : ;;
+        * )
+          _disable_modules="$_disable_modules $CADI_VIRTUAL_FS_VIRTUALBOX_KERNEL_MODULES" ;;
+      esac
+      ;;
+
+  esac
+
+  blacklist_list_of_kernel_modules "fs" "$_disable_modules"
+  disable_list_of_kernel_modules "fs" "$_disable_modules"
+
+
+  # Kernel
+  #--------
+
+
+  # Lib
+  #-----
+
+
+  # Net
+  #-----
+
+  _disable_modules="$CADI_UNUSED_NET_KERNEL_MODULES"
+  # Disable Application-Level Gateway (ALG) modules
+  _disable_modules="$_disable_modules $CADI_NET_ALG_KERNEL_MODULES"
+  case $image_class in
+
+    cloud )
+      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_NET_KERNEL_MODULES" ;;
+
+    virtual )
+      case $image_vm_type in
+        vmware | generic )
+          # Don't disable for VMware or generic
+          : ;;
+        * )
+          _disable_modules="$_disable_modules $CADI_NET_VMWARE_KERNEL_MODULES" ;;
+      esac
+      ;;
+
+  esac
+
+  blacklist_list_of_kernel_modules "net" "$_disable_modules"
+  disable_list_of_kernel_modules "net" "$_disable_modules"
+
+
+  # Security
+  #----------
+
+
+  # Virt
+  #------
+
+
+}
+
+
+#
+# Disable a set of specified kernel modules
+#
+disable_list_of_kernel_modules() {
+  local _modules_section=$1
+  local _disable_list="$2"
+
+  local _module_name
+
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Disabling ${_modules_section} kernel modules" 2
+	{
+	EOF
+
+  cat <<-EOF >> "$run_script"
+  cat <<-_SCRIPT_ > /etc/modprobe.d/disable-${_modules_section}-modules.conf
+EOF
+
+  for _module_name in $_disable_list; do
+    cat <<EOF >> "$run_script"
+	install ${_module_name} /bin/true
+EOF
+  done
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+EOF
+
+  cat <<-EOF >> "$run_script"
+	  sort -u -o /etc/modprobe.d/disable-${_modules_section}-modules.conf \\
+	    /etc/modprobe.d/disable-${_modules_section}-modules.conf
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Contents of disable-${_modules_section}-modules.conf:" 4
+	    cat /etc/modprobe.d/disable-${_modules_section}-modules.conf >> /chroot.log
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Configure modules to be loaded upon boot
+#
+setup_etc_modules() {
+  local _network_module
+
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Setup /etc/modules-load.d/$image_env_ref.conf"
+	{
+	EOF
+
+  cat <<EOF >> "$run_script"
+  if ! grep -q af_packet /etc/modules; then
+    cat <<-_SCRIPT_ > /etc/modules-load.d/$image_env_ref.conf
+	af_packet
+	_SCRIPT_
+  fi
+	
+EOF
+
+  if [ -z "$image_disable_ipv6" ]; then
+    cat <<EOF >> "$run_script"
+  if ! grep -q ipv6 /etc/modules; then
+    cat <<-_SCRIPT_ >> /etc/modules-load.d/$image_env_ref.conf
+	ipv6
+	_SCRIPT_
+  fi
+	
+EOF
+  fi
+
+    cat <<EOF >> "$run_script"
+  cat <<-_SCRIPT_ >> /etc/modules-load.d/$image_env_ref.conf
+EOF
+
+  # Network
+  if [ -n "$image_ethernet_module" ]; then
+    _network_module="$(basename "$image_ethernet_module")"
+    cat <<EOF >> "$run_script"
+	$_network_module
+EOF
+  elif [ -n "$CADI_DEFAULT_OS_NETWORK_DRIVER" ] && \
+       [ -n "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" ] && \
+       is_in_comma_list "$CADI_DEFAULT_OS_NETWORK_DRIVER" "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" && \
+       [ "$CADI_DEFAULT_OS_NETWORK_DRIVER" != "generic" ]; then
+    case $CADI_DEFAULT_OS_NETWORK_DRIVER in
+      hyperv )
+        _network_module="hv_netvsc" ;;
+      * )
+        _network_module="$CADI_DEFAULT_OS_NETWORK_DRIVER" ;;
+    esac
+    if [ -n "$_network_module" ]; then
+      cat <<EOF >> "$run_script"
+	$CADI_DEFAULT_OS_NETWORK_DRIVER
+EOF
+    fi
+  elif [ -n "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" ] && \
+         [ "$CADI_DEFAULT_OS_NETWORK_DRIVER" != "generic" ]; then
+    # Assume only a single network driver supported
+    _list_item="$(first_entry_in_comma_list "$CADI_SUPPORTED_OS_NETWORK_DRIVERS")"
+    case $_list_item in
+      hyperv )
+        _network_module="hv_netvsc" ;;
+      * )
+        _network_module="$_list_item" ;;
+    esac
+    if [ -n "$_network_module" ]; then
+      cat <<EOF >> "$run_script"
+	$_list_item
+EOF
+    fi
+  fi
+
+  # PTP
+  if [ -n "$CADI_DEFAULT_NTP_METHOD" ] && \
+       [ "$CADI_DEFAULT_NTP_METHOD" = "ptp" ] && \
+       [ -n "$CADI_SUPPORTED_NTP_METHODS" ] && \
+       is_in_comma_list "ptp" "$CADI_SUPPORTED_NTP_METHODS" && \
+       [ -n "$CADI_PTP_DEVICE_TYPE" ]; then
+    case $CADI_PTP_DEVICE_TYPE in
+      hyperv )
+        _ptp_module="hv_utils" ;;
+      kvm )
+        _ptp_module="ptp_kvm" ;;
+      vmware )
+        _ptp_module="ptp_vmw" ;;
+    esac
+  elif [ -n "$CADI_SUPPORTED_NTP_METHODS" ] && \
+       [ "$CADI_SUPPORTED_NTP_METHODS" = "ptp" ] && \
+       [ -n "$CADI_PTP_DEVICE_TYPE" ]; then
+    # Assume only a single NTP method supported
+    case $CADI_PTP_DEVICE_TYPE in
+      hyperv )
+        _ptp_module="hv_utils" ;;
+      kvm )
+        _ptp_module="ptp_kvm" ;;
+      vmware )
+        _ptp_module="ptp_vmw" ;;
+    esac
+  fi
+
+  if [ -n "$_ptp_module" ]; then
+    cat <<EOF >> "$run_script"
+	$_ptp_module
+EOF
+  fi
+
+    cat <<EOF >> "$run_script"
+	
+EOF
+
+  # Extra modules specific to type of machine
+  if [ -n "$CADI_ADDITIONAL_NON_INITRAMFS_MODULES" ]; then
+    # Load every module listed
+    _list="$CADI_ADDITIONAL_NON_INITRAMFS_MODULES"
+    while true; do
+      _list_item="$(first_entry_in_comma_list "$_list")"
+            cat <<EOF >> "$run_script"
+	$_list_item
+EOF
+      if [ "${_list%,*}" = "$_list" ]; then
+        # No more entries
+        break
+      else
+        _list="${_list#$_list_item,}"
+      fi
+    done
+  fi
+
+  if [ -n "$image_extra_modules" ]; then
+    # Add any manually specified extra modules to the list
+    cat <<'EOF' >> "$run_script"
+	
+	# Extra modules
+EOF
+    for _module in $image_extra_modules; do
+      cat <<EOF >> "$run_script"
+	$_module
+EOF
+    done
+  fi
+
+
+  cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Contents of /etc/modules:" 2
+	    cat /etc/modules >> /chroot.log
+	    write_debug_log "Contents of /etc/modules-load.d/$image_env_ref.conf:" 2
+	    cat /etc/modules-load.d/$image_env_ref.conf >> /chroot.log
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}

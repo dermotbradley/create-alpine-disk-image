@@ -1,0 +1,212 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  vm-defines
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+###########################################################################
+#        Partition / filesystem sizing (in MiB)
+###########################################################################
+
+###readonly CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE=1
+###readonly CONSTANT_DEFAULT_VIRTUAL_ESP_TYPE="fat12"
+###readonly CONSTANT_DEFAULT_VIRTUAL_UKI_ESP_TYPE="fat16"
+
+
+#### aarch64
+############
+###
+#### Size of Gummiboot/Stubby EFI stub file
+###readonly CONSTANT_VIRTUAL_AARCH64_EFI_STUB_SIZE=1
+#### Installed size of the linux-virt package (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_KERNEL_PACKAGE_SIZE=41
+#### Size of kernel file (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_KERNEL_FILE_SIZE=7
+#### Size of System.map (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_SYSTEMMAP_FILE_SIZE=3
+#### Size of config-virt (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_KERNELCONFIG_FILE_SIZE=1
+#### Size of DTB files (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_DTB_FILES_SIZE=12
+#### Size of System.map, config, DTB files, and kernel file from kernel package (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_BOOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_AARCH64_SYSTEMMAP_FILE_SIZE + CONSTANT_VIRTUAL_AARCH64_KERNELCONFIG_FILE_SIZE + CONSTANT_VIRTUAL_AARCH64_DTB_FILES_SIZE + CONSTANT_VIRTUAL_AARCH64_KERNEL_FILE_SIZE))
+#### Size of kernel package files placed in rootfs rather than in /boot (i.e. kernel modules) (in MiB)
+###readonly CONSTANT_VIRTUAL_AARCH64_ROOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_AARCH64_KERNEL_PACKAGE_SIZE - CONSTANT_VIRTUAL_AARCH64_BOOTFS_FILES_SIZE))
+###
+#### Hypervisor agent packages
+###readonly CONSTANT_VIRTUAL_AARCH64_HYPERV_AGENT_PACKAGE_SIZE=1
+###readonly CONSTANT_VIRTUAL_AARCH64_QEMU_AGENT_PACKAGE_SIZE=1
+###readonly CONSTANT_VIRTUAL_AARCH64_VMWARE_AGENT_PACKAGE_SIZE=3
+###
+#### "Normal"
+####
+#### Size of initramfs
+###readonly CONSTANT_VIRTUAL_AARCH64_INITRAMFS_SIZE=6
+#### This accounts for System.map, config, DTB, kernel, and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_AARCH64_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_AARCH64_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_AARCH64_BOOTFS_EXTRA_SPACE=$CONSTANT_VIRTUAL_AARCH64_BOOTFS_SIZE
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_GRUB_BOOT_FILES_SIZE=5
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_LIMINE_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_AARCH64_ROOTFS_SIZE=$((218 - CONSTANT_VIRTUAL_AARCH64_KERNEL_PACKAGE_SIZE))
+###
+#### Size of an ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs
+###readonly CONSTANT_DEFAULT_VIRTUAL_AARCH64_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_AARCH64_EFI_STUB_SIZE + CONSTANT_VIRTUAL_AARCH64_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_AARCH64_INITRAMFS_SIZE))
+###
+#### Barebones
+####
+#### Size of initramfs
+###readonly CONSTANT_VIRTUAL_AARCH64_BASEBONES_INITRAMFS_SIZE=6
+#### This accounts for "other files" (System.map, config, kernel, DTB files) and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_BAREBONES_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_AARCH64_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_AARCH64_BASEBONES_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_AARCH64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_AARCH64_BAREBONES_LIMINE_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_AARCH64_BAREBONES_ROOTFS_SIZE=$((160 - CONSTANT_VIRTUAL_AARCH64_KERNEL_PACKAGE_SIZE))
+###
+#### Size of a UKI file containing EFI stub, kernel, and initramfs for barebones
+###readonly CONSTANT_DEFAULT_VIRTUAL_AARCH64_BAREBONES_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_AARCH64_EFI_STUB_SIZE + CONSTANT_VIRTUAL_AARCH64_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_AARCH64_BAREBONES_INITRAMFS_SIZE))
+###
+###
+###
+#### x86
+############
+###
+#### Size of Gummiboot/Stubby EFI stub file
+###readonly CONSTANT_VIRTUAL_X86_EFI_STUB_SIZE=1
+#### Installed size of the linux-virt package (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_KERNEL_PACKAGE_SIZE=26
+#### Size of kernel file (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_KERNEL_FILE_SIZE=6
+#### Size of System.map (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_SYSTEMMAP_FILE_SIZE=2
+#### Size of config-virt (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_KERNELCONFIG_FILE_SIZE=1
+#### Size of System.map, config, and kernel files from kernel package (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_BOOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_X86_SYSTEMMAP_FILE_SIZE + CONSTANT_VIRTUAL_X86_KERNELCONFIG_FILE_SIZE + CONSTANT_VIRTUAL_X86_KERNEL_FILE_SIZE))
+#### Size of kernel package files placed in rootfs rather than in /boot (i.e. kernel modules) (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_ROOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_X86_KERNEL_PACKAGE_SIZE - CONSTANT_VIRTUAL_X86_BOOTFS_KERNEL_FILES_SIZE))
+###
+#### Hypervisor agent packages
+###readonly CONSTANT_VIRTUAL_X86_HYPERV_AGENT_PACKAGE_SIZE=1
+###readonly CONSTANT_VIRTUAL_X86_QEMU_AGENT_PACKAGE_SIZE=1
+###readonly CONSTANT_VIRTUAL_X86_VIRTUALBOX_AGENT_PACKAGE_SIZE=2
+###
+#### "Normal"
+####
+#### Size of initramfs
+###readonly CONSTANT_VIRTUAL_X86_INITRAMFS_SIZE=5
+#### This accounts for "other files" (System.map, config, kernel) and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_X86_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_X86_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_X86_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_X86_BOOTFS_EXTRA_SPACE=$CONSTANT_VIRTUAL_X86_BOOTFS_SIZE
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_X86_GRUB_BOOT_FILES_SIZE=4
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_X86_LIMINE_BOOT_FILES_SIZE=1
+#### Size of Syslinux files in /boot
+###readonly CONSTANT_VIRTUAL_X86_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_X86_ROOTFS_SIZE=$((155 - CONSTANT_VIRTUAL_X86_KERNEL_PACKAGE_SIZE))
+###
+#### Size of an ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs
+###readonly CONSTANT_DEFAULT_VIRTUAL_X86_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_X86_EFI_STUB_SIZE + CONSTANT_VIRTUAL_X86_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_X86_INITRAMFS_SIZE))
+###
+#### Barebones
+####
+#### Size of initramfs
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_INITRAMFS_SIZE=5
+#### This accounts for "other files" (System.map, config, kernel) and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_X86_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_X86_BAREBONES_INITRAMFS_SIZE))
+#### Allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_BOOTFS_EXTRA_SPACE=10
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_LIMINE_BOOT_FILES_SIZE=1
+#### Size of Syslinux files in /boot
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_X86_BAREBONES_ROOTFS_SIZE=$((65 - CONSTANT_VIRTUAL_X86_KERNEL_PACKAGE_SIZE))
+###
+#### Size of an ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs
+###readonly CONSTANT_DEFAULT_VIRTUAL_X86_BAREBONES_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_X86_EFI_STUB_SIZE + CONSTANT_VIRTUAL_X86_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_X86_BAREBONES_INITRAMFS_SIZE))
+###
+###
+#### x86_64
+############
+###
+#### Size of Gummiboot/Stubby EFI stub file
+###readonly CONSTANT_VIRTUAL_X86_64_EFI_STUB_SIZE=1
+#### Installed size of the linux-virt package (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_KERNEL_PACKAGE_SIZE=33
+#### Size of kernel file (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_KERNEL_FILE_SIZE=8
+#### Size of System.map (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_SYSTEMMAP_FILE_SIZE=3
+#### Size of config-virt (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_KERNELCONFIG_FILE_SIZE=1
+#### Size of System.map, config, and kernel files from kernel package (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_BOOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_X86_64_SYSTEMMAP_FILE_SIZE + CONSTANT_VIRTUAL_X86_64_KERNELCONFIG_FILE_SIZE + CONSTANT_VIRTUAL_X86_64_KERNEL_FILE_SIZE))
+#### Size of kernel package files placed in rootfs rather than in /boot (i.e. kernel modules) (in MiB)
+###readonly CONSTANT_VIRTUAL_X86_64_ROOTFS_KERNEL_FILES_SIZE=$((CONSTANT_VIRTUAL_X86_64_KERNEL_PACKAGE_SIZE - CONSTANT_VIRTUAL_X86_64_BOOTFS_KERNEL_FILES_SIZE))
+###
+#### Hypervisor agent packages
+###readonly CONSTANT_VIRTUAL_X86_64_HYPVERV_AGENT_PACKAGE_SIZE=1
+###readonly CONSTANT_VIRTUAL_X86_64_QEMU_AGENT_PACKAGE_SIZE=2
+###readonly CONSTANT_VIRTUAL_X86_64_VIRTUALBOX_AGENT_PACKAGE_SIZE=4
+###readonly CONSTANT_VIRTUAL_X86_64_VMWARE_AGENT_PACKAGE_SIZE=2
+###
+#### "Normal"
+####
+#### Size of initramfs
+###readonly CONSTANT_VIRTUAL_X86_64_INITRAMFS_SIZE=6
+#### This accounts for System.map, config, kernel, and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_X86_64_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_X86_64_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_X86_64_BOOTFS_EXTRA_SPACE=$CONSTANT_VIRTUAL_X86_64_BOOTFS_SIZE
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_GRUB_BOOT_FILES_SIZE=4
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_LIMINE_BOOT_FILES_SIZE=1
+#### Size of Syslinux files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_X86_64_ROOTFS_SIZE=$((110 - CONSTANT_VIRTUAL_X86_64_KERNEL_PACKAGE_SIZE))
+###
+#### Size of a ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs
+###readonly CONSTANT_DEFAULT_VIRTUAL_X86_64_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_X86_64_EFI_STUB_SIZE + CONSTANT_VIRTUAL_X86_64_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_X86_64_INITRAMFS_SIZE))
+###
+#### Barebones
+####
+#### Size of initramfs for barebones
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_INITRAMFS_SIZE=5
+#### This accounts for System.map, config, kernel, and initramfs in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_BOOTFS_SIZE=$((CONSTANT_VIRTUAL_X86_64_BOOTFS_KERNEL_FILES_SIZE + CONSTANT_VIRTUAL_X86_64_BAREBONES_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+#### Size of Grub files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+#### Size of Limine files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_LIMINE_BOOT_FILES_SIZE=1
+#### Size of Syslinux files in /boot
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_VIRTUAL_X86_64_BAREBONES_ROOTFS_SIZE=$((75 - CONSTANT_VIRTUAL_X86_64_KERNEL_PACKAGE_SIZE))
+###
+#### Size of a ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs for barebones
+###readonly CONSTANT_DEFAULT_VIRTUAL_X86_64_BAREBONES_UKI_ESP_PART_SIZE=$((CONSTANT_VIRTUAL_X86_64_EFI_STUB_SIZE + CONSTANT_VIRTUAL_X86_64_KERNEL_FILE_SIZE + CONSTANT_VIRTUAL_X86_64_BAREBONES_INITRAMFS_SIZE))

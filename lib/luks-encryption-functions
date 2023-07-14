@@ -1,0 +1,318 @@
+#!/bin/sh
+# shellcheck disable=SC1117,SC2039
+
+#############################################################################
+##
+##  luks-encryption-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Calculate size of the LUKS partition taking into account whether
+# separate boot partition is not needed (so boot files add to size).
+#
+calculate_luks_part_size() {
+  local _luks_overhead _luks_total_size _reserved _size
+
+  local _reserved_percent=0
+
+  if [ -n "$image_lvm_rootfs" ]; then
+    # LVM inside LUKS
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_luks_part_size, determining LVM VG size" >> "$sizing_debug"
+    fi
+
+    _luks_total_size=$(calculate_lvm_vg_size)
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_luks_part_size, LVM VG size $_luks_total_size MiB" >> "$sizing_debug"
+    fi
+
+    _size=$_luks_total_size
+  else
+    # Just rootfs inside LUKS
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_luks_part_size, determining root filesystem size" >> "$sizing_debug"
+    fi
+
+    _luks_total_size=$general_rootfs_size
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_luks_part_size, root filesystem size is $_luks_total_size MiB" >> "$sizing_debug"
+    fi
+
+    if [ "$image_create_boot_partition" != "true" ]; then
+      # No separate boot partition
+      _luks_total_size=$(( _luks_total_size + general_bootfs_size ))
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "calculate_luks_part_size, no separate boot partition so adding $general_bootfs_size MiB boot files to root size, size is now $_luks_total_size MiB" >> "$sizing_debug"
+      fi
+    fi
+
+    _reserved_percent=$(fs_overhead)
+    if [ "$_reserved_percent" -gt 0 ]; then
+      _reserved=$(( ((_luks_total_size * _reserved_percent + 99) / 100) ))
+      _size=$(( _luks_total_size + _reserved ))
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "calculate_luks_part_size, allowing for $image_fs_type $_reserved_percent% reserved space ($(( _reserved )) MiB), size is now $_size MiB" >> "$sizing_debug"
+      fi
+    else
+      _size=$_luks_total_size
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "calculate_luks_part_size, no fs overhead and so size is unchanged at $_size MiB" >> "$sizing_debug"
+      fi
+    fi
+  fi
+
+  # add LUKS overhead, rounding up to nearest 4MiB
+  case $image_luks_version in
+    1 )
+      _luks_overhead=$(( ((_size * CADI_LUKSv1_OVERHEAD_PERCENT + 99) / 100) ))
+      _size=$(( _size + _luks_overhead ))
+      ;;
+    2)
+      _luks_overhead=$CADI_LUKSv2_OVERHEAD_MB
+      _size=$(( _size + _luks_overhead ))
+      ;;
+  esac
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_luks_part_size, allowing for LUKS overhead ($_luks_overhead MiB), final size is $_size MiB" >> "$sizing_debug"
+  fi
+
+  echo "$_size"
+}
+
+
+#
+# Copy LUKS keyfile into place
+#
+copy_luks_keyfile_into_place() {
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Moving LUKS keyfile into chroot directory" 2
+	{
+	  mv crypto_keyfile.bin "$chroot_dir"/
+	  chmod 400 "$chroot_dir"/crypto_keyfile.bin
+	}
+	EOF
+}
+
+
+#
+# Decide whether to use LUKS v1 or v2
+#
+decide_luks_version() {
+  case $image_bootloader in
+    grub )
+      if [ "$image_create_boot_partition" != "true" ] && \
+         [ -z "$image_no_grub_luks_fde_encryption" ]; then
+        # Use LUKSv1 rather than LUKSv2 with GRUB if:
+        # - no separate /boot partition is created,
+        # AND
+        # - GRUB's FDE is enabled
+
+        # GRUB 2.06's LUKSv2 FDE support does not actually appear to work so
+        # only use LUKSv1 until it is fixed.
+        image_luks_version="1"
+      else
+        image_luks_version="2"
+      fi
+      ;;
+    * )
+      image_luks_version="2" ;;
+  esac
+}
+
+
+#
+# Insert function define_cmdline_for_luks_encryption into created script
+#
+insert_chroot_function_define_cmdline_for_luks_encryption() {
+  local _cmdline_list
+
+  cat <<-'EOF' >> "$run_script"
+	
+	define_cmdline_for_luks_encryption() {
+	EOF
+
+  _cmdline_list="cryptroot=UUID=\${luks_part_uuid} cryptdm=$CADI_LUKS_DEVICE_NAME"
+
+  case $image_os_device_media in
+    sdcard | ssd )
+      _cmdline_list="$_cmdline_list cryptdiscards=yes" ;;
+  esac
+
+  if [ -n "$remote_luks_unlock_enabled" ]; then
+    if [ -n "$remote_luks_unlock_static_ip" ]; then
+      # Indicate the IP address to use by initramfs for configuring
+      # the ethernet interface for Dropbear to listen on.
+      _cmdline_list="$_cmdline_list ip=${remote_luks_unlock_static_ip}::${remote_luks_unlock_static_gateway:-}:${remote_luks_unlock_static_netmask:-}::${remote_luks_unlock_static_interface:-}:none:"
+    else
+      # Indicate that DHCP should be used by initramfs' init.
+      _cmdline_list="$_cmdline_list ip=dhcp"
+    fi
+
+    # Indicate that Dropbear should be run by initramfs' init.
+    _cmdline_list="$_cmdline_list remote_luks_unlock"
+
+    if [ -n "$luks_remote_unlock_ssh_port" ]; then
+      # Indicate the port that Dropbear should listen on
+      _cmdline_list="$_cmdline_list remote_luks_unlock_ssh_port=$remote_luks_unlock_ssh_port"
+    fi
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  echo "$_cmdline_list"
+	}
+	EOF
+}
+
+
+#
+# Create the /etc/crypttab file
+#
+setup_crypttab() {
+  local _crypttab_options="luks"
+
+  case $image_os_device_media in
+    sdcard | ssd )
+      # Enable discard to be triggered at intervals by fstrim via cron.
+      _crypttab_options="$_crypttab_options,discard" ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Creating /etc/crypttab" 2
+	echo \\
+	  "${CADI_LUKS_DEVICE_NAME} UUID=\${luks_part_uuid} /crypto_keyfile.bin $_crypttab_options" \\
+	  > "\$chroot_dir"/etc/crypttab
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	# Debug
+	{
+	  write_debug_log "/etc/crypttab contents:" 4
+	  cat "$chroot_dir"/etc/crypttab >> /chroot.log
+	}
+	EOF
+  fi
+}
+
+
+#
+# Setup the LUKS device
+#
+setup_luks_device() {
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Setting up LUKS v${image_luks_version} device using ${image_luks_cipher} cipher"
+	{
+	  luks_device="\${loop_device}p${luks_part_num}"
+	  write_log "Formatting partition as LUKS version ${image_luks_version}" 2
+	  echo "\$luks_passphrase" | cryptsetup -q --verbose luksFormat \\
+	EOF
+
+  case $image_luks_version in
+    2 )
+      # '--label' and '--sector-size' options only apply to LUKSv2
+      cat <<-EOF >> "$run_script"
+	    --label ${CADI_LUKS_LABEL} --sector-size ${image_os_device_sector_size} \\
+	EOF
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	    --pbkdf pbkdf2 --type luks${image_luks_version} --use-random \\
+	EOF
+
+  case $image_luks_cipher in
+    adiantum )
+      cat <<-'EOF' >> "$run_script"
+	    --cipher xchacha12,aes-adiantum-plain64 --hash sha256 --key-size 256 \
+	EOF
+      ;;
+
+    * )
+      cat <<-'EOF' >> "$run_script"
+	    --cipher aes-xts-plain64 --hash sha256 --key-size 512 \
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	    "$luks_device" >> "$logfile" 2>&1
+	EOF
+
+  if [ "$image_bootloader" = "grub" ] && \
+     { [ -z "$image_experimental" ] || [ -z "$remote_luks_unlock_enabled" ]; } && \
+     [ -z "$image_no_grub_luks_fde_encryption" ] && \
+     [ "$image_create_boot_partition" != "true" ]; then
+    # When:
+    #  - disk image is encrypted, AND
+    #  - bootloader is Grub, AND
+    #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+    #  - Grub LUKS encryption support is not disabled, AND
+    #  - /boot is not a separate partition
+    # then create a keyfile - this will be placed in the initramfs and used to
+    # unlock the rootfs - this prevents being prompted for passphrase twice,
+    # once by Grub and then again by initramfs.
+    cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating keyfile for LUKS" 2
+	  dd bs=512 count=4 if=/dev/random of=crypto_keyfile.bin iflag=fullblock \\
+	    >> "\$logfile" 2>&1
+	
+	  write_log "Adding keyfile to LUKS device" 2
+	  echo "\$luks_passphrase" | \\
+	    cryptsetup luksAddKey --pbkdf pbkdf2 "\$luks_device" ./crypto_keyfile.bin >> "\$logfile"
+	
+	  write_log "Opening LUKS device" 2
+	  cryptsetup open --type luks${image_luks_version} --key-file ./crypto_keyfile.bin \\
+	    "\$luks_device" ${CADI_LUKS_DEVICE_NAME}
+	EOF
+  else
+    # Remote unlock enabled, use default passphrase to open
+    cat <<-EOF >> "$run_script"
+	
+	  write_log "Opening LUKS device" 2
+	  echo "\$luks_passphrase" | \\
+	    cryptsetup open --type luks${image_luks_version} "\$luks_device" ${CADI_LUKS_DEVICE_NAME} -
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  luks_part_uuid=$(get_uuid_from_device "$luks_device")
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Show LUKS device details:" 2
+	    cryptsetup luksDump "$luks_device" >> "$logfile"
+	    write_debug_log "Show /dev/mapper entries:" 2
+	    busybox ls -lR /dev/mapper \
+	      | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	      >> "$logfile"
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}

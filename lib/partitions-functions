@@ -1,0 +1,1479 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  partitions-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Calculate size of the boot partition if it is required taking
+# into account filesystem type-specific overhead.
+#
+calculate_boot_part_size() {
+  local _fs_total_size _part_total_size _reserved
+
+  local _reserved_percent=0
+
+  if [ "$image_create_boot_partition" = "true" ]; then
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_boot_part_size, determining bootfs size" \
+        >> "$sizing_debug"
+    fi
+
+    _fs_total_size=$general_bootfs_size
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_boot_part_size, boot filesystem size is $_fs_total_size MiB" \
+        >> "$sizing_debug"
+    fi
+
+    _reserved_percent=$(fs_overhead)
+    if [ "$_reserved_percent" -gt 0 ]; then
+      _reserved=$(( ((_fs_total_size * _reserved_percent + 99) / 100) ))
+      _part_total_size=$(( _fs_total_size + _reserved ))
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "calculate_boot_part_size, $image_fs_type overhead is $_reserved_percent% ($_reserved MiB), $_part_total_size MiB partition required" \
+          >> "$sizing_debug"
+      fi
+    else
+      _part_total_size=$_fs_total_size
+    fi
+  fi
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_boot_part_size, boot partition size is $_part_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  echo "${_part_total_size:-0}"
+}
+
+
+#
+# Calculate size of the root partition taking into account whether
+# separate boot partition is not needed (so boot files add to size of root)
+# and taking into account filesystem type-specific overhead.
+#
+calculate_root_part_size() {
+  local _fs_total_size _part_total_size _reserved
+
+  local _reserved_percent=0
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_root_part_size] determining rootfs size" >> "$sizing_debug"
+  fi
+
+  _fs_total_size=$general_rootfs_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_root_part_size] rootfs size is $_fs_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  if [ "$image_create_boot_partition" != "true" ]; then
+    # No separate boot partition and so boot files sizes need to
+    # be accounted for as part of rootfs partition size.
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_root_part_size] no separate bootfs/partition so bootfs size needs to be accounted for as part of rootfs" \
+        >> "$sizing_debug"
+    fi
+
+    _fs_total_size=$(( _fs_total_size + general_bootfs_size ))
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_root_part_size] added bootfs size ($general_bootfs_size MiB) to rootfs size, rootfs size is now $_fs_total_size MiB" \
+        >> "$sizing_debug"
+    fi
+  fi
+
+  _reserved_percent=$(fs_overhead)
+  if [ "$_reserved_percent" -gt 0 ]; then
+    _reserved=$(( ((_fs_total_size * _reserved_percent + 99) / 100) ))
+    _part_total_size=$(( _fs_total_size + _reserved ))
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_root_part_size] $image_fs_type overhead is $_reserved_percent% ($_reserved MiB), $_part_total_size MiB root partition required" \
+        >> "$sizing_debug"
+    fi
+  else
+    _part_total_size=$_fs_total_size
+  fi
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_root_part_size] root partition size is $_part_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  echo "$_part_total_size"
+}
+
+
+#
+# Calculate size of the swap partition
+#
+calculate_swap_part_size() {
+  local _part_total_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_swap_part_size] determining swap size" \
+      >> "$sizing_debug"
+  fi
+
+  _fs_total_size=$general_bootfs_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_swap_part_size] boot filesystem size is $_fs_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+   _part_total_size=$_fs_total_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_swap_part_size] swap partition size is $_part_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  echo "${_part_total_size:-0}"
+}
+
+
+#
+# Calculate size of the UEFI ESP partition taking into account the version
+# of FAT used, the boot device's sector size, and also if the partition
+# will also contain boot files.
+#
+calculate_uefi_part_size() {
+  local _fs_total_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_uefi_part_size] determining ESP partition size" \
+      >> "$sizing_debug"
+  fi
+
+  _fs_total_size=$(( general_uefi_part_size ))
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_uefi_part_size] ESP partition size is $_fs_total_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  echo "$_fs_total_size"
+}
+
+
+#
+# Size the ESP partition
+#
+general_uefi_part_sizing() {
+  local _size
+
+  case $image_bootloader in
+    uki )
+      eval _size='$'"CADI_DEFAULT_UKI_ESP_PART_SIZE" ;;
+
+    * )
+      # Size the ESP partition correctly if using a FAT32 filesystem
+      # based on sector size.
+      case $image_esp_type in
+        fat32 )
+          # The minimum valid size of a FAT32 filesystem depends on the device's sector size
+          case $image_os_device_sector_size in
+            512 )
+              _size=${esp_part_size:-$CADI_DEFAULT_FAT32_512_ESP_PART_SIZE} ;;
+            4096 )
+              _size=${esp_part_size:-$CADI_DEFAULT_FAT32_4096_ESP_PART_SIZE} ;;
+          esac
+          ;;
+        * )
+          _size=$CADI_DEFAULT_ESP_PART_SIZE ;;
+      esac
+      ;;
+  esac
+
+  echo "$_size"
+}
+
+
+#
+# Partition the disk image for booting via BIOS
+#
+partition_bios() {
+  local _boot_part_size _boot_part_start _boot_part_end
+  local _cidata_part_start _cidata_part_end
+  local _luks_part_start _luks_part_end
+  local _lvm_part_start _lvm_part_end
+  local _swap_part_start _swap_part_end
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_bios] starting" >> "$sizing_debug"
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Partitioning disk image for BIOS"
+	{
+	EOF
+
+  create_disk_label "msdos"
+
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    # LUKS disk encryption
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_bios] has LUKS partition" >> "$sizing_debug"
+    fi
+
+    image_luks_part_size=$(calculate_luks_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # Separate boot partition as well as LUKS partition
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_bios] has boot partition" >> "$sizing_debug"
+        fi
+
+        # When using Syslinux with encrypted rootfs or when using remote unlock
+        # (with any bootloader) we need to create a separate boot partition
+        # which will be unencrypted.
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="${_boot_part_end}"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          luks_part_num=3
+          _luks_part_start="${_cidata_part_end}"
+          _luks_part_end="100%"
+        else
+          luks_part_num=2
+          _luks_part_start="${_boot_part_end}"
+          _luks_part_end="100%"
+        fi
+
+        # Create LUKS partition
+        create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
+          "$_luks_part_end" "$image_luks_part_size" "LUKS"
+        ;;
+      * )
+        # No separate boot partition, just LUKS partition (only Grub supports this).
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          luks_part_num=2
+          _luks_part_start="$_cidata_part_end"
+          _luks_part_end="100%"
+        else
+          luks_part_num=1
+          # Start the 1st (LUKS) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _luks_part_start="2"
+          _luks_part_end="100%"
+        fi
+
+        # Create LUKS partition
+        create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
+          "$_luks_part_end" "$image_luks_part_size" "LUKS" "boot"
+        ;;
+    esac
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM partition
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_bios] has LVM partition" >> "$sizing_debug"
+    fi
+
+    image_lvm_part_size=$(calculate_lvm_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # Separate (non-LVM) boot partition.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_bios] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Also create a separate partition for cloud-init config
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="$_boot_part_end"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          lvm_part_num=3
+          _lvm_part_start="$_cidata_part_end"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=2
+          _lvm_part_start="$_boot_part_end"
+          _lvm_part_end="100%"
+        fi
+
+        # Create LVM partition
+        create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
+          "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+        ;;
+      * )
+        # no separate boot partition
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Create a separate partition for cloud-init config
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          lvm_part_num=2
+          _lvm_part_start="$_cidata_part_end"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=1
+          # Start the 1st (LVM) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _lvm_part_start="2"
+          _lvm_part_end="100%"
+        fi
+
+        # Create LVM partition
+        create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
+          "$_lvm_part_end" "$image_lvm_part_size" "LVM" "boot lvm"
+        ;;
+    esac
+  else
+    # No LUKS partition, no LVM partition.
+
+    image_root_part_size=$(calculate_root_part_size)
+
+    case $image_create_boot_partition in
+      true)
+        # A separate boot partition is to be created.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_bios] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="$_boot_part_end"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=3
+            _swap_part_start="$_cidata_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=4
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=3
+            _root_part_start="$_cidata_part_end"
+            _root_part_end="100%"
+          fi
+        else
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=2
+            _swap_part_start="$_boot_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=3
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=2
+            _root_part_start="$_boot_part_end"
+            _root_part_end="100%"
+          fi
+        fi
+
+        # Create root partition
+        create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
+          "$_root_part_end" "$image_root_part_size" "Root"
+        ;;
+      * )
+        # No boot partition created
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_bios] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=2
+            _swap_part_start="$_cidata_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=3
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=2
+            _root_part_start="$_cidata_part_end"
+            _root_part_end="100%"
+          fi
+        else
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=1
+            # Start the 1st (swap) partition at 2MiB (4096 sectors) for both
+            # partition alignment and to leave sufficient space for GRUB to use.
+            _swap_part_start="2"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=2
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=1
+            # Start the 1st (root) partition at 2MiB (4096 sectors) for both
+            # partition alignment and to leave sufficient space for GRUB to use.
+            _root_part_start="2"
+            _root_part_end="100%"
+          fi
+        fi
+
+        # Create root partition
+        create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
+          "$_root_part_end" "$image_root_part_size" "Root" "boot"
+        ;;
+    esac
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_bios] finished" >> "$sizing_debug"
+  fi
+}
+
+
+#
+# Partition the disk image for booting via both BIOS & UEFI
+#
+partition_hybrid() {
+  local _boot_part_size _boot_part_start _boot_part_end
+  local _cidata_part_start _cidata_part_end
+  local _luks_part_start _luks_part_end
+  local _lvm_part_start _lvm_part_end
+  local _swap_part_start _swap_part_end
+
+  bios_part_num=1
+   _bios_part_size=1
+
+  uefi_part_num=2
+  _uefi_part_size=50
+
+  root_part_num=3
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_hybrid] starting" >> "$sizing_debug"
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Partitioning disk image for hybrid BIOS & UEFI booting"
+	{
+	EOF
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_hybrid] has BIOS partition" >> "$sizing_debug"
+    echo "[partition_hybrid] has ESP partition" >> "$sizing_debug"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  write_log "Creating BIOS partition" 2
+	  sgdisk --new=$bios_part_num:0:+${_bios_part_size}M \
+	    --typecode=${bios_part_num}:EF02 \$image_full_filename \
+	    >> "\$logfile" 2>&1
+	
+	  write_log "Creating ESP partition" 2
+	  sgdisk --new=$uefi_part_num:0:+${_uefi_part_size}M \
+	    --typecode=${uefi_part_num}:EF00 \$image_full_filename \
+	    >> "\$logfile" 2>&1
+	EOF
+
+
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating root partition" 2
+	  sgdisk --new=$root_part_num:0:0 \
+	    --typecode=${root_part_num}:8300 \$image_full_filename \
+	    >> "\$logfile" 2>&1
+	
+	  write_log "Create hybrid MBR" 2
+	  sgdisk --hybrid=${bios_part_num}:${efi_part_num}:${root_part_num} \
+	  \$image_full_filename >> "\$logfile" 2>&1
+	EOF
+
+
+
+
+
+
+
+
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    # LUKS disk encryption
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_hybrid] has LUKS partition" >> "$sizing_debug"
+    fi
+
+    image_luks_part_size=$(calculate_luks_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # Separate boot partition as well as LUKS partition
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_hybrid] has boot partition" >> "$sizing_debug"
+        fi
+
+        # When using Syslinux with encrypted rootfs or when using remote unlock
+        # (with any bootloader) we need to create a separate boot partition
+        # which will be unencrypted.
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="${_boot_part_end}"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          luks_part_num=3
+          _luks_part_start="${_cidata_part_end}"
+          _luks_part_end="100%"
+        else
+          luks_part_num=2
+          _luks_part_start="${_boot_part_end}"
+          _luks_part_end="100%"
+        fi
+
+        # Create LUKS partition
+        create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
+          "$_luks_part_end" "$image_luks_part_size" "LUKS"
+        ;;
+      * )
+        # No separate boot partition, just LUKS partition (only Grub supports this).
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          luks_part_num=2
+          _luks_part_start="$_cidata_part_end"
+          _luks_part_end="100%"
+        else
+          luks_part_num=1
+          # Start the 1st (LUKS) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _luks_part_start="2"
+          _luks_part_end="100%"
+        fi
+
+        # Create LUKS partition
+        create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
+          "$_luks_part_end" "$image_luks_part_size" "LUKS" "boot"
+        ;;
+    esac
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM partition
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_hybrid] has LVM partition" >> "$sizing_debug"
+    fi
+
+    image_lvm_part_size=$(calculate_lvm_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # Separate (non-LVM) boot partition.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_hybrid] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Also create a separate partition for cloud-init config
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="$_boot_part_end"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          lvm_part_num=3
+          _lvm_part_start="$_cidata_part_end"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=2
+          _lvm_part_start="$_boot_part_end"
+          _lvm_part_end="100%"
+        fi
+
+        # Create LVM partition
+        create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
+          "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+        ;;
+      * )
+        # no separate boot partition
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Create a separate partition for cloud-init config
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          lvm_part_num=2
+          _lvm_part_start="$_cidata_part_end"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=1
+          # Start the 1st (LVM) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _lvm_part_start="2"
+          _lvm_part_end="100%"
+        fi
+
+        # Create LVM partition
+        create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
+          "$_lvm_part_end" "$image_lvm_part_size" "LVM" "boot lvm"
+        ;;
+    esac
+  else
+    # No LUKS partition, no LVM partition.
+
+    image_root_part_size=$(calculate_root_part_size)
+
+    case $image_create_boot_partition in
+      true)
+        # A separate boot partition is to be created.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_hybrid] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=1
+        # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
+        # partition alignment and to leave sufficient space for GRUB to use.
+        _boot_part_start="2"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="$_boot_part_end"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=3
+            _swap_part_start="$_cidata_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=4
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=3
+            _root_part_start="$_cidata_part_end"
+            _root_part_end="100%"
+          fi
+        else
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=2
+            _swap_part_start="$_boot_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=3
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=2
+            _root_part_start="$_boot_part_end"
+            _root_part_end="100%"
+          fi
+        fi
+
+        # Create root partition
+        create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
+          "$_root_part_end" "$image_root_part_size" "Root"
+        ;;
+      * )
+        # No boot partition created
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_hybrid] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=1
+          # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
+          # partition alignment and to leave sufficient space for GRUB to use.
+          _cidata_part_start="2"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=2
+            _swap_part_start="$_cidata_part_end"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=3
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=2
+            _root_part_start="$_cidata_part_end"
+            _root_part_end="100%"
+          fi
+        else
+          if [ "$image_swap_partition_size" != "0" ]; then
+            swap_part_num=1
+            # Start the 1st (swap) partition at 2MiB (4096 sectors) for both
+            # partition alignment and to leave sufficient space for GRUB to use.
+            _swap_part_start="2"
+            _swap_part_size="$image_swap_partition_size"
+            _swap_part_end="$(( _swap_part_start + _swap_part_size ))"
+
+            # Create swap partition
+            create_disk_partition "$swap_part_num" "${_swap_part_start}MiB" \
+              "${_swap_part_end}MiB" "$_swap_part_size" "swap" "" "linux-swap"
+
+            root_part_num=2
+            _root_part_start="$_swap_part_end"
+            _root_part_end="100%"
+          else
+            root_part_num=1
+            # Start the 1st (root) partition at 2MiB (4096 sectors) for both
+            # partition alignment and to leave sufficient space for GRUB to use.
+            _root_part_start="2"
+            _root_part_end="100%"
+          fi
+        fi
+
+        # Create root partition
+        create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
+          "$_root_part_end" "$image_root_part_size" "Root" "boot"
+        ;;
+    esac
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_hybrid] finished" >> "$sizing_debug"
+  fi
+}
+
+
+
+#
+# Partition for Raspberry Pi use
+#
+partition_rpi() {
+  local _boot_part_start _boot_part_end
+  local _cidata_part_size _cidata_part_start _cidata_part_end
+  local _other_part_num _other_part_start _other_part_end _other_part_size
+  local _other_part_desc _other_part_flags
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_rpi] starting" >> "$sizing_debug"
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Partitioning disk image for Raspberry Pi"
+	{
+	EOF
+
+  create_disk_label "msdos"
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_rpi] has boot partition" >> "$sizing_debug"
+  fi
+
+  boot_part_num="1"
+  _boot_part_start="0%"
+  _boot_part_end="$(calculate_boot_part_size)"
+
+  # Create boot partition
+  create_disk_partition "$boot_part_num" "$_boot_part_start" \
+    "${_boot_part_end}MiB" "$_boot_part_end" "Boot" "" "fat32"
+
+  case $image_cloud_software in
+    cloud-init )
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[partition_rpi] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+          >> "$sizing_debug"
+      fi
+
+      # cloud-init partition
+      cidata_part_num="2"
+      _cidata_part_start="${_boot_part_end}"
+      _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+      _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+      # Create cidata partition
+      create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+        "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+
+      _other_part_num="3"
+      _other_part_start="$_cidata_part_end"
+      _other_part_end="100%"
+
+      if { [ "$image_encryption_type" = "both" ] || \
+           [ "$image_encryption_type" = "luks" ]; }; then
+        # LUKS disk encryption
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_rpi] has LUKS partition" >> "$sizing_debug"
+        fi
+
+        image_luks_part_size=$(calculate_luks_part_size)
+
+        luks_part_num=$_other_part_num
+        _other_part_size=$image_luks_part_size
+        _other_part_desc="LUKS"
+      elif [ -n "$image_lvm_rootfs" ]; then
+        # LVM
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_rpi] has LUKS partition" >> "$sizing_debug"
+        fi
+
+        image_lvm_part_size=$(calculate_lvm_part_size)
+
+        lvm_part_num=$_other_part_num
+        _other_part_size=$image_lvm_part_size
+        _other_part_desc="LVM"
+        _other_part_flags="lvm"
+      else
+        # No disk encryption
+
+        image_root_part_size=$(calculate_root_part_size)
+
+         root_part_num=$_other_part_num
+        _other_part_size=$image_root_part_size
+        _other_part_desc="Root"
+      fi
+      ;;
+    * )
+      # No cloud-init partition
+
+      _other_part_num="2"
+      _other_part_start="$(calculate_boot_part_size)"
+      _other_part_end="100%"
+
+      if { [ "$image_encryption_type" = "both" ] || \
+           [ "$image_encryption_type" = "luks" ]; }; then
+        # LUKS disk encryption
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_rpi] has LUKS partition" >> "$sizing_debug"
+        fi
+
+        image_luks_part_size=$(calculate_luks_part_size)
+
+        luks_part_num=$_other_part_num
+        _other_part_size=$image_luks_part_size
+        _other_part_desc="LUKS"
+      elif [ -n "$image_lvm_rootfs" ]; then
+        # LVM
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_rpi] has LVM partition" >> "$sizing_debug"
+        fi
+
+        image_lvm_part_size=$(calculate_lvm_part_size)
+
+        lvm_part_num=$_other_part_num
+        _other_part_size=$image_lvm_part_size
+        _other_part_desc="LVM"
+        _other_part_flags="lvm"
+      else
+        # No disk encryption
+
+        image_root_part_size=$(calculate_root_part_size)
+
+        root_part_num=$_other_part_num
+        _other_part_size=$image_root_part_size
+        _other_part_desc="Root"
+      fi
+      ;;
+  esac
+
+  # Create additional partition
+  create_disk_partition "$_other_part_num" "${_other_part_start}MiB" \
+    "$_other_part_end" "$_other_part_size" "$_other_part_desc" "${_other_part_flags:-}"
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_rpi] finished" >> "$sizing_debug"
+  fi
+}
+
+
+# 
+# Partition the disk image for booting via UEFI
+#
+partition_uefi() {
+  local _boot_part_size _boot_part_start _boot_part_end
+  local _cidata_part_size _cidata_part_start _cidata_part_end
+  local _esp_part_type
+  local _luks_part_start _luks_part_end
+  local _lvm_part_start _lvm_part_end
+  local _uefi_part_start _uefi_part_end
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_uefi] starting" >> "$sizing_debug"
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Partitioning disk image for UEFI"
+	{
+	EOF
+
+  create_disk_label "gpt"
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_uefi] has ESP partition" >> "$sizing_debug"
+  fi
+
+  uefi_part_num=1
+  # Start the 1st (ESP) partition at 1MiB (2048 sectors) for partition alignment.
+  _uefi_part_start="1"
+  _uefi_part_end="$(( _uefi_part_start + image_uefi_part_size ))"
+
+  case $image_esp_type in
+    fat12 | fat16 )
+      _esp_part_type="fat16" ;;
+    fat32 )
+      _esp_part_type="fat32" ;;
+  esac
+
+  # Create ESP partition
+  create_disk_partition "$uefi_part_num" "${_uefi_part_start}MiB" \
+    "${_uefi_part_end}MiB" "$image_uefi_part_size" "ESP" "esp" "$_esp_part_type"
+  label_gpt_disk_partition 1 "ESP"
+
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    # LUKS encryption
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_uefi] has LUKS partition" >> "$sizing_debug"
+    fi
+
+    image_luks_part_size=$(calculate_luks_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # Create a separate boot partition which will be unencrypted.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_uefi] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=2
+        _boot_part_start="${_uefi_part_end}"
+        _boot_part_size="$(( $(calculate_boot_part_size) ))"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+        label_gpt_disk_partition $boot_part_num "Boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=3
+          _cidata_part_start="${_boot_part_end}"
+          _cidata_part_end="$(( _cidata_part_start + CADI_CIDATA_PART_SIZE ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$CADI_CIDATA_PART_SIZE" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          luks_part_num=4
+          _luks_part_start="${_cidata_part_end}"
+          _luks_part_end="100%"
+        else
+          luks_part_num=3
+          _luks_part_start="${_boot_part_end}"
+          _luks_part_end="100%"
+        fi
+        ;;
+      * )
+        # No separate boot partition
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="${_uefi_part_end}"
+          _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+          _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          luks_part_num=3
+          _luks_part_start="${_cidata_part_end}"
+          _luks_part_end="100%"
+        else
+          luks_part_num=2
+          _luks_part_start="${_uefi_part_end}"
+          _luks_part_end="100%"
+        fi
+        ;;
+    esac
+
+    # Create LUKS partition
+    create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
+      "$_luks_part_end" "$image_luks_part_size" "LUKS"
+    label_gpt_disk_partition $luks_part_num "LUKS"
+
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[partition_uefi] has LVM partition" >> "$sizing_debug"
+    fi
+
+    image_lvm_part_size=$(calculate_lvm_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # When using Syslinux with LVM rootfs we need to create a separate
+        # boot partition.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_uefi] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=2
+        _boot_part_start="${_uefi_part_end}"
+        _boot_part_size="$(calculate_boot_part_size)"
+        _boot_part_end="$(( _boot_part_start + _boot_part_size ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$_boot_part_size" "Boot" "boot"
+        label_gpt_disk_partition $boot_part_num "Boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Also create a separate partition for cloud-init config
+
+          cidata_part_num=3
+          _cidata_part_start="${_boot_part_end}"
+          _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+          _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $_cidata_part_size MiB" \
+              >> "$sizing_debug"
+          fi
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          lvm_part_num=4
+          _lvm_part_start="${_cidata_part_end}"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=3
+          _lvm_part_start="${_boot_part_end}"
+          _lvm_part_end="100%"
+        fi
+        ;;
+      * )
+        # No separate boot partition
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+          # Create a separate partition for cloud-init config
+
+          cidata_part_num=2
+          _cidata_part_start="${_uefi_part_end}"
+          _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+          _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $_cidata_part_size MiB" \
+              >> "$sizing_debug"
+          fi
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          lvm_part_num=3
+          _lvm_part_start="${_cidata_part_end}"
+          _lvm_part_end="100%"
+        else
+          lvm_part_num=2
+          _lvm_part_start="${_uefi_part_end}"
+          _lvm_part_end="100%"
+        fi
+        ;;
+    esac
+
+    # Create LVM partition
+    create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
+      "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
+    label_gpt_disk_partition $lvm_part_num "LVM"
+
+  else
+    # No LUKS encryption, no LVM
+
+    image_root_part_size=$(calculate_root_part_size)
+
+    case $image_create_boot_partition in
+      true )
+        # A separate boot partition is to be created.
+
+        if [ -n "$debug_sizing_enabled" ]; then
+          echo "[partition_uefi] has boot partition" >> "$sizing_debug"
+        fi
+
+        boot_part_num=2
+        _boot_part_start="${_uefi_part_end}"
+        _boot_part_end="$(( _boot_part_start + $(calculate_boot_part_size) ))"
+
+        # Create boot partition
+        create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
+          "${_boot_part_end}MiB" "$(calculate_boot_part_size)" "Boot"
+        label_gpt_disk_partition $boot_part_num "Boot"
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          cidata_part_num=3
+          _cidata_part_start="${_boot_part_end}"
+          _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+          _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $_cidata_part_size MiB" \
+              >> "$sizing_debug"
+          fi
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          root_part_num=4
+          _root_part_start="${_cidata_part_end}"
+          _root_part_end="100%"
+        else
+          root_part_num=3
+          _root_part_start="${_boot_part_end}"
+          _root_part_end="100%"
+        fi
+        ;;
+      * )
+        # No boot partition
+
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_cloud_software" = "cloud-init" ]; then
+
+          if [ -n "$debug_sizing_enabled" ]; then
+            echo "[partition_uefi] has CIDATA partition, size is $CADI_CIDATA_PART_SIZE MiB" \
+              >> "$sizing_debug"
+          fi
+
+          cidata_part_num=2
+          _cidata_part_start="${_uefi_part_end}"
+          _cidata_part_size="$CADI_CIDATA_PART_SIZE"
+          _cidata_part_end="$(( _cidata_part_start + _cidata_part_size ))"
+
+          # Create cidata partition
+          create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
+            "${_cidata_part_end}MiB" "$_cidata_part_size" "cidata"
+          label_gpt_disk_partition $cidata_part_num "cidata"
+
+          root_part_num=3
+          _root_part_start="${_cidata_part_end}"
+          _root_part_end="100%"
+        else
+          root_part_num=2
+          _root_part_start="${_uefi_part_end}"
+          _root_part_end="100%"
+        fi
+        ;;
+    esac
+
+    # Create root partition
+    create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
+      "$_root_part_end" "$image_root_part_size" "Root"
+    label_gpt_disk_partition $root_part_num "Root"
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_uefi] finished" >> "$sizing_debug"
+  fi
+}

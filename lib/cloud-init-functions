@@ -5,7 +5,7 @@
 ##
 ##  cloud-init-functions
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
@@ -13,9 +13,9 @@
 
 
 #
-# Create network configuration for seed/url-based cloud-init configuration
+# Create a network-config cloud-init seed-file for NoCloud
 #
-add_seed_network_config_file() {
+add_nocloud_network_config_seed_file() {
   cat <<'EOF' >> "$run_script"
 
   write_log "Creating seed network configuration file" 2
@@ -26,13 +26,13 @@ add_seed_network_config_file() {
 	  eth0:
 EOF
 
-  if [ -z "${image_disable_ipv4+x}" ]; then
+  if [ -z "$image_disable_ipv4" ]; then
     cat <<'EOF' >> "$run_script"
 	    dhcp4: True
 EOF
   fi
 
-  if [ -z "${image_disable_ipv6+x}" ]; then
+  if [ -z "$image_disable_ipv6" ]; then
     cat <<'EOF' >> "$run_script"
 	    dhcp6: True
 EOF
@@ -45,9 +45,26 @@ EOF
 
 
 #
+# Add a specified seed-url to the cmdline (of bootloader)
+#
+add_nocloud_seed_url_to_cmdline() {
+  base_cmdline="$base_cmdline ds='nocloud-net;s=$image_cloud_init_seed_url'"
+}
+
+
+#
+# Add a specified seed-url to cloud-init config file
+#
+add_nocloud_seed_url_to_config_file() {
+  datasource_settings="$(printf "\\t  NoCloud:\\n\\t    seedfrom: %s\\n" "$image_cloud_init_seed_url")"
+}
+
+
+#
 # Configure cloud-init
 #
 configure_cloud_init() {
+  local _debug_logging_status _ds _logging_level
   local _ptp_device _ptp_dpoll _ptp_poll _ptp_offset _ptp_stratum
 
   cat <<-'EOF' >> "$run_script"
@@ -55,12 +72,13 @@ configure_cloud_init() {
 	write_log "Configuring cloud-init"
 	{
 	  write_log "Running setup-cloud-init" 2
-	  setup-cloud-init >> /chroot.log 2>&1
+	  setup-cloud-init >> /chroot.log 2>&1 || true
 	EOF
 
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 )
       cat <<-'EOF' >> "$run_script"
+	
 	  write_log "Precompiling cloud-init python files" 2
 	  _python_dir=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
 	  python3 -OO -m compileall \
@@ -69,89 +87,113 @@ configure_cloud_init() {
       ;;
   esac
 
-  case $image_class in
-    cloud )
-      define_cloud_init_settings ;;
-    physical )
-      datasource_list="'NoCloud'" ;;
-    virtual )
-      define_virtual_settings ;;
-  esac
-
-  if [ -n "${cloud_seed_url+x}" ]; then
-    datasource_list="'NoCloud'"
-    ###add_seed_network_config_file
+  if [ -n "$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES" ]; then
+    _list="$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES"
+    while true; do
+      _list_item="$(first_entry_in_comma_list "$_list")"
+      datasource_list="${datasource_list}'$_list_item'"
+      if [ "${_list%,*}" = "$_list" ]; then
+        # No more entries
+        break
+      else
+        _list="${_list#$_list_item,}"
+        datasource_list="${datasource_list}, "
+      fi
+    done
+  else
+    error_message "No cloud-init DataSource defined for $class_type_description!"
   fi
 
-  if [ -z "${datasource_list+x}" ]; then
+  if [ -n "$image_cloud_init_datasources" ]; then
+    # Override cloud-init enabled Data Sources list.
+
+    unset datasource_list
+    image_cloud_init_datasources="$(echo "$image_cloud_init_datasources" | sed -e 's/,/ /g')"
+    for _ds in $image_cloud_init_datasources; do
+      if [ -n "$datasource_list" ]; then
+        datasource_list="${datasource_list}, "
+      fi
+      datasource_list="${datasource_list}'${_ds}'"
+    done
+    datasource_description="Setting DataSources list with: $datasource_list"
+  elif [ -z "$datasource_list" ]; then
     datasource_list="'None'"
+    datasource_description="Setting empty DataSources list"
   else
-    datasource_list="$datasource_list,'None'"
+    datasource_description="Setting up DataSources list"
   fi
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
+  if [ "$datasource_list" = "'NoCloud'" ]; then
+    # Only set up seed behaviour when NoCloud is the sole defined DataSource
+    setup_nocloud_seed_config
+  fi
+
+
+  # 01-datasources.cfg
+  cat <<EOF >> "$run_script"
+
+  write_log "${datasource_description}" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-datasources.cfg
+	# /etc/cloud/cloud.cfg.d/01-datasources.cfg
 	
-	  # Debug
-	  {
-	    cp /etc/cloud/cloud.cfg /etc/cloud/cloud.cfg-orig
-	  }
-	EOF
+	datasource_list: [$datasource_list]
+EOF
+
+  if [ -n "$datasource_settings" ]; then
+    cat <<EOF >> "$run_script"
+	datasource:
+$datasource_settings
+EOF
+  fi
+
+  if [ -n "$CADI_CLOUD_INIT_DISABLE_VENDORDATA" ] && \
+     [ "$CADI_CLOUD_INIT_DISABLE_VENDORDATA" = "true" ]; then
+    cat <<EOF >> "$run_script"
+	
+	# Disable vendor data to speed up cloud-init runtime
+	vendor_data:
+	  enabled: false
+	vendor_data2:
+	  enabled: false
+EOF
+  fi
+
+  if [ -n "$CADI_SUPPORTED_CLOUD_INIT_NETWORK_HOTPLUG" ]; then
+    # Enable network interface hotplug for supported DataSources
+    cat <<'EOF' >> "$run_script"
+	
+	updates:
+	  network:
+	    when: ["boot","hotplug"]
+EOF
+  fi
+
+  if [ "$image_class" = "virtual" ] && \
+     [ "$image_vm_type" = "vmware" ]; then
+    cat <<'EOF' >> "$run_script"
+	
+	# Vsphere 7.0+ supports cloud-init natively
+	disable_vmware_customization: false
+EOF
   fi
 
   cat <<'EOF' >> "$run_script"
-
-  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg
-	# Tailored config file
-	
-	users:
-	   - default
 	_SCRIPT_
 EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<'EOF' >> "$run_script"
 
-  write_log "Unlocking the root account" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	   - name: root
-	     lock_passwd: False
-EOF
-  else
-    cat <<'EOF' >> "$run_script"
-
-  write_log "Locking the root account" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	   - name: root
-	     lock_passwd: True
-EOF
-  fi
-
-  if [ -n "${image_default_user_password+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-
-  write_log "Setting the default user's password" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	
-	# The password for the default user account, changing it is forced on login.
-	password: $default_user_password
-EOF
-  fi
-
+  # 01-modules.cfg
   cat <<'EOF' >> "$run_script"
-	
-	mount_default_fields: [~, ~, 'auto', 'defaults,nofail', '0', '2']
-	resize_rootfs_tmp: /dev
-	
-	preserve_hostname: False
+
+  write_log "Setting up modules info" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-modules.cfg
+	# /etc/cloud/cloud.cfg.d/01-modules.cfg
 	
 	# Modules that run in 'init' stage
 	cloud_init_modules:
 	  - migrator
-	  - seed_random
 	  - bootcmd
-	  - write-files
+	  - write_files
 	  - growpart
 	  - resizefs
 	  - disk_setup
@@ -160,37 +202,87 @@ EOF
 	  - update_hostname
 	  - update_etc_hosts
 	  - resolv_conf
-	  - ca-certs
+	  - ca_certs
 	  - rsyslog
-	  - users-groups
+	  - users_groups
 	  - ssh
-
+	
 	# Modules that run in 'config' stage
 	cloud_config_modules:
+EOF
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      : ;;
+    edge-special )
+      cat <<'EOF' >> "$run_script"
+	  - ssh-import-id
+	  - keyboard
+EOF
+      ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
 	  - locale
-	  - set-passwords
-	  - apk-configure
+	  - set_passwords
+	  - apk_configure
 	  - ntp
 	  - timezone
-	  - disable-ec2-metadata
+EOF
+
+  case $image_class in
+    cloud | virtual )
+      cat <<'EOF' >> "$run_script"
+	  - disable_ec2_metadata
+EOF
+      ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
 	  - runcmd
 	
 	# Modules that run in 'final' stage
 	cloud_final_modules:
-	  - package-update-upgrade-install
-	  - write-files-deferred
-	  - scripts-vendor
-	  - scripts-per-once
-	  - scripts-per-boot
-	  - scripts-per-instance
-	  - scripts-user
-	  - ssh-authkey-fingerprints
-	  - keys-to-console
-	  - install-hotplug
-	  - phone-home
-	  - final-message
-	  - power-state-change
+	  - package_update_upgrade_install
+	  - write_files_deferred
+	  - ansible
+	  - scripts_vendor
+	  - scripts_per_once
+	  - scripts_per_boot
+	  - scripts_per_instance
+	  - scripts_user
+	  - ssh_authkey_fingerprints
+	  - keys_to_console
+EOF
 
+  case $image_class in
+    cloud )
+      case $image_cloud_type in
+        # Enable network interface hotplug for supported DataSources
+        aws )
+          cat <<'EOF' >> "$run_script"
+	  - install_hotplug
+EOF
+          ;;
+      esac
+      ;;
+  esac
+
+  cat <<'EOF' >> "$run_script"
+	  - phone_home
+	  - final_message
+	  - power_state_change
+	_SCRIPT_
+EOF
+
+
+  # 01-system-info.cfg
+  cat <<'EOF' >> "$run_script"
+
+  write_log "Setting up System info" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-system-info.cfg
+	# /etc/cloud/cloud.cfg.d/01-system-info.cfg
+	
 	system_info:
 	  distro: alpine
 	  default_user:
@@ -199,8 +291,8 @@ EOF
   cat <<EOF >> "$run_script"
 	_SCRIPT_
 
-  write_log "Setting the default username to '$image_admin_username'" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+  write_log "Setting the default username to '$image_admin_username'" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/01-system-info.cfg
 	    name: $image_admin_username
 EOF
 
@@ -212,21 +304,21 @@ EOF
       ;;
   esac
 
-  if [ -n "${image_default_user_password+x}" ]; then
+  if [ -n "$image_default_user_password" ]; then
     cat <<'EOF' >> "$run_script"
 	_SCRIPT_
 
-  write_log "Ensure default user's account is not locked as password is set" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	    lock_passwd: False
+  write_log "Ensure default user's account is not locked as password is set" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/01-system-info.cfg
+	    lock_passwd: false
 EOF
   else
     cat <<'EOF' >> "$run_script"
 	_SCRIPT_
 
-  write_log "Ensure default user's account is locked (for password access)" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	    lock_passwd: True
+  write_log "Ensure default user's account is locked (for password access)" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/01-system-info.cfg
+	    lock_passwd: true
 EOF
   fi
 
@@ -268,152 +360,58 @@ EOF
       ;;
   esac
 
-  cat <<EOF >> "$run_script"
+  cat <<'EOF' >> "$run_script"
 	_SCRIPT_
-
-  write_log "Setting up DataSources list" 2
-  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
-	
-	datasource_list: [$datasource_list]
 EOF
 
-  if [ -n "${datasource_settings+x}" ]; then
-    cat <<EOF >> "$run_script"
-	datasource:
-$datasource_settings
-EOF
-  fi
 
-  if [ -n "${image_cloud_init_network_fallback+x}" ]; then
-    cat <<EOF >> "$run_script"
-	# Enable fallback network config (i.e. DHCP)
-	disable_fallback_netcfg: False
-EOF
-  else
-    cat <<EOF >> "$run_script"
-	# Disable fallback network config (i.e. DHCP)
-	disable_fallback_netcfg: True
-EOF
-  fi
+  # 02-disable-grow-and-resize-fs.cfg
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; } || \
+     [ -n "$image_lvm_rootfs" ] || \
+     { [ "$image_os_device_media" = "flash" ] || \
+       [ "$image_os_device_media" = "sdcard" ] || \
+       [ "$image_os_device_media" = "ssd" ]; }; then
 
-  case $image_class in
-    cloud )
-      case $image_cloud_type in
-        # Enable network interface hotplug for supported DataSources
-        aws )
-          cat <<'EOF' >> "$run_script"
-	
-	updates:
-	  network:
-	    when: ["boot","hotplug"]
-EOF
-          ;;
-      esac
-      ;;
-  esac
-
-  cat <<'EOF' >> "$run_script"
-	
-	###################################################################
-	#                     NTP settings
-	###################################################################
-	
-EOF
-
-  case $image_class in
-    cloud | virtual )
-      cat <<EOF >> "$run_script"
-	ntp:
-	  enabled: True
-EOF
-  esac
-
-  case $image_class in
-    cloud )
-      case $image_cloud_type in
-        aws )
-          # Sync with AWS' internal NTP server(s)
-          cat <<EOF >> "$run_script"
-	  servers:
-EOF
-          if [ -z "${image_disable_ipv4+x}" ]; then
-            cat <<EOF >> "$run_script"
-	  - $CONSTANT_AWS_NTP_IPV4ADDRESS
-EOF
-          fi
-          if [ -z "${image_disable_ipv6+x}" ]; then
-            cat <<EOF >> "$run_script"
-	  - $CONSTANT_AWS_NTP_IPV6ADDRESS
-EOF
-          fi
-          ;;
-        azure )
-          if [ -n "${image_experimental+x}" ] && \
-             [ "$image_alpine_release" = "edge" ]; then
-            _ptp_device="/dev/ptp_hyperv"
-            _ptp_dpoll="-2"
-            _ptp_poll="3"
-            _ptp_offset="0.0"
-            _ptp_stratum="2"
-          fi
-          ;;
-        google )
-          # Sync with Google's internal NTP server(s)
-          cat <<EOF >> "$run_script"
-	  servers:
-	  - $CONSTANT_GOOGLE_NTP_INTERNAL_SERVER
-EOF
-          ;;
-      esac
-      ;;
-    virtual )
-      case $image_vm_type in
-        hyperv )
-          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
-            _ptp_device="/dev/ptp_hyperv"
-          fi
-          ;;
-        libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
-          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
-            _ptp_device="/dev/ptp_kvm"
-          fi
-          ;;
-        vmware )
-          if [ -n "${image_experimental+x}" ] && [ "$image_alpine_release" = "edge" ]; then
-            _ptp_device="/dev/ptp_vmw"
-          fi
-          ;;
-      esac
-      ;;
-  esac
-
-  if [ -n "${_ptp_device+x}" ]; then
-    # Sync with host machine's clock (using PTP)
-    _ptp_dpoll="${_ptp_dpoll:-CONSTANT_DEFAULT_PTP_DPOLL}"
-    _ptp_poll="${_ptp_poll:-CONSTANT_DEFAULT_PTP_POLL}"
-    _ptp_offset="${_ptp_offset:-CONSTANT_DEFAULT_PTP_OFFSET}"
-    _ptp_stratum="${_ptp_stratum:-CONSTANT_DEFAULT_PTP_STRATUM}"
+    # Cannot use cloud-init's growpart and resize_rootfs for the following:
+    #
+    # As cloud-init cannot handle Alpine mdev presenting /dev/mapper/ devices
+    # as actual files rather than symlinks to /dev/dm-* devices.
+    #
+    #   - LUKS-based filesystems
+    #   - LVM-based filesystems
+    #
+    # Also flash-based device types were we want to use overprovisining
+    # via user-data "runcmd".
     cat <<'EOF' >> "$run_script"
-	  hypervisor_clock: True
-	    device: $_ptp_device
-	    dpoll: $_ptp_dpoll
-	    poll: $_ptp_poll
-	    offset: "$_ptp_offset"
-	    stratum: $_ptp_stratum
+
+  write_log "Disabling growpart and resize_rootfs" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
+	# /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
+	
+	# Disable growpart
+	growpart:
+	  mode: off
+	
+	# Disable resize_rootfs
+	resize_rootfs: false
+	_SCRIPT_
 EOF
   fi
 
+
+  # 02-ssh.cfg
   cat <<'EOF' >> "$run_script"
-	
-	###################################################################
-	#                     SSH settings
-	###################################################################
+
+  write_log "Setting up SSH info" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-ssh.cfg
+	# /etc/cloud/cloud.cfg.d/02-ssh.cfg
 	
 	# Prevent SSH access to root user
-	disable_root: True
+	disable_root: true
 	
 	# Delete any pre-existing SSH hosts keys
-	ssh_deletekeys: True
+	ssh_deletekeys: true
 EOF
 
   case $image_ssh_keytypes in
@@ -428,7 +426,7 @@ EOF
       cat <<'EOF' >> "$run_script"
 	
 	# Only create ED25519 and RSA SSH host keys
-	ssh_genkeytypes: ["ed25519","rsa"]
+	ssh_genkeytypes: ["ed25519", "rsa"]
 EOF
       ;;
   esac
@@ -436,29 +434,75 @@ EOF
   cat <<'EOF' >> "$run_script"
 	
 	# Disable SSH password authentication
-	ssh_pwauth: False
+	ssh_pwauth: false
 	
 	# SSH host key settings
 	#-----------------------
 	ssh:
 	  # Show SSH host keys and their fingerprints on console
-	  emit_keys_to_console: True
+	  emit_keys_to_console: true
 	#
 	# Don't show these SSH host key types on console (DSA is never shown)
-	ssh_key_console_blacklist: ["ssh-ecdsa","ssh-ed25519","ssh-rsa"]
+	ssh_key_console_blacklist: ["ssh-ecdsa", "ssh-ed25519", "ssh-rsa"]
 	#
 	# Don't display SSH host keygen output including VisualArt
-	ssh_quiet_keygen: True
+	ssh_quiet_keygen: true
 	
 	# Don't display users' SSH key fingerprints on console.
-	no_ssh_fingerprints: True
-	
-	###################################################################
-	
+	no_ssh_fingerprints: true
 	_SCRIPT_
 EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+
+  # 02-users.cfg
+  cat <<'EOF' >> "$run_script"
+  
+  write_log "Setting up Users info" 2
+  cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-users.cfg
+	# /etc/cloud/cloud.cfg.d/02-users.cfg
+	
+	users:
+	  - default
+	_SCRIPT_
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Unlocking the root account" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
+	  - name: root
+	    lock_passwd: false
+EOF
+  else
+    cat <<'EOF' >> "$run_script"
+
+  write_log "Locking the root account" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
+	  - name: root
+	    lock_passwd: true
+EOF
+  fi
+
+  if [ -n "$image_default_user_password" ]; then
+    cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+
+  write_log "Setting the default user's password" 4
+  cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
+	
+	# The password for the default user account, changing it is forced on login.
+	password: $default_user_password
+EOF
+  fi
+
+  cat <<'EOF' >> "$run_script"
+	_SCRIPT_
+EOF
+
+
+  # Adjust /etc/hosts template
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -469,15 +513,16 @@ EOF
 	EOF
   fi
 
-  if [ -n "${image_disable_ipv4+x}" ]; then
+  if [ -n "$image_disable_ipv4" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  sed -i \
 	    -e '/^# The following lines are desirable for IPv4.*$/d' \
 	    -e '/^127\.0.*$/d' \
+	    -e 's/^::1 {{hostname}} {{fqdn}}/::1 {{hostname}} {{fqdn}}\n::1 localhost localhost.localdomain/' \
 	    /etc/cloud/templates/hosts.alpine.tmpl
 	EOF
-  elif [ -n "${image_disable_ipv6+x}" ]; then
+  elif [ -n "$image_disable_ipv6" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  sed -i \
@@ -488,14 +533,42 @@ EOF
 	EOF
   fi
 
-  if [ -n "${debug_enabled+x}" ]; then
+  # Set cloud-init.log logging level appropriately
+  if [ -n "$debug_enabled" ]; then
+    _debug_logging_status="Enabling"
+    _logging_level="DEBUG"
+
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
-	    diff /etc/cloud/cloud.cfg-orig /etc/cloud/cloud.cfg >> /chroot.log || true
-	    rm /etc/cloud/cloud.cfg-orig
+	EOF
+
+    cat <<-'EOF' >> "$run_script"
 	
+	    {
+	      cat /etc/cloud/cloud.cfg.d/01-datasources.cfg
+	      cat /etc/cloud/cloud.cfg.d/01-modules.cfg
+	      cat /etc/cloud/cloud.cfg.d/01-system-info.cfg
+	
+	EOF
+
+    if { [ "$image_encryption_type" = "both" ] || \
+         [ "$image_encryption_type" = "luks" ]; } || \
+       [ -n "$image_lvm_rootfs" ] || \
+       { [ "$image_os_device_media" = "flash" ] || \
+         [ "$image_os_device_media" = "sdcard" ] || \
+         [ "$image_os_device_media" = "ssd" ]; }; then
+      cat <<-'EOF' >> "$run_script"
+	      cat /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
+	EOF
+    fi
+
+    cat <<-'EOF' >> "$run_script"
+	      cat /etc/cloud/cloud.cfg.d/02-ssh.cfg
+	      cat /etc/cloud/cloud.cfg.d/02-users.cfg
+	    } >> /chroot.log
+
 	    diff etc/cloud/templates/hosts.alpine.tmpl-orig \
 	      etc/cloud/templates/hosts.alpine.tmpl \
 	      >> /chroot.log || true
@@ -504,11 +577,29 @@ EOF
 	    cp /etc/cloud/cloud.cfg.d/05_logging.cfg \
 	      /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
 	  }
+	EOF
+  else
+    _debug_logging_status="Disabling"
+    _logging_level="INFO"
+  fi
+  cat <<-EOF >> "$run_script"
 	
-	  write_log "Enabling cloud-init debugging" 2
-	  sed -i \
-	    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=INFO/\1level=DEBUG/g ;P;D' \
+	  write_log "$_debug_logging_status cloud-init debugging" 2
+	  sed -i \\
+	    -E '\\\$!N; s/([handler_cloudLogHandler]\nclass=FileHandler\n[[:space:]]*)level=[A-Z]*/\1level=$_logging_level/g ;P;D' \\
 	    /etc/cloud/cloud.cfg.d/05_logging.cfg
+	EOF
+
+  # Set cloud-init syslog logging level appropriately
+  cat <<-EOF >> "$run_script"
+	
+	  sed -i \\
+	    -E '\\\$!N; s/([handler_cloudLogHandler]\nclass=handlers.SysLogHandler\n[[:space:]]*)level=[A-Z]*/\1level=INFO/g ;P;D' \\
+	    /etc/cloud/cloud.cfg.d/05_logging.cfg
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
@@ -517,14 +608,6 @@ EOF
 	      >> /chroot.log || true
 	    rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
 	  }
-	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Disabling cloud-init debugging" 2
-	  sed -i \
-	    -E '\$!N; s/(class=.*Handler\n[[:space:]]*)level=DEBUG/\1level=INFO/g ;P;D' \
-	    /etc/cloud/cloud.cfg.d/05_logging.cfg
 	EOF
   fi
 
@@ -541,7 +624,8 @@ EOF
       create_etc_filesystems "ISO" ;;
   esac
 
-  if [ "$image_class" = "physical" ]; then
+  if [ "$image_class" = "physical" ] && \
+     [ "$image_physical_type" != "ovh-baremetal" ]; then
     create_physical_machine_cloud_init_yaml_files
   fi
 
@@ -552,149 +636,204 @@ EOF
 
 
 #
-# Define Cloud-specific cloud-init machine specific packages
+# Define cloud-init machine specific packages.
 #
 define_cloud_init_machine_packages() {
-  local _cloud_pkgs=""
+  local _ci_machine_pkgs
 
-  case $image_cloud_type in
-    aws )
-      _cloud_pkgs="aws-cli nvme-cli" ;;
-    azure )
-      _cloud_pkgs="hvtools" ;;
-    digitalocean )
-      case $image_alpine_release in
-        v3.13 | v3.14 | v3.15 )
-          # No doctl packaged for these Alpine releases
-          : ;;
-        * )
-          _cloud_pkgs="doctl" ;;
-      esac
-      ;;
-    exoscale )
-      case $image_alpine_release in
-        v3.13 | v3.14 | v3.15 | v3.16 )
-          # No exoscale packaged for these Alpine releases
-          : ;;
-        * )
-          _cloud_pkgs="exoscale" ;;
-      esac
-      ;;
-    google )
-      _cloud_pkgs="nvme-cli" ;;
-    hetzner )
-      _cloud_pkgs="hcloud" ;;
-    ###vultr )
-    ###  _cloud_pkgs="vultr-cli" ;;
-    generic )
-      _cloud_pkgs="nvme-cli" ;;
-  esac
-
-  echo "$_cloud_pkgs"
+  echo "$_ci_machine_pkgs"
 }
 
 
 #
-# Define Cloud-specific cloud-init DataSource(s) to enable
+# Define cloud-init and related software packages
 #
-define_cloud_init_settings() {
-  case $image_cloud_type in
-    generic )
-      datasource_list="'AliYun','Azure','Bigstep','ConfigDrive','DigitalOcean'"
-      datasource_list="$datasource_list,'Ec2','Exoscale','GCE','Hetzner'"
-      datasource_list="$datasource_list,'IBMCloud','Oracle','RbxCloud'"
-      datasource_list="$datasource_list,'Scaleway','UpCloud','Vultr'" ;;
-    aliyun )
-      datasource_list="'AliYun','Ec2'" ;;
-    aws )
-      datasource_list="'Ec2'" ;;
-    azure )
-      datasource_list="'Azure'" ;;
-    bigstep )
-      datasource_list="'Bigstep'" ;;
-    brightbox )
-      datasource_list="'Ec2'" ;;
-    digitalocean )
-      datasource_list="'DigitalOcean'" ;;
-    e24 )
-      datasource_list="'Ec2'" ;;
-    exoscale )
-      datasource_list="'Exoscale'" ;;
-    google )
-      datasource_list="'GCE'" ;;
-    hetzner )
-      datasource_list="'Hetzner'" ;;
-    hyperone )
-      datasource_list="'RbxCloud'" ;;
-    ibmcloud )
-      datasource_list="'IBMCloud'" ;;
-    oracle )
-      datasource_list="'Oracle'" ;;
-    ovh )
-      datasource_list="'Ec2','OpenStack'" ;;
-    rootbox )
-      datasource_list="'RbxCloud'" ;;
-    scaleway )
-      datasource_list="'Scaleway'" ;;
-    tencent )
-      datasource_list="'ConfigDrive'" ;;
-    upcloud )
-      datasource_list="'UpCloud'" ;;
-    vultr )
-      datasource_list="'Vultr'" ;;
-    zstack )
-      datasource_list="'Ec2'" ;;
+define_cloud_init_packages() {
+  local _ci_pkgs
+
+  _ci_pkgs="cloud-init lsblk parted sfdisk sgdisk"
+
+  echo "$_ci_pkgs"
+}
+
+
+#
+# For cloud-init seed configuration handle the various methods
+#
+setup_nocloud_seed_config() {
+  case $image_cloud_init_seed_define in
+    dhcp )
+      add_nocloud_network_config_seed_file ;;
+    cmdline )
+      add_nocloud_seed_url_to_cmdline ;;
+    config )
+      add_nocloud_seed_url_to_config_file ;;
   esac
 }
 
 
 #
-# Add cloud machine related entries to /etc/modules
+# Write a default configuration for NTP
 #
-etc_modules_list_for_cloud_init() {
-  cat <<'EOF' >> "$run_script"
+write_cloud_init_ntp_config() {
+  local _config_file _description _entry
+
+  _config_file="02-ntp.cfg"
+
+  if [ "$image_ntp_method" = "ptp" ]; then
+    _description="to use hypervisor PHC"
+  else
+    _description="for NTP"
+  fi
+
+  cat <<EOF >> "$run_script"
+      write_log "Configuring cloud-init ${_description}" 6
+      {
+        cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/${_config_file}
+	# /etc/cloud/cloud.cfg.d/${_config_file}
 	
-	# Cloud-specific modules
-	tiny-power-button
-	
+	ntp:
+	  enabled: true
 EOF
 
-  case $image_cloud_type in
-    aws )
-      cat <<'EOF' >> "$run_script"
-	# AWS
-	ena
+  case $image_ntp_daemon in
+    busybox )
+      cat <<EOF >> "$run_script"
+	  ntp_client: ntp
 EOF
-      case $image_arch in
-        aarch64 )
-          cat <<'EOF' >> "$run_script"
-	gpio-pl061
+      ;;
+    chrony )
+      cat <<EOF >> "$run_script"
+	  ntp_client: chrony
 EOF
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+          : ;;
+        edge-special )
+          # chrony-specific cloud-init configuration usage only in Edge
+          # "special" for testing
+          cat <<EOF >> "$run_script"
+	  chrony_settings:
+EOF
+
+          if [ -n "$image_chrony_initstepslew_hosts" ]; then
+            cat <<EOF >> "$run_script"
+	    initstepslew_hosts: $image_chrony_initstepslew_hosts
+EOF
+          fi
+          if [ -n "$image_chrony_initstepslew_threshold" ]; then
+            cat <<EOF >> "$run_script"
+	    initstepslew_threshold: $image_chrony_initstepslew_threshold
+EOF
+          fi
+          if [ -n "$image_chrony_makestep_limit" ]; then
+            cat <<EOF >> "$run_script"
+	    makestep_limit: $image_chrony_makestep_limit
+EOF
+          fi
+          if [ -n "$image_chrony_makestep_threshold" ]; then
+            cat <<EOF >> "$run_script"
+	    makestep_threshold: $image_chrony_makestep_threshold
+EOF
+          fi
           ;;
       esac
-      cat <<'EOF' >> "$run_script"
-	nvme
-EOF
-      ;;
-    azure )
-      cat <<'EOF' >> "$run_script"
-	# Azure
-	hv_utils
-	mana
-EOF
-      ;;
-    google )
-      cat <<'EOF' >> "$run_script"
-	# Google
-	nvme
-EOF
-      ;;
-    * )
-      cat <<'EOF' >> "$run_script"
-	# Generic cloud
-	nvme
-	virtio_net
-EOF
       ;;
   esac
+
+  case $image_ntp_method in
+    pools )
+      if [ -n "$image_ntp_pools_list" ]; then
+        cat <<EOF >> "$run_script"
+	  pools:
+EOF
+        for _entry in $image_ntp_pools_list; do
+          cat <<EOF >> "$run_script"
+	    - $_entry
+EOF
+        done
+      fi
+      ;;
+
+    ptp )
+      if [ -n "$image_chrony_phc_device" ]; then
+        cat <<EOF >> "$run_script"
+	    hypervisor_clock: true
+	    phc_device: ${image_chrony_phc_device}
+EOF
+        if [ -n "$image_chrony_phc_poll" ]; then
+          cat <<EOF >> "$run_script"
+	    phc_poll: ${image_chrony_phc_poll}
+EOF
+        fi
+        if [ -n "$image_chrony_phc_dpoll" ]; then
+          cat <<EOF >> "$run_script"
+	    phc_dpoll: ${image_chrony_phc_dpoll}
+EOF
+        fi
+        if [ -n "$image_chrony_phc_offset" ]; then
+          cat <<EOF >> "$run_script"
+	    phc_offset: ${image_chrony_phc_offset}
+EOF
+        fi
+        if [ -n "$image_chrony_phc_stratum" ]; then
+          cat <<EOF >> "$run_script"
+	    phc_stratum: ${image_chrony_phc_stratum}
+EOF
+        fi
+      fi
+      ;;
+
+    servers )
+      if [ -n "$image_ntp_servers_list" ]; then
+        cat <<EOF >> "$run_script"
+	  servers:
+EOF
+        for _entry in $image_ntp_servers_list; do
+          cat <<EOF >> "$run_script"
+	    - $_entry
+EOF
+        done
+      fi
+      ;;
+
+    servers_and_pools )
+      if [ -n "$image_ntp_pools_list" ]; then
+        cat <<EOF >> "$run_script"
+	  pools:
+EOF
+        for _entry in $image_ntp_pools_list; do
+          cat <<EOF >> "$run_script"
+	    - $_entry
+EOF
+        done
+      fi
+      if [ -n "$image_ntp_servers_list" ]; then
+        cat <<EOF >> "$run_script"
+	  servers:
+EOF
+        for _entry in $image_ntp_servers_list; do
+          cat <<EOF >> "$run_script"
+	    - $_entry
+EOF
+        done
+      fi
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+      }
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        write_debug_log "Contents of 02-ntp.cfg:" 6
+	        cat /etc/cloud/cloud.cfg.d/02-ntp.cfg >> /chroot.log
+	      }
+	EOF
+  fi
 }

@@ -1,0 +1,16 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud-init-defines
+##
+##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Cloud or Virtual cloud-init DataSources that use dhclient to set up
+# temporary network to get to metadata server.
+###CONSTANT_DS_REQUIRES_DHCLIENT="aws,azure,google,hetzner,nwcs,openstack,oracle,ovh,scaleway,upcloud,vultr"

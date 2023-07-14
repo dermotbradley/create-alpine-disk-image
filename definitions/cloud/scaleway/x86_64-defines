@@ -1,0 +1,44 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud scaleway x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios"
+readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,syslinux,limine"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="virtio-blk"
+readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="virtio"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+
+
+# Defaults
+readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
+readonly CADI_DEFAULT_BOOTLOADER="grub"
+
+
+# Additional
+readonly CADI_DISK_IMAGE_COMPRESSION="gzip"
+readonly CADI_DISK_IMAGE_FORMAT="qcow2"
+
+readonly CADI_CLOUD_CLI_PACKAGES="scaleway-cli"
+readonly CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN="v3.13,v3.14,v3.15,v3.16,v3.17"
+# Size of packages & all their dependencies (in MB)
+readonly CADI_CLOUD_CLI_PACKAGES_SIZE=14

@@ -1,0 +1,820 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  filesystems-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+#
+# Return a percentage overhead for the particular filesystem type in use
+#
+fs_overhead() {
+  local _percent
+
+  case $image_fs_type in
+    btrfs )
+      _percent=$CADI_BTRFS_RESERVED_PERCENT ;;
+    ext4 )
+      _percent=$CADI_EXT4_RESERVED_PERCENT ;;
+    f2fs )
+      _percent=$CADI_F2FS_RESERVED_PERCENT ;;
+    xfs )
+      _percent=$CADI_XFS_RESERVED_PERCENT ;;
+  esac
+
+  echo "${_percent:-0}"
+}
+
+
+#
+# Place entries in /etc/fstab for various filesystems
+#
+configure_fstab() {
+  local _fstab_boot_mount_options _fstab_boot_reference _fstab_boot_entry_type
+  local _fstab_esp_mountpoint _fstab_esp_reference _fstab_esp_entry_type
+  local _fstab_logs_mount_options _fstab_logs_reference _fstab_logs_entry_type
+  local _fstab_root_mount_options _fstab_root_reference _fstab_root_entry_type
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Add /etc/fstab entries"
+	{
+	EOF
+
+  if [ "$image_tmp_on_tmpfs" = "true" ]; then
+    # Set /tmp to be a tmpfs mount
+    cat <<-'EOF' >> "$run_script"
+	  add_fstab_entry DEVICE "tmpfs" "/tmp" "tmpfs" "nosuid,nodev" "/tmp on tmpfs"
+	EOF
+  fi
+
+  # Root filesystem
+  _fstab_root_mount_options="rw,relatime"
+  case $image_fs_type in
+    btrfs | ext4 )
+      case $image_os_device_media in
+        flash | sdcard | ssd )
+          # Sync every 5 minutes, rather than the default of every 5 seconds,
+          # to reduce writes to flash/SSD storage.
+          _fstab_root_mount_options="$_fstab_root_mount_options,commit=300" ;;
+      esac
+      ;;
+  esac
+  if [ -n "$image_encryption_type" ] && \
+     { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; }; then
+    # LUKS
+    _fstab_root_entry_type="DEVICE"
+    if [ -n "$image_lvm_rootfs" ]; then
+      _fstab_root_reference="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_ROOT_LV_NAME}"
+    else
+      _fstab_root_reference="/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
+    fi
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM
+    _fstab_root_entry_type="DEVICE"
+    _fstab_root_reference="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_ROOT_LV_NAME}"
+  else
+    # non-LUKS and non-LVM
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # RPI
+      _fstab_root_entry_type="LABEL"
+      _fstab_root_reference="$CADI_ROOTFS_LABEL"
+    else
+      # Non-RPI
+      case $image_boot_reference in
+        device )
+          _fstab_root_entry_type="DEVICE"
+          case $image_boot_reference in
+            unpartitioned )
+              _fstab_root_reference="$(get_storage_device_name "$image_os_device_type")" ;;
+            * )
+              _fstab_root_reference="$(get_storage_partition_name "$image_os_device_type" "$root_part_num")" ;;
+          esac
+          ;;
+        label )
+          _fstab_root_entry_type="LABEL"
+          _fstab_root_reference="$CADI_ROOTFS_LABEL"
+          ;;
+        * )
+          _fstab_root_entry_type="UUID"
+          _fstab_root_reference="\$root_fs_uuid"
+          ;;
+      esac
+    fi
+  fi
+  cat <<-EOF >> "$run_script"
+	  add_fstab_entry $_fstab_root_entry_type "$_fstab_root_reference" "/" "$image_fs_type" "$_fstab_root_mount_options" "rootfs"
+	EOF
+
+  # UEFI ESP
+  case $image_boot_type in
+    secure-uefi | uefi )
+      _fstab_esp_mountpoint="/boot/efi"
+
+      case $image_boot_reference in
+        label )
+          _fstab_esp_entry_type="LABEL"
+          _fstab_esp_reference="$CADI_ESP_FS_LABEL"
+          ;;
+        * )
+          _fstab_esp_entry_type="UUID"
+          _fstab_esp_reference="\$esp_fs_uuid"
+          ;;
+      esac
+      cat <<-EOF >> "$run_script"
+	  add_fstab_entry $_fstab_esp_entry_type "$_fstab_esp_reference" "$_fstab_esp_mountpoint" "vfat" "rw" "ESP filesystem"
+	EOF
+      ;;
+  esac
+
+  # swap partition
+  if [ "$image_swap_partition_size" != "0" ]; then
+    case $image_boot_reference in
+      label )
+        _fstab_swap_entry_type="LABEL"
+        _fstab_swap_reference="$CADI_SWAP_PART_LABEL"
+        ;;
+      * )
+        _fstab_swap_entry_type="UUID"
+        _fstab_swap_reference="\$swap_part_uuid"
+        ;;
+    esac
+    cat <<-EOF >> "$run_script"
+	  add_fstab_entry $_fstab_swap_entry_type "$_fstab_swap_reference" "none" "swap"
+	EOF
+  fi
+
+  # /boot as partition or LVM LV
+  if [ "$image_create_boot_partition" = "true" ] || \
+     { [ -n "$image_lvm_rootfs" ] && [ "$image_create_boot_partition" != "true" ]; }; then
+    _fstab_boot_mount_options="rw,relatime"
+
+    if [ "$image_class" != "physical" ] || \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
+      # Not a Raspberry Pi - boot for RPI is FAT and so does not support
+      # setting "commit" option
+      case $image_fs_type in
+        btrfs | ext4 )
+          case $image_os_device_media in
+            flash | sdcard | ssd )
+              # Sync every 5 minutes, rather than the default of every 5 seconds,
+              # to reduce writes to flash storage.
+              _fstab_boot_mount_options="$_fstab_boot_mount_options,commit=300"
+          esac
+          ;;
+      esac
+    fi
+
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -ne 0 ]; then
+      # RPI 2, 3, or 4 - /boot is actually a bind-mount to /media/sdcard
+      add_rpi_boot_fstab_entries "$_fstab_boot_mount_options"
+    else
+      if [ -n "$image_lvm_rootfs" ] && [ "$image_create_boot_partition" != "true" ]; then
+        # /boot as LVM LV
+        _fstab_boot_entry_type="DEVICE"
+        _fstab_boot_reference="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_BOOT_LV_NAME}"
+      else
+        # /boot as partition
+        case $image_boot_reference in
+          label )
+            _fstab_boot_entry_type="LABEL"
+            _fstab_boot_reference="$CADI_BOOTFS_LABEL"
+            ;;
+          * )
+            _fstab_boot_entry_type="UUID"
+            _fstab_boot_reference="\$boot_fs_uuid"
+            ;;
+        esac
+      fi
+      cat <<-EOF >> "$run_script"
+	  add_fstab_entry $_fstab_boot_entry_type "$_fstab_boot_reference" "/boot" "$image_fs_type" "$_fstab_boot_mount_options" "boot"
+	EOF
+    fi
+  fi
+
+  # logs filesystem as LV
+  if [ -n "$image_lvm_rootfs" ]; then
+    _fstab_logs_mount_options="rw,relatime"
+    case $image_fs_type in
+      ext4 )
+        case $image_os_device_media in
+          flash | sdcard | ssd )
+            # Sync every 5 minutes, rather than the default of every 5
+            # seconds to reduce writes to flash storage.
+            _fstab_logs_mount_options="$_fstab_logs_mount_options,commit=300" ;;
+        esac
+        ;;
+    esac
+
+    _fstab_logs_entry_type="DEVICE"
+    _fstab_logs_reference="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_LOGS_LV_NAME}"
+
+    cat <<-EOF >> "$run_script"
+	  add_fstab_entry $_fstab_logs_entry_type "$_fstab_logs_reference" "/var/log" "$image_fs_type" "$_fstab_logs_mount_options" "logsfs"
+	EOF
+  fi
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Resultant /etc/fstab contents:" 2
+	    cat /etc/fstab >> "/chroot.log"
+	  }
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Create /etc/filesystems for Busybox mount
+#
+create_etc_filesystems() {
+  local _config_fs_type=$1
+
+  local _fs_type
+
+  # Busybox mount command requires the following config
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Setting up /etc/filesystems for $_config_fs_type mount" 2
+	  {
+	EOF
+
+  cat <<EOF >> "$run_script"
+    cat <<-_SCRIPT_ > /etc/filesystems
+	#
+	# /etc/filesystems
+	#
+	
+	# Needed for cloud-init cidata $_config_fs_type
+EOF
+
+  case $_config_fs_type in
+    ISO )
+      _fs_type="iso9660" ;;
+    * )
+      _fs_type="vfat" ;;
+  esac
+  cat <<EOF >> "$run_script"
+	$_fs_type
+	_SCRIPT_
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "/etc/filesystems content:" 4
+	      cat /etc/filesystems >> /chroot.log
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
+# Create relevant filesystems for the disk image and mount these
+# inside the chroot directory.
+#
+format_and_mount_fs() {
+  local _boot_label  _boot_fat_type _boot_fs_type _boot_fs_use
+  local _boot_on _logs_on _root_on
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Formatting and mounting filesystems"
+	{
+	EOF
+
+  # Format UEFI ESP filesystem if needed
+  case $image_boot_type in
+    secure-uefi | uefi )
+      cat <<-EOF >> "$run_script"
+	  uefi_part_device="\${loop_device}p${uefi_part_num}"
+	EOF
+      format_esp_fs
+      if [ "$image_boot_reference" = "uuid" ]; then
+        cat <<-'EOF' >> "$run_script"
+	  esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
+	EOF
+      fi
+      cat <<-EOF >> "$run_script"
+	
+	EOF
+      ;;
+  esac
+
+  # Format boot filesystem if needed
+  if [ "$image_create_boot_partition" = "true" ]; then
+    cat <<-EOF >> "$run_script"
+	  boot_part_device="\${loop_device}p${boot_part_num}"
+	EOF
+
+    if [ "$image_class" = "physical" ] && \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+      # Ensure that RPI boot filesystem label is *not* called "boot" due to
+      # https://github.com/raspberrypi/firmware/issues/1529
+      _boot_label="$CADI_RPIBOOT_LABEL"
+      _boot_fs_type="fat"
+      _boot_fat_type="fat32"
+      _boot_fs_use="RPI boot"
+    else
+      _boot_label="$CADI_BOOTFS_LABEL"
+      _boot_fs_type="$image_fs_type"
+      _boot_fs_use="boot"
+    fi
+    format_fs "$_boot_fs_type" "\$boot_part_device" "$_boot_fs_use" \
+      "$_boot_label" "partition" "$_boot_fat_type"
+
+    if [ "$image_boot_reference" = "uuid" ] && \
+       { [ "$image_class" != "physical" ] || \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; }; then
+      # For RPI always uses LABEL rather than UUID
+      cat <<-'EOF' >> "$run_script"
+	  boot_fs_uuid="$(get_uuid_from_device "$boot_part_device")"
+	EOF
+    fi
+
+    cat <<-EOF >> "$run_script"
+	
+	EOF
+  fi
+
+  # Format CIDATA filesystem if needed
+  if [ "$image_class" = "physical" ] && \
+     [ "$image_cloud_software" = "cloud-init" ]; then
+    cat <<-EOF >> "$run_script"
+	  cidata_part_device="\${loop_device}p${cidata_part_num}"
+	EOF
+
+    format_fs "fat" "\$cidata_part_device" "CIDATA" "$CADI_CIDATA_LABEL" \
+      "partition" "fat12"
+
+    cat <<-EOF >> "$run_script"
+	
+	EOF
+  fi
+
+  # Setup swap partition
+  if [ "$image_swap_partition_size" != "0" ]; then
+    cat <<-EOF >> "$run_script"
+	  swap_part_device="\${loop_device}p${swap_part_num}"
+	
+	  write_log "Creating swap partition" 2
+	  mkswap -L "$CADI_SWAP_PART_LABEL" "\$swap_part_device" >> "\$logfile" 2>&1
+	EOF
+
+    if [ "$image_boot_reference" = "uuid" ]; then
+      cat <<-'EOF' >> "$run_script"
+	  swap_part_uuid="$(get_uuid_from_device "$swap_part_device")"
+	
+	EOF
+    fi
+  fi
+
+  # Set fs device variables
+  if [ -n "$image_encryption_type" ] && \
+     { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; }; then
+    # LUKS
+    if [ -n "$image_lvm_rootfs" ]; then
+      _logs_on="LVM-on-LUKS device"
+      _root_on="LVM-on-LUKS device"
+      cat <<-EOF >> "$run_script"
+	  root_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_ROOT_LV_NAME}"
+	  logs_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_LOGS_LV_NAME}"
+	EOF
+      if [ "$image_create_boot_partition" != "true" ]; then
+        # No separate non-LVM boot partition
+        _boot_on="LVM-on-LUKS device"
+        cat <<-EOF >> "$run_script"
+	  boot_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_BOOT_LV_NAME}"
+	EOF
+      fi
+    else
+      _root_on="LUKS device"
+      cat <<-EOF >> "$run_script"
+	  root_part_device="/dev/mapper/$CADI_LUKS_DEVICE_NAME"
+	EOF
+    fi
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM
+    _root_on="LVM logical volume"
+    cat <<-EOF >> "$run_script"
+	  root_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_ROOT_LV_NAME}"
+	EOF
+    if [ "$image_bootloader" = "grub" ] && \
+       [ "$image_create_boot_partition" != "true" ]; then
+      # Grub can access /boot on LVM
+      _boot_on="LVM logical volume"
+      cat <<-EOF >> "$run_script"
+	  boot_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_BOOT_LV_NAME}"
+	EOF
+    fi
+    _logs_on="LVM logical volume"
+    cat <<-EOF >> "$run_script"
+	  logs_part_device="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_LOGS_LV_NAME}"
+	EOF
+  else
+    # neither LUKS nor LVM
+    case $image_boot_type in
+      unpartitioned )
+        _root_on="unpartitioned device"
+        cat <<-EOF >> "$run_script"
+	  root_device="\${loop_device}"
+	EOF
+        ;;
+      *)
+        _root_on="partition"
+        cat <<-EOF >> "$run_script"
+	  root_part_device="\${loop_device}p${root_part_num}"
+	EOF
+        ;;
+    esac
+  fi
+
+  # Format root filesystem
+  case $image_boot_type in
+    unpartitioned )
+      format_fs "$image_fs_type" "\$root_device" "root" \
+        "$CADI_ROOTFS_LABEL" "$_root_on" ;;
+    *)
+      format_fs "$image_fs_type" "\$root_part_device" "root" \
+        "$CADI_ROOTFS_LABEL" "$_root_on" ;;
+  esac
+
+  # Format boot LV
+  if [ -n "$image_lvm_rootfs" ]; then
+    case $image_bootloader in
+      grub )
+        if [ "$image_create_boot_partition" != "true" ]; then
+          # Grub supports LVM and so has boot LV rather than a separate boot partition
+          format_fs "$image_fs_type" "\$boot_part_device" "boot" \
+            "$CADI_BOOTFS_LABEL" "$_boot_on"
+        fi
+        ;;
+    esac
+    # Format logs LV
+    format_fs "$image_fs_type" "\$logs_part_device" "logs" \
+      "$CADI_LOGSFS_LABEL" "$_logs_on"
+  fi
+
+  if [ "$image_boot_reference" = "uuid" ] && \
+     { [ "$image_class" != "physical" ] || [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; } && \
+     { [ -z "$image_encryption_type" ] || \
+       { [ "$image_encryption_type" != "both" ] && [ "$image_encryption_type" != "luks" ]; } } && \
+     { [ -z "$image_lvm_rootfs" ] || [ "$image_bootloader" = "syslinux" ]; }; then
+    case $image_boot_type in
+      unpartitioned )
+        cat <<-'EOF' >> "$run_script"
+	  root_fs_uuid="$(get_uuid_from_device "$root_device")"
+	EOF
+        ;;
+      * )
+        cat <<-'EOF' >> "$run_script"
+	  root_fs_uuid="$(get_uuid_from_device "$root_part_device")"
+	EOF
+        ;;
+    esac
+  fi
+
+  # Mount root filesystem
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Mounting root filesystem onto $chroot_dir" 2
+	  mkdir -p "$chroot_dir"
+	EOF
+  case $image_boot_type in
+    unpartitioned )
+      cat <<-'EOF' >> "$run_script"
+	  mount -o private "$root_device" "$chroot_dir" >> "$logfile" 2>&1
+	EOF
+      ;;
+    * )
+      cat <<-'EOF' >> "$run_script"
+	  mount -o private "$root_part_device" "$chroot_dir" >> "$logfile" 2>&1
+	EOF
+      ;;
+  esac
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Size of root filesystem:" 2
+	    df -BM "\$chroot_dir" >> "\$logfile"
+	  }
+	EOF
+	fi
+
+  # Mount boot filesystem if necessary
+  if [ "$image_create_boot_partition" = "true" ] || \
+     [ -n "$image_lvm_rootfs" ]; then
+    # Mount /boot where it is a separate partition or a LV
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Mounting boot filesystem onto $chroot_dir/boot" 2
+	  mkdir -p "$chroot_dir"/boot
+	  mount -o private "$boot_part_device" "$chroot_dir"/boot >> "$logfile" 2>&1
+	EOF
+
+    if [ -n "$debug_enabled" ]; then
+      cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Size of boot filesystem:" 2
+	    df -BM "\$chroot_dir"/boot >> "\$logfile"
+	  }
+	EOF
+    fi
+  fi
+
+  # Mount UEFI ESP filesystem if necessary
+  case $image_boot_type in
+    secure-uefi | uefi )
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Mounting ESP filesystem onto $chroot_dir/boot/efi" 2
+	  mkdir -p "$chroot_dir"/boot/efi
+	  mount -o private "$uefi_part_device" "$chroot_dir"/boot/efi >> "$logfile" 2>&1
+	EOF
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Size of ESP filesystem:" 2
+	    df -BM "\$chroot_dir"/boot/efi >> "\$logfile"
+	  }
+	EOF
+      fi
+      ;;
+  esac
+
+  # Mount logs filesystem if necessary
+  if [ -n "$image_lvm_rootfs" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Mounting logs filesystem onto $chroot_dir/var/logs" 2
+	  mkdir -p "$chroot_dir"/var/log
+	  mount -o private "$logs_part_device" "$chroot_dir"/var/log >> "$logfile" 2>&1
+	EOF
+
+    if [ -n "$debug_enabled" ]; then
+      cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Size of logs filesystem:" 2
+	    df -BM "\$chroot_dir"/var/log >> "\$logfile"
+	  }
+	EOF
+  	fi
+  fi
+
+  # Mount CIDATA filesystem if necessary
+  if [ "$image_class" = "physical" ] && \
+     [ "$image_cloud_software" = "cloud-init" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Mounting cloud-init YAML filesystem onto $chroot_dir/cidata" 2
+	  mkdir -p "$chroot_dir"/cidata
+	  mount -o private "$cidata_part_device" "$chroot_dir"/cidata >> "$logfile"
+	EOF
+
+    if [ -n "$debug_enabled" ]; then
+      cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Size of cloud-init YAML filesystem:" 2
+	    df -BM "\$chroot_dir"/cidata >> "\$logfile"
+	  }
+	EOF
+  	fi
+  fi
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Filesystems' UUIDs" 2
+	    lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
+	    write_debug_log "Blkid output:" 2
+	    lsblk \
+	      --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTLABEL \
+	      "$loop_device" >> "$logfile" 2>&1
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Create a BTRFS filesystem
+#
+format_btrfs_fs() {
+  local _btrfs_device=$1
+  local _btrfs_fs_use="$2"
+  local _btrfs_label=$3
+  local _btrfs_formatting_where="$4"
+
+  local _btrfs_fs_options
+
+  _btrfs_fs_options="-M -L $_btrfs_label"
+  if [ -z "$debug_enabled" ]; then
+    _btrfs_fs_options="$_btrfs_fs_options -q"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Loading the btrfs module before formatting a btrfs filesystem" 2
+	  modprobe -q btrfs
+	
+	  write_log "Formatting Btrfs $_btrfs_fs_use filesystem on $_btrfs_formatting_where" 2
+	  mkfs.btrfs $_btrfs_fs_options "$_btrfs_device" >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  write_debug_log "Btrfs filesystem info:" 2
+	  btrfs filesystem show "$_btrfs_device" >> "\$logfile" 2>&1
+	EOF
+  fi
+}
+
+
+#
+# Create a F2FS filesystem
+#
+format_f2fs_fs() {
+  local _f2fs_device=$1
+  local _f2fs_fs_use="$2"
+  local _f2fs_label=$3
+  local _f2fs_formatting_where="$4"
+
+  local _f2fs_fs_options
+
+  _f2fs_fs_options="-l $_f2fs_label"
+  if [ -z "$debug_enabled" ]; then
+    _f2fs_fs_options="$_f2fs_fs_options -q"
+  fi
+
+  case $image_encryption_type in
+    both | fscrypt )
+      write_log "Adding fscrypt encryption feature to filesystem format options" 2
+      _f2fs_fs_options="$_f2fs_fs_options -O encrypt"
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Formatting F2FS $_f2fs_fs_use filesystem on $_f2fs_formatting_where" 2
+	  mkfs.f2fs $_f2fs_fs_options "$_f2fs_device" >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  write_debug_log "F2FS filesystem info:" 2
+	  f2fstat -p "$_f2fs_device" >> "\$logfile" 2>&1
+	EOF
+  fi
+}
+
+
+#
+# Create a FAT filesystem
+#
+format_fat_fs() {
+  local _fat_device=$1
+  local _fat_fs_use="$2"
+  local _fat_label="$3"
+  local _fat_formatting_where="$4"
+  local _fat_type=$5
+
+  local _fat_info_type _fat_mkfs_options
+
+  case $_fat_type in
+    fat12 )
+      _fat_info_type="12"
+      _fat_mkfs_options="-F12 -s 1 -S $image_os_device_sector_size"
+      ;;
+    fat16 )
+      _fat_info_type="16"
+      _fat_mkfs_options="-F16 -s 1 -S $image_os_device_sector_size"
+      ;;
+    fat32 )
+      _fat_info_type="32"
+      _fat_mkfs_options="-F32 -S $image_os_device_sector_size"
+      ;;
+  esac
+  _fat_mkfs_options="$_fat_mkfs_options -n $_fat_label"
+  if [ -n "$debug_enabled" ]; then
+    _fat_mkfs_options="$_fat_mkfs_options -v"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Formatting FAT${_fat_info_type} $_fat_fs_use filesystem with ${image_os_device_sector_size}-byte sectors on $_fat_formatting_where" 2
+	  mkfs.fat $_fat_mkfs_options "$_fat_device" >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  write_debug_log "FAT filesystem info:" 2
+	  file -s "$_fat_device" >> "\$logfile" 2>&1
+	EOF
+  fi
+}
+
+
+#
+# Create a filesystem
+#
+format_fs() {
+  local _type=$1
+  local _device="$2"
+  local _fs_use="$3"
+  local _label=$4
+  local _formatting_where="$5"
+  local _fat_type="$6"
+
+  case $_type in
+    btrfs )
+      format_btrfs_fs "$_device" "$_fs_use" "$_label" "$_formatting_where" ;;
+    ext4 )
+      format_ext4_fs "$_device" "$_fs_use" "$_label" "$_formatting_where" ;;
+    f2fs )
+      format_f2fs_fs "$_device" "$_fs_use" "$_label" "$_formatting_where" ;;
+    fat )
+      format_fat_fs "$_device" "$_fs_use" "$_label" "$_formatting_where" "$_fat_type" ;;
+    xfs )
+      format_xfs_fs "$_device" "$_fs_use" "$_label" "$_formatting_where" ;;
+  esac
+}
+
+
+#
+# Create an XFS filesystem
+#
+format_xfs_fs() {
+  local _xfs_device=$1
+  local _xfs_fs_use="$2"
+  local _xfs_label=$3
+  local _xfs_formatting_where="$4"
+
+  local _xfs_fs_options
+
+  _xfs_fs_options="-L $_xfs_label"
+  # Force attr=2 to avoid dmesg warning
+  _xfs_fs_options="$_xfs_fs_options -i attr=2"
+  # Ensure XFS avoids Year 2038 problem.
+  _xfs_fs_options="$_xfs_fs_options -m bigtime=1"
+  if [ -z "$debug_enabled" ]; then
+    _xfs_fs_options="$_xfs_fs_options -q"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Formatting XFS $_xfs_fs_use filesystem on $_xfs_formatting_where" 2
+	  mkfs.xfs $_xfs_fs_options "$_xfs_device" >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  write_debug_log "XFS filesystem info:" 2
+	  xfs_info "$_xfs_device" >> "\$logfile" 2>&1
+	EOF
+  fi
+}

@@ -1,0 +1,39 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual utm-vmm x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# VMM only supports UEFI booting
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_TYPES="uefi"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,virtio-gpu"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="ps2,usb"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt,mbr"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="virtio"
+
+
+# Defaults
+readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
+readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CLOCKSOURCE="kvm"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="bochs"
+readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="ps2"
+readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
+
+
+# Additional
+readonly CADI_DISK_IMAGE_FORMAT="qcow2"

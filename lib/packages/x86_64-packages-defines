@@ -1,0 +1,29 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  disk-image-x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Cloud configuration packages sizes
+#
+# cloud-init + python3 + ??
+readonly CADI_CLOUDINIT_PACKAGES_SIZE=80
+readonly CADI_NONCLOUD_PACKAGES_SIZE=2
+readonly CADI_TINYCLOUD_PACKAGES_SIZE=1
+
+
+# Bootloader packages sizes, used for sizing rootfs:
+readonly CADI_BOOTLOADER_GRUB_PACKAGES_SIZE=17
+readonly CADI_BOOTLOADER_LIMINE_PACKAGES_SIZE=1
+readonly CADI_BOOTLOADER_SYSLINUX_PACKAGES_SIZE=4
+
+
+# General
+readonly CADI_SBOM_PACKAGE_SIZE=64

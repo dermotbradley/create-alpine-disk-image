@@ -1,0 +1,66 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  bootloader-general-functions-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Check that whichever fs type is used for boot is actually
+# supported by selected bootloader
+#
+check_bootloader_supports_fs() {
+  if [ -n "$image_lvm_rootfs" ] && [ "$image_create_boot_partition" != "true" ]; then
+    # LVM rootfs and no separate boot partition.
+    case $image_bootloader in
+      grub )
+        check_grub_supports_lvm ;;
+      limine )
+        check_limine_supports_lvm ;;
+      syslinux )
+        check_syslinux_supports_lvm ;;
+      uki )
+        : ;;
+      * )
+        error_message "Unclear if $image_bootloader supports booting from LVM!" ;;
+    esac
+  elif { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; } && \
+       [ "$image_create_boot_partition" != "true" ]; then
+    # LUKS rootfs and no separate boot partition.
+    case $image_bootloader in
+      grub )
+        check_grub_supports_luks ;;
+      limine )
+        check_limine_supports_luks ;;
+      syslinux )
+        check_syslinux_supports_luks ;;
+      uki )
+        : ;;
+      * )
+        error_message "Unclear if $image_bootloader supports booting from LUKS!" ;;
+    esac
+  else
+    # bootfs (in separate boot partition) or rootfs without LVM or LUKS.
+    case $image_bootloader in
+      grub )
+        check_grub_supports_fs ;;
+      limine )
+        check_limine_supports_fs ;;
+      rpi )
+        check_rpi_supports_fs ;;
+      syslinux )
+        check_syslinux_supports_fs ;;
+      uki )
+        : ;;
+      * )
+        error_message "Unclear if $image_bootloader supports booting from $image_fs_type filesystem!" ;;
+    esac
+  fi
+}

@@ -1,0 +1,58 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual libvirt x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios,secure-uefi,uefi,hybrid"
+readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,syslinux,limine"
+readonly CADI_SUPPORTED_BOOTLOADERS_HYBRID="grub,limine"
+readonly CADI_SUPPORTED_BOOTLOADERS_SECURE_UEFI="none"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,hyperv,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,normal_and_serial,serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,hyperv,simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="ps2,usb"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt,mbr"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="hyperv,nvme"
+readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="hyperv,mana,mlx4_en,mlx5_core"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+
+
+# Defaults
+readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
+readonly CADI_DEFAULT_BOOT_TYPE="bios"
+readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CLOCKSOURCE="hyperv"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal_and_serial"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="hyperv"
+readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="ps2"
+readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="hyperv"
+readonly CADI_DEFAULT_OS_NETWORK_DRIVER="hyperv"
+
+
+# Additional
+readonly CADI_DISK_IMAGE_FORMAT="qcow2"
+readonly CADI_ADDITIONAL_INITRAMFS_MODULES="hv_utils,hv_vmbus"
+readonly CADI_PACKAGES_ADDITIONAL="hvtools"
+# Size of packages & all their dependencies (in MB)
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=1
+readonly CADI_PACKAGES_EXTRA="nvme-cli"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=1

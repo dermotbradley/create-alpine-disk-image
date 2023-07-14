@@ -5,7 +5,7 @@
 ##
 ##  tiny-cloud-functions
 ##
-##  Copyright 2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
@@ -16,11 +16,64 @@
 # Configure tiny-cloud
 #
 configure_tiny_cloud() {
+  local _cloud_type
+
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Configuring tiny-cloud"
 	{
-	  :
+	  write_log "Enable tiny-cloud init.d services" 2
+	  {
+	EOF
+
+  add_init_d_service "tiny-cloud-early" "sysinit" 4
+  add_init_d_service "tiny-cloud" "default" 4
+  add_init_d_service "tiny-cloud-final" "default" 4
+
+  case $image_class in
+    cloud )
+      case $image_cloud_type in
+        aws )
+          _cloud_type="aws" ;;
+        azure )
+          _cloud_type="azure" ;;
+        gce )
+          _cloud_type="gcp" ;;
+        oracle )
+          _cloud_type="oci" ;;
+      esac
+      ;;
+    physical | virtual )
+      _cloud_type="nocloud" ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	  }
+	
+	  write_log "Configuring /etc/conf.d/tiny-cloud" 2
+	  {
+	    sed -i \\
+	      -E -e 's/^[#](CLOUD=).*$/\1${_cloud_type}/g' \\
+	      -E -e 's/^[#](CLOUD_USER=).*$/\1${image_admin_username}/g' \\
+	      /etc/conf.d/tiny-cloud
+	  }
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Unlocking the root account" 4
+	  passwd -u root
+	EOF
+  else
+    cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Locking the root account" 4
+	  passwd -l root
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
 	}
 	EOF
 }
@@ -28,20 +81,14 @@ configure_tiny_cloud() {
 
 #
 # Define Cloud-specific tiny-cloud machine specific packages
+# such as aws-cli or nvme-cli
 #
 define_tiny_cloud_machine_packages() {
   local _cloud_pkgs=""
 
-###  case $image_cloud_type in
-###    aws )
-###      _cloud_pkgs="aws-cli nvme-cli" ;;
-###    azure )
-###      _cloud_pkgs="hvtools" ;;
-###    google )
-###      _cloud_pkgs="nvme-cli" ;;
-###    oracle )
-###      _cloud_pkgs="???" ;;
-###  esac
+  # For now assume that the relevant tiny-cloud subpackage takes
+  # care of this appropriately.
+  :
 
   echo "$_cloud_pkgs"
 }
@@ -53,15 +100,21 @@ define_tiny_cloud_machine_packages() {
 define_tiny_cloud_packages() {
   local _tiny_pkgs="tiny-cloud"
 
-  case $image_cloud_type in
-    aws )
-      _tiny_pkgs="$_tiny_pkgs tiny-cloud-aws" ;;
-    azure )
-      _tiny_pkgs="$_tiny_pkgs tiny-cloud-azure" ;;
-    google )
-      _tiny_pkgs="$_tiny_pkgs tiny-cloud-gcp" ;;
-    oracle )
-      _tiny_pkgs="$_tiny_pkgs tiny-cloud-oci" ;;
+  case $image_class in
+    cloud )
+      case $image_cloud_type in
+        aws )
+          _tiny_pkgs="$_tiny_pkgs tiny-cloud-aws" ;;
+        azure )
+          _tiny_pkgs="$_tiny_pkgs tiny-cloud-azure" ;;
+        google )
+          _tiny_pkgs="$_tiny_pkgs tiny-cloud-gcp" ;;
+        oracle )
+          _tiny_pkgs="$_tiny_pkgs tiny-cloud-oci" ;;
+      esac
+      ;;
+    physical | virtual )
+      _tiny_pkgs="$_tiny_pkgs tiny-cloud-nocloud" ;;
   esac
 
   echo "$_tiny_pkgs"

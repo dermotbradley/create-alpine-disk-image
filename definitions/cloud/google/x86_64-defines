@@ -1,0 +1,49 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud google x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# https://cloud.google.com/compute/docs/import/import-existing-image#prepare_boot_disk
+#
+# Google x86_86 only support BIOS booting via Grub and serial console
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios"
+readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="none"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="text"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
+readonly CADI_SUPPORTED_GRAPHICS_DRIVERS="bochs,simpledrm"
+readonly CADI_SUPPORTED_IPV4=true
+readonly CADI_SUPPORTED_IPV6=true
+readonly CADI_SUPPORTED_IPV4_IPV6=true
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="nvme,virtio-scsi"
+readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="gve"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED="38400"
+readonly CADI_SUPPORTED_RNGS="virtio"
+
+
+# Defaults
+readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-scsi"
+
+
+# Additional
+readonly CADI_DISK_IMAGE_FORMAT="raw"

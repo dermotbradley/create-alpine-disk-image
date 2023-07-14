@@ -3,9 +3,9 @@
 
 #############################################################################
 ##
-##  image-functions
+##  disk-image-functions
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
@@ -20,30 +20,120 @@ additional_os_configuration() {
 	
 	write_log "Doing additional OS configuration"
 	{
+	EOF
+
+  if [ -z "$image_barebones" ]; then
+    case $image_alpine_release in
+      v3.13 | v3.14 | v3.15 | v3.16 | v3.17 )
+        cat <<-'EOF' >> "$run_script"
 	  # FIXUP: stop update-ca-certificates displaying a warning
 	  sed -i \
 	    -e 's|/etc/ssl/certs|/etc/ssl/certs 2>/dev/null|' \
 	    /etc/ca-certificates/update.d/certhash
+	
 	EOF
+        ;;
+      * )
+        # Fix not required in recent Alpine releases
+        : ;;
+    esac
+  fi
 
   case $image_auth_control in
     doas | both )
-      cat <<'EOF' >> "$run_script"
+      cat <<-'EOF' >> "$run_script"
+	  write_log "Configure doas"
+	  {
+	EOF
 
-  write_log "Adding doas configuration for wheel group" 2
-  cat <<-_SCRIPT_ > /etc/doas.d/00-configure-wheel-group.conf
-	#
-	# Allow members of group wheel to become root
-	#
-	permit persist :wheel
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/doas.conf /etc/doas.conf-orig
+	    }
+	
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+    write_log "Adding doas configuration for root user" 2
+    cat <<-_SCRIPT_ >> /etc/doas.conf
+	
+	# Allow root to run doas (i.e. "doas -u <user> <command>")
+	permit nopass root
 	_SCRIPT_
+    
+    write_log "Enabling doas configuration for wheel group" 2
+    sed -i -E -e 's/^[#][ ]*(permit persist :wheel)$/\1/g' /etc/doas.conf
 EOF
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	    
+	    # Debug
+	    {
+	      diff /etc/doas.conf-orig /etc/doas.conf >> /chroot.log || true
+	      rm /etc/doas.conf-orig
+	    }
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
       ;;
   esac
 
   cat <<-'EOF' >> "$run_script"
 	}
 	EOF
+}
+
+
+#
+# Append specific cmdline settings
+#
+add_cmdline_settings() {
+  local _cmdline_additions
+
+  case $image_acpi_power_method in
+    tiny-power-button )
+      # Using tiny-power-button but Busybox init doesn't handle the usual
+      # signal this sends, so specify USR2 which Busybox accepts for
+      # "poweroff" situations.
+      _cmdline_additions="tiny_power_button.power_signal=12" ;;
+  esac
+
+  case $image_class in
+    physical )
+      : ;;
+    * )
+      # For non-physical machines always ensure that the console output is visible
+      _cmdline_additions="$_cmdline_additions consoleblank=0" ;;
+  esac
+
+  if [ -n "$CADI_DEFAULT_CLOCKSOURCE" ]; then
+    if [ -n "$CADI_SUPPORTED_CLOCKSOURCES" ] && \
+       is_in_comma_list "$CADI_DEFAULT_CLOCKSOURCE" "$CADI_SUPPORTED_CLOCKSOURCES"; then
+      case $CADI_DEFAULT_CLOCKSOURCE in
+        hyperv )
+          _cmdline_additions="$_cmdline_additions clocksource=hyperv_clocksource_tsc_page" ;;
+        kvm )
+          _cmdline_additions="$_cmdline_additions clocksource=kvm-clock" ;;
+      esac
+    fi
+  fi
+
+  if [ -z "$debug_enabled" ]; then
+    if [ -z "$CADI_CMDLINE_QUIET" ] || [ "$CADI_CMDLINE_QUIET" = "true" ]; then
+      _cmdline_additions="$_cmdline_additions quiet"
+    fi
+  fi
+
+  if [ -n "$_cmdline_additions" ]; then
+    echo " $_cmdline_additions"
+  fi
 }
 
 
@@ -57,7 +147,7 @@ basic_os_configuration() {
 	
 	write_log "Doing basic OS configuration"
 	{
-	  write_log "Setting the login message to be 'vague'" 2
+	  write_log "Setting the login and MOTD messages" 2
 	  {
 	    printf '\nWelcome\n\n' > /etc/issue
 	EOF
@@ -82,7 +172,7 @@ basic_os_configuration() {
   esac
 
   cat <<-EOF >> "$run_script"
-	    printf '\n\n$_login_banner\n\n' > /etc/motd
+	    printf '\n\n%s\n\n' "$_login_banner" > /etc/motd
 	  }
 	EOF
 
@@ -92,32 +182,80 @@ basic_os_configuration() {
 	  setup-keymap \$keymap >> "/chroot.log" 2>&1
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
+  # https://gitlab.alpinelinux.org/alpine/aports/-/merge_requests/46718
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 )
+      _locale_file="locale.sh" ;;
+    v3.18 )
+      _locale_file="20locale.sh" ;;
+    * )
+      _locale_file="50-cloud-init-locale.sh" ;;
+  esac
+  cat <<-EOF >> "$run_script"
 	
-	  # Debug
-	  {
-	    cp /etc/profile.d/locale.sh /etc/profile.d/locale.sh-orig
-	  }
+	  locale_file="$_locale_file"
+	
+	  if [ -e "\\\$locale_file" ]; then
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	    # Debug
+	    {
+	      cp /etc/profile.d/\${locale_file} /etc/profile.d/\${locale_file}-orig
+	    }
+	
 	EOF
   fi
 
-  cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Setting locale to \$locale.UTF-8" 2
-	  sed -i -E -e "s/^(export LANG=)C.UTF-8/\1\$locale.UTF-8/" \
-	    /etc/profile.d/locale.sh
+  cat <<-EOF >> "$run_script"
+	    write_log "Setting locale to \\\$locale" 2
+	    sed -i -E -e "s/^(export LANG=)C.UTF-8/\1\\\$locale/" \\
+	      /etc/profile.d/\\\${locale_file}
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/profile.d/\${locale_file}-orig /etc/profile.d/\${locale_file} \\
+	        >> /chroot.log || true
+	      rm /etc/profile.d/\${locale_file}-orig
+	    }
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  else
+	    write_log "Creating profile file to set locale to \\\$locale" 2
+	    {
+	      echo "# Created by create-alpine-disk-image"
+	      echo "#"
+	      echo "export LANG=\\\$locale"
+	    } > /etc/profile.d/\\\${locale_file}
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      cat /etc/profile.d/\${locale_file} >> /chroot.log || true
+	    }
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  fi
+	EOF
+
+
+  if [ -n "$debug_enabled" ]; then
+      cat <<-EOF >> "$run_script"
 	
 	  # Debug
 	  {
-	    diff /etc/profile.d/locale.sh-orig /etc/profile.d/locale.sh \
-	      >> /chroot.log || true
-	    rm /etc/profile.d/locale.sh-orig
-	
 	    cp /etc/rc.conf /etc/rc.conf-orig
 	  }
 	EOF
@@ -142,13 +280,20 @@ basic_os_configuration() {
       ;;
   esac
 
-  cat <<-'EOF' >> "$run_script"
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 )
+      cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Fixup rc.conf so that keyboards and screens use Unicode" 2
 	  sed -i -e 's/^#unicode="NO"/unicode="YES"/' /etc/rc.conf
 	EOF
+      ;;
+    * )
+      # Unicode is default from Edge/v3.18 onwards
+      : ;;
+  esac
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -170,7 +315,67 @@ basic_os_configuration() {
 	
 	  write_log "Enable colour shell prompt" 2
 	  cp /etc/profile.d/${_color_prompt_file} /etc/profile.d/color_prompt.sh
+	
 	EOF
+
+  if [ "$image_tmp_on_tmpfs" != "true" ]; then
+    case $image_alpine_release in
+      v3.13 | v3.14 | v3.15 )
+        : ;;
+      * )
+        # From Alpine 3.16 onwards /tmp is not automatically wiped at boot
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Ensuring /tmp is wiped at boot" 2
+	  sed -i -e 's/^wipe_tmp=.*/wipe_tmp="YES"/g' /etc/conf.d/bootmisc
+	
+	EOF
+      ;;
+    esac
+  fi
+
+  # Enable mdevd or eudev where appropriate
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 )
+      case $image_cloud_software in
+        cloud-init )
+          # Nothing to do, setup-cloud-init will enable udev
+          : ;;
+        none )
+          case $image_device_management_type in
+            mdev )
+              # Nothing to do, already enabled
+              : ;;
+            udev )
+              cat <<-EOF >> "$run_script"	
+	  write_log "Enable udev init.d services" 2
+	  {
+	    setup-udev  >> /chroot.log 2>&1 || true
+	  }
+	EOF
+              ;;
+          esac
+          ;;
+        tiny-cloud )
+          # tiny-cloud takes care of this itself
+          : ;;
+      esac
+      ;;
+    * )
+      case $image_cloud_software in
+        cloud-init | none )
+          cat <<-EOF >> "$run_script"
+	  write_log "Enable $image_device_management_type init.d services" 2
+	  {
+	    setup-devd $image_device_management_type >> /chroot.log 2>&1 || true
+	  }
+	EOF
+          ;;
+        tiny-cloud )
+          # tiny-cloud takes care of this itself
+          : ;;
+      esac
+      ;;
+  esac
 
   if [ "$image_class" != "virtual" ] || [ "$image_vm_type" != "vmware" ]; then
     cat <<-EOF >> "$run_script"
@@ -186,674 +391,1906 @@ basic_os_configuration() {
 
 
 #
-# Disable a set of specified kernel modules
+# Calculate size of the resultant disk image taking into account
+# whether bootloader/ESP, boot and cloud-init partitions are needed.
 #
-blacklist_list_of_kernel_modules() {
-  local _modules_section=$1
-  local _modules_blacklist="$2"
+calculate_image_size() {
+  local _boot_part_size _image_total_size _reserved_disk_size _swap_part_size
 
-  cat <<-EOF >> "$run_script"
-	
-	write_log "Blacklisting ${_modules_section} kernel modules" 2
-	{
-	  cat <<-_SCRIPT_ > /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
-	EOF
-
-  for MODULE_NAME in $_modules_blacklist; do
-    cat <<EOF >> "$run_script"
-	blacklist ${MODULE_NAME}
-EOF
-  done
-
-  cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-EOF
-
-  cat <<-EOF >> "$run_script"
-	
-	  sort -u -o /etc/modprobe.d/blacklist-${_modules_section}-modules.conf \\
-	    /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Contents of blacklist-${_modules_section}-modules.conf:" 4
-	    cat /etc/modprobe.d/blacklist-${_modules_section}-modules.conf >> /chroot.log
-	  }
-	EOF
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_image_size] determining image size" >> "$sizing_debug"
   fi
 
-  cat <<-EOF >> "$run_script"
-	}
-	EOF
-}
+  if [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; then
+    # LUKS (including LVM-inside-LUKS)
 
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] image contains LUKS partition, determining LUKS partition size" >> "$sizing_debug"
+    fi
 
-#
-# Calculate size of the boot partition if it is required.
-#
-calculate_boot_part_size() {
-  local _fs_total_size _size
+    _image_total_size=$(( $(calculate_luks_part_size) ))
 
-  local _reserved_percent=0
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] size for LUKS partition is $_image_total_size MiB" >> "$sizing_debug"
+    fi
+  elif [ -n "$image_lvm_rootfs" ]; then
+    # LVM
 
-  if [ -n "${needs_boot_partition+x}" ]; then
-    _fs_total_size=$((general_boot_part_size))
-    case $image_fs_type in
-      ext4 )
-        _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-      f2fs )
-        _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-      xfs )
-        _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
-    esac
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] image contains LVM partition, determining LVM partition size" >> "$sizing_debug"
+    fi
 
-    if [ $_reserved_percent -gt 0 ]; then
-      _size=$((_fs_total_size + (_fs_total_size * _reserved_percent / 100)))
-    else
-      _size=$_fs_total_size
+    _image_total_size=$(( $(calculate_lvm_part_size) ))
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] size for LVM partition is $_image_total_size MiB" >> "$sizing_debug"
+
+    fi
+  else
+    # Neither LUKS nor LVM
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] determining rootfs partition size" >> "$sizing_debug"
+    fi
+
+    _image_total_size=$(calculate_root_part_size)
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] size for root partition is $_image_total_size MiB" >> "$sizing_debug"
     fi
   fi
 
-  echo "${_size:-0}"
-}
-
-
-#
-# Calculate size of the resultant disk image taking into account
-# whether bootloader, boot and cloud-init partitions are needed.
-#
-calculate_image_size() {
-  local _image_total_size
-
-  if [ -n "${image_encrypted+x}" ]; then
-    # LUKS (including LVM-on-LUKS)
-    _image_total_size=$(($(calculate_luks_part_size)))
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    # LVM
-    _image_total_size=$(($(calculate_lvm_vg_size) + 4))
-  else
-    _image_total_size=$(calculate_root_part_size)
-  fi
 
   if [ "$image_class" = "physical" ] && \
      [ "$image_cloud_software" = "cloud-init" ]; then
-    _image_total_size="$((_image_total_size + CONSTANT_CIDATA_PART_SIZE))"
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] image also contains CIDATA partition" >> "$sizing_debug"
+    fi
+
+    _image_total_size="$(( _image_total_size + CADI_CIDATA_PART_SIZE ))"
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "[calculate_image_size] adding on $CADI_CIDATA_PART_SIZE MiB CIDATA partition, giving $_image_total_size MiB" >> "$sizing_debug"
+    fi
   fi
 
-  if [ -n "${needs_boot_partition+x}" ]; then
-    _image_total_size="$((_image_total_size + $(calculate_boot_part_size)))"
-  fi
+  case $image_swap_boot_partition in
+    true )
+      # Swap partition to account for
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] image also contains swap partition" >> "$sizing_debug"
+      fi
+
+      _swap_part_size=$(calculate_swap_part_size)
+      _image_total_size="$(( _image_total_size + _swap_part_size ))"
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] adding on $_swap_part_size MiB Swap partition, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
+      ;;
+  esac
+
+  case $image_create_boot_partition in
+    true )
+      # Separate boot partition to account for
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] image also contains boot partition" >> "$sizing_debug"
+      fi
+
+      _boot_part_size=$(calculate_boot_part_size)
+      _image_total_size="$(( _image_total_size + _boot_part_size ))"
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] adding on $_boot_part_size MiB Boot partition, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
+      ;;
+  esac
 
   case $image_boot_type in
     bios )
-      # Allow for 2MiB boot sector
-      _image_total_size="$((_image_total_size + 2))"
+      # Account for 1MiB boot sector
+      _reserved_disk_size=1
+
+      _image_total_size="$(( _image_total_size + _reserved_disk_size ))"
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB for boot sector, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
+      ;;
+    rpi )
+      # Account for 1MiB boot sector
+      _reserved_disk_size=1
+
+      _image_total_size="$(( _image_total_size + _reserved_disk_size ))"
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB for boot sector, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
       ;;
     secure-uefi | uefi )
-      _image_total_size="$((_image_total_size + $(calculate_uefi_part_size)))"
+      # Account for GPT reserved space at start of device
+      case $image_os_device_sector_size in
+        512 )
+          # with GPT 34 512-byte sectors are reserved (so 17K)
+          _reserved_disk_size=1 ;;
+        4096 )
+          # with GPT 6 4K sectors are reserved (so 24K)
+          _reserved_disk_size=1 ;;
+      esac
+
+      # Account for ESP partition
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] image also contains ESP partition" >> "$sizing_debug"
+      fi
+
+      _image_total_size="$(( _image_total_size + _reserved_disk_size + $(calculate_uefi_part_size) ))"
+
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB GPT overhead and $(calculate_uefi_part_size)MiB ESP partition, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
+      ;;
+    unpartitioned )
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[calculate_image_size] size unchanged for unpartitioned disk, giving $_image_total_size MiB" >> "$sizing_debug"
+      fi
       ;;
   esac
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[calculate_image_size] total image size of $_image_total_size MiB" >> "$sizing_debug"
+  fi
 
   echo "$_image_total_size"
 }
 
 
 #
-# Calculate size of the LUKS partition taking into account whether
-# separate boot partition is not needed (so boot files add to size).
+# Configure whatever software is used to manage auto-configuration
 #
-calculate_luks_part_size() {
-  local _luks_total_size _size
+configure_autoconfiguration_software() {
+  case $image_cloud_software in
+    cloud-init )
+      configure_cloud_init ;;
+    none )
+      configure_non_autoconfiguration ;;
+    tiny-cloud )
+      configure_tiny_cloud ;;
+  esac
+}
 
-  local _reserved_percent=0
 
-  _luks_total_size=$general_root_part_size
-
-  if [ -z "${needs_boot_partition+x}" ]; then
-    _luks_total_size=$((_luks_total_size + general_boot_part_size))
-  fi
+#
+# Define the base options for the cmdline list used by the bootloader
+#
+configure_base_cmdline_values() {
+  # Increase the kernel message buffer so all messages during boot are retained
+  base_cmdline="log_buf_len=32768 rootfstype=$image_fs_type"
 
   case $image_fs_type in
-    ext4 )
-      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-    f2fs )
-      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-    xfs )
-      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
+    btrfs | ext4 )
+      case $image_os_device_media in
+        flash | sdcard | ssd )
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 | v3.16 )
+              # For older Alpine releases add commit mount option for rootfs
+              # when on flash device as this is *not* read from /etc/fstab by
+              # initramfs' init when it mounts rootfs and later during boot
+              # the /etc/init.d/root script does not use options from
+              # /etc/fstab when remounting rootfs.
+              base_cmdline="$base_cmdline rootflags=commit=300" ;;
+            * )
+              : ;;
+          esac
+          ;;
+      esac
+      ;;
   esac
 
-  if [ $_reserved_percent -gt 0 ]; then
-    _size=$((_luks_total_size + (_luks_total_size * _reserved_percent / 100)))
-  else
-    _size=$_luks_total_size
-  fi
-
-
-  if [ -n "${image_lvm_rootfs+x}" ]; then
-    # LVM-on-LUKS
-    _size=$((_size + (_size * CONSTANT_LVM_OVERHEAD_PERCENT / 100) + 4))
-  fi
-
-  # add LUKS overhead, rounding up to nearest 4MiB
-  _size=$((_size + (_size * CONSTANT_LUKS_OVERHEAD_PERCENT / 100)))
-  _size=$(lvm_round_extents $_size)
-
-  echo "$_size"
-}
-
-
-#
-# Calculate size of the LVM boot LV.
-#
-calculate_lvm_boot_lv_size() {
-  local _boot_total_size _lv_total_size
-
-  local _reserved_percent=0
-
-  _boot_total_size=$general_boot_part_size
-
-  case $image_fs_type in
-    ext4 )
-      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-    f2fs )
-      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-    xfs )
-      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
+  case $image_console_type in
+    hypervisor )
+      # Do not add a "console=" entry for the virtio console device
+      : ;;
+    normal )
+      base_cmdline="$base_cmdline console=$image_console_name" ;;
+    normal_and_serial )
+      base_cmdline="$base_cmdline console=${image_serial_console_name},${image_serial_console_port_speed} console=$image_console_name" ;;
+    serial )
+      base_cmdline="$base_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}" ;;
   esac
 
-  if [ $_reserved_percent -gt 0 ]; then
-    _boot_total_size=$((_boot_total_size + (_boot_total_size * $_reserved_percent / 100)))
+  # IPv6
+  if [ -n "$image_disable_ipv6" ]; then
+    base_cmdline="$base_cmdline ipv6.disable=1"
   fi
 
-  # Round up to next extent
-  _lv_total_size=$(lvm_round_extents $_boot_total_size)
+  # Bootchart
+  if [ -n "$image_bootchart" ]; then
+    base_cmdline="$base_cmdline chart rootflags=rw"
+  fi
 
-  echo "$_lv_total_size"
-}
+  # ZSWAP
+  if [ -n "$image_disable_zswap" ]; then
+    base_cmdline="$base_cmdline zswap.enabled=1"
+  fi
 
-
-#
-# Calculate size of the LVM logs LV.
-#
-calculate_lvm_logs_lv_size() {
-  local _logs_total_size _lv_total_size
-
-  local _reserved_percent=0
-
-  _logs_total_size=$CONSTANT_LVM_LOGS_LV_SIZE
-
-  case $image_fs_type in
-    ext4 )
-      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-    f2fs )
-      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-    xfs )
-      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
+  # LUKS
+  case $image_encryption_type in
+    both | luks )
+      base_cmdline="$base_cmdline \\\$(define_cmdline_for_luks_encryption)" ;;
   esac
 
-  if [ $_reserved_percent -gt 0 ]; then
-    _logs_total_size=$((_logs_total_size + (_logs_total_size * _reserved_percent / 100)))
-  fi
+  base_cmdline="${base_cmdline}$(add_cmdline_settings)"
 
-  # Round up to next extent
-  _lv_total_size=$(lvm_round_extents $_logs_total_size)
+  case $image_console_type in
+    hypervisor | none | serial )
+      case $image_boot_type in
+        bios )
+          base_cmdline="$base_cmdline nomodeset" ;;
+        esac
+        ;;
+    * )
+      if [ "$image_console_output_type" = "text" ]; then
+        case $image_boot_type in
+          bios )
+            base_cmdline="$base_cmdline nomodeset"
 
-  echo "$_lv_total_size"
-}
-
-
-#
-# Calculate size of the LVM root LV.
-#
-calculate_lvm_root_lv_size() {
-  local _root_total_size _lv_total_size
-
-  local _reserved_percent=0
-
-  _root_total_size=$general_root_part_size
-
-  case $image_fs_type in
-    ext4 )
-      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-    f2fs )
-      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-    xfs )
-      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
+            if [ -n "$image_graphics_vendor" ]; then
+              case $image_graphics_vendor in
+                intel )
+                  base_cmdline="$base_cmdline i915.modeset=0" ;;
+                nvidia )
+                  base_cmdline="$base_cmdline nouveau.modeset=0" ;;
+              esac
+            else
+              base_cmdline="$base_cmdline i915.modeset=0 nouveau.modeset=0"
+            fi
+            ;;
+        esac
+      fi
+      ;;
   esac
 
-  if [ $_reserved_percent -gt 0 ]; then
-    _root_total_size=$((_root_total_size + (_root_total_size * _reserved_percent / 100)))
+  if [ -n "$image_extra_cmdline_options" ]; then
+    # Add any additionally specified cmdline options
+    base_cmdline="$base_cmdline $image_extra_cmdline_options"
   fi
-
-  # Round up to next extent
-  _lv_total_size=$(lvm_round_extents $_root_total_size)
-
-  echo "$_lv_total_size"
 }
 
 
 #
-# Calculate size of the LVM partition taking into account whether
-# separate boot partition is not needed (so boot files add to size).
+# Configure whichever tool is used to create/manage initramfs
 #
-calculate_lvm_vg_size() {
-  local _boot_total_size _root_total_size _logs_total_size _vg_total_size
-
-  if [ -z "${needs_boot_partition+x}" ]; then
-    _boot_total_size=$(calculate_lvm_boot_lv_size)
-  fi
-  _root_total_size=$(calculate_lvm_root_lv_size)
-  _logs_total_size=$(calculate_lvm_logs_lv_size)
-
-  if [ -n "${needs_boot_partition+x}" ]; then
-    _vg_total_size=$((_root_total_size + _logs_total_size))
-  else
-    _vg_total_size=$((_boot_total_size + _root_total_size + _logs_total_size))
-  fi
-
-  echo "$_vg_total_size"
-}
-
-
-#
-# Calculate size of the root partition taking into account whether
-# separate boot partition is not needed (so boot files add to size of root).
-#
-calculate_root_part_size() {
-  local _fs_total_size
-
-  local _reserved_percent=0
-
-  _fs_total_size=$general_root_part_size
-  if [ -z "${needs_boot_partition+x}" ]; then
-    _fs_total_size=$((_fs_total_size + general_boot_part_size))
-  fi
-
-  case $image_fs_type in
-    ext4 )
-      _reserved_percent=$CONSTANT_EXT4_RESERVED_PERCENT ;;
-    f2fs )
-      _reserved_percent=$CONSTANT_F2FS_RESERVED_PERCENT ;;
-    xfs )
-      _reserved_percent=$CONSTANT_XFS_RESERVED_PERCENT ;;
+configure_initramfs_tool() {
+  case $image_initramfs_tool in
+    booster )
+      configure_booster ;;
+    dracut )
+      configure_dracut ;;
+    mkinitfs )
+      configure_mkinitfs ;;
   esac
-
-  if [ $_reserved_percent -gt 0 ]; then
-    _fs_total_size=$((_fs_total_size + (_fs_total_size * _reserved_percent / 100 + 1)))
-  fi
-
-  echo "$_fs_total_size"
 }
 
 
 #
-# Calculate size of the UEFI ESP partition taking into account the version
-# of FAT used and also if the partition will also contain boot files.
+# Convert RAW disk image to another format
 #
-calculate_uefi_part_size() {
-  local _fs_total_size
+convert_raw_disk_image() {
+  local _compression_tool _convert_cli _new_format _new_format_options
 
-  _fs_total_size=$((general_uefi_part_size))
+  if [ -n "$CADI_DISK_IMAGE_FORMAT" ]; then
+    case $CADI_DISK_IMAGE_FORMAT in
+      qcow2 | vdi | vmdk )
+        _new_format="$CADI_DISK_IMAGE_FORMAT"
+        if [ -n "$CADI_DISK_IMAGE_FORMAT_OPTIONS" ]; then
+          _new_format_options="$CADI_DISK_IMAGE_FORMAT_OPTIONS"
+        fi
+    esac
 
-  case $image_bootloader in
-    syslinux )
-      # There is size of boot files to account for when
-      # using Syslinux as then EFI partition is also /boot.
-      _fs_total_size="$((_fs_total_size + general_boot_part_size))" ;;
-  esac
+    if [ -n "$_new_format" ]; then
+      _convert_cli="-f raw -O $_new_format"
+      if [ -n "$_new_format_options" ]; then
+        _convert_cli="$_convert_cli $_new_format_options"
+      fi
 
-  echo "$_fs_total_size"
-}
-
-
-#
-# Place entries in /etc/fstab for various filesystems
-#
-configure_fstab() {
-  local _boot_mount_options _logs_mount_options _mountpoint
-  local _root_mount_options
-
-  cat <<-'EOF' >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
-	write_log "Add /etc/fstab entries"
-	{
+	write_log "Converting image from RAW format to ${_new_format} format"
+	new_filename="\$(basename -s img \$image_filename)$_new_format"
+	qemu-img convert $_convert_cli \$images_dir/\$image_filename \\
+	  \$images_dir/"\$new_filename" >> "\$logfile"
+	rm \$images_dir/\$image_filename
 	EOF
 
-  if [ "$image_tmp_on_tmpfs" = true ]; then
-    # Set /tmp to be a tmpfs mount
-    cat <<-'EOF' >> "$run_script"
-	  add_fstab_entry DEVICE "tmpfs" "/tmp" "tmpfs" "nosuid,nodev" "/tmp on tmpfs"
+      if [ -n "$CADI_DISK_IMAGE_COMPRESSION" ]; then
+        _compression_tool="$CADI_DISK_IMAGE_COMPRESSION"
+
+        cat <<-EOF >> "$run_script"
+	
+	write_log "Compressing image using ${_compression_tool}"
+	compression_tool="$_compression_tool"
+	\$compression_tool \$images_dir/"\$new_filename" \\
+	  >> "\$logfile"
 	EOF
+      fi
+    fi
+  fi
+}
+
+
+#
+# Basic settings and checks
+#
+basic_settings() {
+  # Chroot directory
+  : "${chroot_directory:=$CADI_DEFAULT_CHROOT_DIRECTORY}"
+
+  # Images directory
+  : "${images_directory:=$CADI_DEFAULT_IMAGES_DIRECTORY}"
+
+  # Whether to use ramdisk
+  if [ -n "$use_ramdisk" ] && [ -z "$ramdisk_directory" ]; then
+    # If ramdisk directory not specified then assume default
+    ramdisk_directory=$CADI_DEFAULT_RAMDISK_DIRECTORY
   fi
 
-  # Root filesystem
-  _root_mount_options="rw,relatime"
-  case $image_fs_type in
-    btrfs )
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # Sync every 5 minutes, rather than the default of every 5 seconds,
-          # to reduce writes to flash/SSD storage.
-          _root_mount_options="$_root_mount_options,commit=300" ;;
-      esac
-      ;;
-    ext4 )
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # Sync every 5 minutes, rather than the default of every 5 seconds,
-          # to reduce writes to flash/SSD storage.
-          _root_mount_options="$_root_mount_options,commit=300" ;;
+  # Alpine repo mirror site
+  : "${alpine_mirror_site:=$CADI_DEFAULT_MIRROR_SITE}"
+
+  # Override default root partition size
+  if [ -n "$override_rootfs_size" ]; then
+    general_rootfs_size=$override_rootfs_size
+  fi
+
+
+  # Alpine Release
+  : "${image_alpine_release:=$CADI_DEFAULT_ALPINE_RELEASE}"
+
+  # Machine type defaults to QEMU VM
+  if [ -z "$image_class" ]; then
+    image_class="virtual"
+    image_vm_type="qemu"
+  fi
+
+  # Kernel type
+  : "${image_kernel_type:=normal}"
+
+  # Whether /tmp is on disk or tmpfs
+  : "${image_tmp_on_tmpfs:=true}"
+}
+
+
+#
+# Perform some initial validation checks
+#
+do_generic_validation_checks() {
+  # Kernel type
+  case $image_kernel_type in
+    edge )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          error_message "There is no edge kernel package for Alpine $image_alpine_release!" ;;
+        v3.15 )
+          # Both linux-edge and linux-edge4virt packages exist
+          : ;;
+        * )
+          # linux-edge4virt package no longer exists so linux-edge will be used instead
+          : ;;
       esac
       ;;
   esac
-  if [ -n "${image_encrypted+x}" ]; then
-    if [ -n "${image_lvm_rootfs+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
+
+  if [ -n "$image_ntp_servers" ] && [ "$image_class" != "physical" ]; then
+    error_message "NTP servers can only be specified for physical servers, other machine type obtain this information either from defaults for their hypervisor/cloud provider or from user-data!"
+  fi
+
+  # UTMP
+  if [ -n "$image_enable_utmp" ] && [ "$image_enable_utmp" = "true" ]; then
+    case $image_alpine_release in
+      v3.13 | v3.14 | v3.15 )
+        error_message "UTMP does not function in this Alpine release!" ;;
+    esac
+  fi
+
+  if [ -n "$image_disable_cloud_provider_cli" ] && [ "$image_class" != "cloud" ]; then
+    error_message "The 'disable-cloud-provider-cli' option only applies for cloud disk images!"
+  fi
+}
+
+
+#
+# After type of cloud/VM/physical machine settings have been determined
+# perform further validation checks.
+#
+do_specific_validation_checks() {
+  # Default assumption is to use cloud-init for configuration
+  if [ -n "$image_barebones" ] && \
+     is_in_comma_list "none" "$CADI_SUPPORTED_CONFIGURATION_TOOLS"; then
+    image_cloud_software="none"
+  elif [ -n "$image_barebones" ]; then
+    error_message "Unable to use barebones with '$class_type_description'!"
+  elif [ -z "$image_cloud_software" ]; then
+    if [ -n "$CADI_DEFAULT_CONFIGURATION_TOOL" ] && \
+       is_in_comma_list "$CADI_DEFAULT_CONFIGURATION_TOOL" "$CADI_SUPPORTED_CONFIGURATION_TOOLS"; then
+      image_cloud_software="$CADI_DEFAULT_CONFIGURATION_TOOL"
+    elif [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
+         is_in_comma_list "cloud-init" "$CADI_SUPPORTED_CONFIGURATION_TOOLS"; then
+      image_cloud_software="cloud-init"
+    elif [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
+         is_in_comma_list "tiny-cloud" "$CADI_SUPPORTED_CONFIGURATION_TOOLS"; then
+      image_cloud_software="tiny-cloud"
     else
-      cat <<-EOF >> "$run_script"
-	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
+      image_cloud_software="none"
     fi
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
   else
-    if [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      # RPI
-      cat <<-EOF >> "$run_script"
-	  add_fstab_entry LABEL "$CONSTANT_ROOTFS_LABEL" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
+    # Check that the specified configuration software is supported by
+    # the particular cloud/hypervisor/machine.
+    if [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
+         is_in_comma_list "$image_cloud_software" "$CADI_SUPPORTED_CONFIGURATION_TOOLS"; then
+      # selected configuration software is supported
+      :
     else
-      # Non-RPI
-      case $image_boot_reference in
-        label )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry LABEL "$CONSTANT_ROOTFS_LABEL" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
-          ;;
-        * )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry UUID "\$root_fs_uuid" "/" "$image_fs_type" "$_root_mount_options" "rootfs"
-	EOF
-          ;;
-      esac
+      error_message "configuration software '$image_cloud_software' is not supported for $class_type_description!"
     fi
   fi
 
-  # UEFI ESP
+  # Cloud-init
+  if [ "$image_cloud_software" = "cloud-init" ]; then
+    if [ -n "$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES" ]; then
+      image_cloud_init_datasources="$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES"
+    fi
+
+    if [ -n "$image_cloud_init_seed_define" ]; then
+      case $image_cloud_init_seed_define in
+        cmdline | config )
+          if [ -z "$image_cloud_init_seed_url" ]; then
+            error_message "'--cloud-init-seed-url' also needs to be specified!"
+          fi
+          ;;
+        dhcp | none )
+          : ;;
+      esac
+    elif [ -n "$image_cloud_init_seed_url" ]; then
+      error_message "When defining a cloud-init seed URL you also need to specify '--cloud-init-seed-define' accordingly!"
+    fi
+  else
+    # Not cloud-init
+    if [ -n "$image_cloud_init_seed_define" ]; then
+      error_message "'--cloud-init-seed-define' only applies when cloud-init is being used!"
+    elif [ -n "$image_cloud_init_seed_url" ]; then
+      error_message "'--cloud-init-seed-url' only applies when cloud-init is being used!"
+    else
+      image_cloud_init_seed_define="none"
+    fi
+  fi
+
+  # Barebones
+  if [ -n "$image_barebones" ]; then
+    if [ -n "$image_cloud_software" ] && [ "$image_cloud_software" != "none" ]; then
+      error_message "'--barebones' implies '--no-cloud-configuration'!"
+    fi
+    if [ -n "$image_device_management" ] && [ "$image_device_management" != "mdev" ]; then
+      error_message "'--barebones' implies '--device-management mdev'!"
+    fi
+    if [ -n "$image_optimise" ] && [ "$image_optimise" != "true" ]; then
+      error_message "'--barebones' implies '--optimise'!"
+    fi
+    if [ -n "$image_enable_utmp" ] && [ "$image_enable_utmp" = "true" ]; then
+      error_message "'--barebones' implies no UTMP!"
+    fi
+  fi
+
+  # NTP
+  if [ -n "$image_ntp_use" ]; then
+    case $image_ntp_use in
+      ptp )
+        if [ "$image_class" = "physical" ] && [ "$image_ntp_use" = "ptp" ]; then
+          error_message "PTP host sync can not be specified for physical servers!"
+        fi
+        if [ "$image_cloud_software" = "cloud-init" ]; then
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 | edge )
+              error_message "PTP host clock sync support is not present in this Alpine release." ;;
+            edge-special )
+              : ;;
+          esac
+        fi
+        ;;
+    esac
+  fi
+}
+
+
+#
+# Boot type/Partitioning type/Bootloader/etc settings
+#
+default_boot_related_settings() {
+  # Boot type: BIOS / Hybrid / RPI / Secure UEFI / UEFI etc
+  if [ -z "$image_boot_type" ]; then
+    # If boot type has not been explicitly specified then use default for
+    # the particular arch and cloud/physical/virtual type
+    if [ -n "$CADI_DEFAULT_BOOT_TYPE" ]; then
+      image_boot_type="$CADI_DEFAULT_BOOT_TYPE"
+    elif is_in_comma_list "hybrid" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      image_boot_type="hybrid"
+    elif is_in_comma_list "bios" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      image_boot_type="bios"
+    elif is_in_comma_list "uefi" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      image_boot_type="uefi"
+    elif is_in_comma_list "rpi" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      image_boot_type="rpi"
+    else
+      error_message "Unable to determine boot type to use!"
+    fi
+  else
+    if is_in_comma_list "$image_boot_type" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      # Specified boot_type is supported by particular arch and
+      # cloud/physical/virtual type
+      :
+    else
+      error_message "Boot type '$image_boot_type' is not supported by $class_type_description!"
+    fi
+  fi
+
+  # Boot partitioning type: GPT / Hybrid / MBR / Unpartitioned
+  if [ -z "$image_os_partitioning_type" ]; then
+    # If partitioning type has not been explicitly specified then use default
+    # for the particular boot type
+    case $image_boot_type in
+      bios )
+        if [ -n "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" ] && \
+           { [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "unpartitioned" ] || \
+             [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "mbr" ]; }; then
+          image_os_partitioning_type="$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE"
+        elif is_in_comma_list "mbr" "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES"; then
+          image_os_partitioning_type="mbr"
+        elif is_in_comma_list "unpartitioned" "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES"; then
+          image_os_partitioning_type="unpartitioned"
+        else
+          error_message "No supported partitioning type for $image_boot_type booting!"
+        fi
+        ;;
+      hybrid )
+        if [ -n "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" ] && \
+           { [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "gpt" ] || \
+             [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "mbr" ]; }; then
+          image_os_partitioning_type="hybrid"
+        elif is_in_comma_list "gpt" "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" || \
+             is_in_comma_list "mbr" "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES"; then
+          image_os_partitioning_type="hybrid"
+        else
+          error_message "No supported partitioning type for $image_boot_type booting!"
+        fi
+        ;;
+      secure-uefi | uefi )
+        if [ -n "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" ] && \
+           [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "gpt" ]; then
+          image_os_partitioning_type="$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE"
+        elif is_in_comma_list "gpt" "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES"; then
+          image_os_partitioning_type="gpt"
+        else
+          error_message "No supported partitioning type for $image_boot_type booting!"
+        fi
+        ;;
+    esac
+  elif [ -n "$image_os_partitioning_type" ]; then
+    if is_in_comma_list "$image_os_partitioning_type" "$CADI_SUPPORTED_BOOT_TYPES"; then
+      # Specified partitioning type is supported by particular boot type
+      :
+    else
+      error_message "Partitioning type '$image_boot_type' is not supported for $image_boot_type booting!"
+    fi
+  else
+    error_message "Invalid partitioning type specified!"
+  fi
+
+  # Bootloader: Grub / Limine / RPI / Syslinux / UKI etc
+  if [ -z "$image_bootloader" ]; then
+    # If bootloader has not been explicitly specified then use default for
+    # the particular arch and cloud/physical/virtual type
+    if [ -n "$CADI_DEFAULT_BOOTLOADER" ]; then
+      case $image_boot_type in
+        bios )
+          if is_in_comma_list "$CADI_DEFAULT_BOOTLOADER" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="$CADI_DEFAULT_BOOTLOADER"
+          elif is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "syslinux" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="syslinux"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        hybrid )
+          if is_in_comma_list "$CADI_DEFAULT_BOOTLOADER" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+            image_bootloader="$CADI_DEFAULT_BOOTLOADER"
+          elif is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        rpi )
+          if is_in_comma_list "$CADI_DEFAULT_BOOTLOADER" "$CADI_SUPPORTED_BOOTLOADERS_RPI"; then
+            image_bootloader="$CADI_DEFAULT_BOOTLOADER"
+          elif is_in_comma_list "rpi" "$CADI_SUPPORTED_BOOTLOADERS_RPI"; then
+            image_bootloader="rpi"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        secure-uefi )
+          if is_in_comma_list "$CADI_DEFAULT_BOOTLOADER" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="$CADI_DEFAULT_BOOTLOADER"
+          elif is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="grub"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        uefi )
+          if is_in_comma_list "$CADI_DEFAULT_BOOTLOADER" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="$CADI_DEFAULT_BOOTLOADER"
+          elif is_in_comma_list "uki" "$CADI_SUPPORTED_BOOTLOADERS_UEFI" && \
+               [ -n "$image_experimental" ]; then
+            image_bootloader="uki"
+            if [ -n "$image_uki_bootstub" ]; then
+              case $image_uki_bootstub in
+                gummiboot | stubby )
+                  : ;;
+                * )
+                  error_message "Unknown UKI EFI bootstub '$image_uki_bootstub'!" ;;
+              esac
+            else
+              image_uki_bootstub="$CADI_DEFAULT_UKI_BOOTSTUB"
+            fi
+          elif is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+      esac
+    elif [ -n "$CADI_SUPPORTED_BOOT_TYPES" ]; then
+      case $image_boot_type in
+        bios )
+          if is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "syslinux" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="syslinux"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        hybrid )
+          if is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        rpi )
+          if is_in_comma_list "rpi" "$CADI_SUPPORTED_BOOTLOADERS_RPI"; then
+            image_bootloader="rpi"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        secure-uefi )
+          if is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="grub"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+        uefi )
+          if is_in_comma_list "uki" "$CADI_SUPPORTED_BOOTLOADERS_UEFI" && \
+             [ -n "$image_experimental" ]; then
+            image_bootloader="uki"
+            if [ -n "$image_uki_bootstub" ]; then
+              case $image_uki_bootstub in
+                gummiboot | stubby )
+                  : ;;
+                * )
+                  error_message "Unknown UKI EFI bootstub '$image_uki_bootstub'!" ;;
+              esac
+            else
+              image_uki_bootstub="$CADI_DEFAULT_UKI_BOOTSTUB"
+            fi
+          elif is_in_comma_list "grub" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="grub"
+          elif is_in_comma_list "limine" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+            image_bootloader="limine"
+          else
+            error_message "Unable to determine $image_boot_type bootloader to use!"
+          fi
+          ;;
+      esac
+    else
+      error_message "Unable to determine $image_boot_type bootloader to use!"
+    fi
+  elif [ -n "$image_bootloader" ]; then
+    case $image_boot_type in
+      bios )
+        if is_in_comma_list "$image_bootloader" "$CADI_SUPPORTED_BOOTLOADERS_BIOS"; then
+          :
+        else
+          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+        fi
+        ;;
+      hybrid )
+        if is_in_comma_list "$image_bootloader" "$CADI_SUPPORTED_BOOTLOADERS_HYBRID"; then
+          :
+        else
+          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+        fi
+        ;;
+      rpi )
+        if is_in_comma_list "$image_bootloader" "$CADI_SUPPORTED_BOOTLOADERS_RPI"; then
+          :
+        else
+          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+        fi
+        ;;
+      secure-uefi )
+        if is_in_comma_list "$image_bootloader" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+          :
+        else
+          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+        fi
+        ;;
+      uefi )
+        if is_in_comma_list "$image_bootloader" "$CADI_SUPPORTED_BOOTLOADERS_UEFI"; then
+          if [ "$image_bootloader" = "uki" ] && \
+             [ -z "$image_experimental" ]; then
+            error_message "$image_bootloader bootloader support is an experimental option!"
+          else
+            case $image_bootloader in
+              uki )
+                if [ -n "$image_uki_bootstub" ]; then
+                  case $image_uki_bootstub in
+                    gummiboot | stubby )
+                      : ;;
+                    * )
+                      error_message "Unknown UKI EFI bootstub '$image_uki_bootstub'!" ;;
+                  esac
+                else
+                  image_uki_bootstub="$CADI_DEFAULT_UKI_BOOTSTUB"
+                fi
+                ;;
+              * )
+                # Specified bootloader is supported by particular arch and
+                # cloud/physical/virtual type
+                : ;;
+            esac
+          fi
+        else
+          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+        fi
+        ;;
+    esac
+  else
+    error_message "Invalid bootloader specified!"
+  fi
+
+  # Boot device logical sector size (in bytes): 512 bytes / 4K
+  : "${image_os_device_sector_size:=512}"
+
+  # Check whether the particular boot method works with 4K sector devices.
   case $image_boot_type in
-    secure-uefi | uefi )
-      _mountpoint="/efi"
-
-      case $image_boot_reference in
-        label )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry LABEL "$CONSTANT_ESP_FS_LABEL" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
-	EOF
-          ;;
-        * )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry UUID "\$esp_fs_uuid" "${_mountpoint}" "vfat" "rw" "ESP filesystem"
-	EOF
-          ;;
-      esac
-
-      case $image_bootloader in
-        syslinux )
-          cat <<-'EOF' >> "$run_script"
-	  add_fstab_entry BIND "/efi/EFI/BOOT" "/boot" "none" "rw,relatime" "/boot ESP bind-mount"
-	EOF
-          ;;
-      esac
+    bios | rpi )
+      if [ "$image_os_device_sector_size" = 4096 ]; then
+        error_message "4K sector size is not supported for BIOS/MBR booting!"
+      fi
       ;;
   esac
 
-  # /boot
-  if [ -n "${needs_boot_partition+x}" ]; then
-    _boot_mount_options="rw,relatime"
-
-    if [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      # RPI 2, 3, or 4
-      add_rpi_boot_fstab_entries "$_boot_mount_options"
+  # Whether to refer to boot filesystem by UUID or device name
+  if [ -z "$image_boot_reference" ]; then
+    if [ -n "$CADI_DEFAULT_BOOT_REFERENCE" ] && \
+       [ -n "$CADI_SUPPORTED_BOOT_REFERENCES" ] && \
+       is_in_comma_list "$CADI_DEFAULT_BOOT_REFERENCE" "$CADI_SUPPORTED_BOOT_REFERENCES"; then
+      image_boot_reference="$CADI_DEFAULT_BOOT_REFERENCE"
     else
-      # Not RPI 2, 3, or 4
-      case $image_fs_type in
-        btrfs )
-          case $image_os_device_media in
-            flash | sd | ssd )
-              # Sync every 5 minutes, rather than the default of every 5 seconds,
-              # to reduce writes to flash storage.
-              _boot_mount_options="$_boot_mount_options,commit=300"
-          esac
+      error_message "Unable to determine whether to use UUID or device name to refer to boot filesystem!"
+    fi
+  elif [ -n "$CADI_SUPPORTED_BOOT_REFERENCES" ] && \
+       is_in_comma_list "$image_boot_reference" "$CADI_SUPPORTED_BOOT_REFERENCES"; then
+    :
+  else
+    error_message "Boot reference '$image_boot_reference' is not supported by $class_type_description!"
+  fi
+
+  # OS Boot device type: nvme / sata / scsi / sd / usb / virtio-blk / virtio-scsi
+  if [ -z "$image_os_device_type" ]; then
+    # Automatically decide OS boot device type
+    if [ -n "$CADI_DEFAULT_OS_DEVICE_TYPE" ] && \
+       [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+       is_in_comma_list "$CADI_DEFAULT_OS_DEVICE_TYPE" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="$CADI_DEFAULT_OS_DEVICE_TYPE"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "virtio-blk" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="virtio-blk"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "virtio-scsi" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="virtio-scsi"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "nvme" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="nvme"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "sata" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="sata"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "scsi" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="scsi"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "usb" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="usb"
+    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+         is_in_comma_list "sd" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+      image_os_device_type="sd"
+    else
+      error_message "Unable to determine OS device type to use for $class_type_description!"
+    fi
+  elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
+       is_in_comma_list "$image_os_device_type" "$CADI_SUPPORTED_OS_DEVICE_TYPES"; then
+    # Boot device type specified is fine
+    :
+  else
+      error_message "Specified OS device type '$image_os_device_type' is not valid for $class_type_description!"
+  fi
+
+  # OS Boot device media: disk / flash / sdcard / ssd
+  if [ -z "$image_os_device_media" ]; then
+    # Automatically decide OS boot device media
+    if [ -n "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" ]; then
+      case $image_os_device_type in
+        nvme )
+          if is_in_comma_list "ssd" "$CADI_SUPPORTED_OS_DEVICE_MEDIAS"; then
+            image_os_device_media="ssd"
+          else
+            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+          fi
           ;;
-        ext4 )
-          case $image_os_device_media in
-            flash | sd | ssd )
-              # Sync every 5 minutes, rather than the default of every 5 seconds,
-              # to reduce writes to flash storage.
-              _boot_mount_options="$_boot_mount_options,commit=300"
-          esac
+        sd )
+          if is_in_comma_list "sdcard" "$CADI_SUPPORTED_OS_DEVICE_MEDIAS"; then
+            image_os_device_media="sdcard"
+          else
+            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+          fi
           ;;
-      esac
-      case $image_boot_reference in
-        label )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry LABEL "$CONSTANT_BOOTFS_LABEL" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
-	EOF
+        usb )
+          if is_in_comma_list "flash" "$CADI_SUPPORTED_OS_DEVICE_MEDIAS"; then
+            image_os_device_media="flash"
+          else
+            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+          fi
           ;;
         * )
-          cat <<-EOF >> "$run_script"
-	  add_fstab_entry UUID "\$boot_fs_uuid" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
-	EOF
+          if is_in_comma_list "disk" "$CADI_SUPPORTED_OS_DEVICE_MEDIAS"; then
+            image_os_device_media="disk"
+          else
+            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+          fi
+          ;;
+      esac
+    else
+      error_message "Unable to determine OS device media to use as no storage medias defined for $class_type_description with $image_os_device_type storage device!"
+    fi
+  elif [ -n "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" ] && \
+       is_in_comma_list "$image_os_device_media" "$CADI_SUPPORTED_OS_DEVICE_MEDIAS"; then
+    case $image_os_device_type in
+      nvme )
+        if [ "$image_os_device_media" != "ssd" ]; then
+          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+        fi
+        ;;
+      sd )
+        if [ "$image_os_device_media" != "sdcard" ]; then
+          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+        fi
+        ;;
+      usb )
+        if [ "$image_os_device_media" != "flash" ]; then
+          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+        fi
+        ;;
+      * )
+        if [ "$image_os_device_media" != "disk" ] && \
+           [ "$image_os_device_media" != "ssd" ]; then
+          error_message "Specified OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+        fi
+        ;;
+    esac
+  else
+      error_message "Specified OS device media '$image_os_device_media' is not valid for $class_type_description!"
+  fi
+
+  # Filesystem type: btrfs/  f2fs / ext4 / xfs
+  if [ -z "$image_fs_type" ]; then
+    # If filesystem type has not been explicitly specified then use default
+    # or one of the supported alternative filesystems for the particular
+    # cloud/physical/virtual type
+    if [ -n "$CADI_DEFAULT_OS_FILESYSTEM" ] && \
+       is_in_comma_list "$CADI_DEFAULT_OS_FILESYSTEM" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      image_fs_type="$CADI_DEFAULT_OS_FILESYSTEM"
+    elif is_in_comma_list "ext4" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      image_fs_type="ext4"
+    elif is_in_comma_list "xfs" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      image_fs_type="xfs"
+    elif [ -n "$image_experimental" ] && \
+         is_in_comma_list "btrfs" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      image_fs_type="btrfs"
+    elif [ -n "$image_experimental" ] && \
+         is_in_comma_list "f2fs" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      image_fs_type="f2fs"
+    else
+      error_messages "Unable to determine filesystem type to use!"
+    fi
+  elif [ -n "$image_fs_type" ]; then
+    if is_in_comma_list "$image_fs_type" "$CADI_SUPPORTED_OS_FILESYSTEMS"; then
+      if [ -z "$image_experimental" ] && \
+         { [ "$image_fs_type" = "btrfs" ] || \
+           [ "$image_fs_type" = "f2fs" ]; }; then
+        error_message "Support for '$image_fs_type' filesystem type is experimental!"
+      else
+        # Specified boot_type is supported by particular
+        # cloud/physical/virtual type
+        :
+      fi
+    else
+      error_message "Boot type '$image_fs_type' ia not supported by $class_type_description!"
+    fi
+  else
+    error_message "Invalid filesystem type specified!"
+  fi
+
+  if [ "$image_class" != "virtual" ] || \
+     { [ "$image_vm_type" != "firecracker" ] && \
+       [ "$image_vm_type" != "qemu-microvm" ]; }; then
+    # Verify that specific bootloader can boot from specific filesystem type
+    check_bootloader_supports_fs
+  fi
+
+  # Storage encryption: fscrypt / luks / both
+  if [ -z "$image_encryption_type" ]; then
+    image_encryption_type="none"
+  elif [ -n "$CADI_SUPPORTED_OS_LUKS_ENCRYPTION" ] && \
+       [ "$CADI_SUPPORTED_OS_LUKS_ENCRYPTION" = "false" ] && \
+       { [ "$image_encryption_type" = "luks" ] || \
+         [ "$image_encryption_type" = "both" ]; }; then
+    error_message "LUKS encryption is not supported by $class_type_description!"
+  else
+    case $image_encryption_type in
+      both | fscrypt )
+        case $image_fs_type in
+          ext4 | f2fs )
+            : ;;
+          * )
+            error_message "Filesystem type $image_fs_type does not support fscrypt encryption!" ;;
+        esac
+        ;;
+    esac
+
+    case $image_encryption_type in
+      both | luks )
+        if [ -n "$remote_luks_unlock_enabled" ] && \
+           [ "$image_class" = "cloud" ]; then
+          error_message "Remote unlocking of encrypted rootfs is not supported in cloud!"
+        fi
+        ;;
+    esac
+  fi
+
+  case $image_encryption_type in
+    both | luks )
+      decide_luks_version ;;
+  esac
+
+  # Decide whether a separate boot partition is required
+  if [ -z "$image_create_boot_partition" ]; then
+    if [ -n "$CADI_BOOT_PARTITION_REQUIRED" ]; then
+      case $CADI_BOOT_PARTITION_REQUIRED in
+        true )
+          if [ "$image_boot_type" = "unpartitioned" ]; then
+            error_message "Contradiction in settings, a separate /boot partition is required but disk is unpartitioned!"
+          elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
+             [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
+            image_create_boot_partition=true
+          elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ]; then
+            error_message "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
+          else
+            image_create_boot_partition=false
+          fi
+          ;;
+        * )
+          image_create_boot_partition=false ;;
+      esac
+    else
+      case $image_bootloader in
+        grub )
+          case $image_encryption_type in
+            both | luks )
+              # When GRUB is bootloader a separate boot partition is required if
+              # using an LUKS encrypted rootfs:
+              #   - with remote unlock OR
+              #   - with Adiantum encryption (GRUB's LUKS module does not support this)
+              if { [ -n "$image_experimental" ] && \
+                   [ -n "$remote_luks_unlock_enabled" ]; } || \
+                 [ "$image_luks_cipher" = "adiantum" ]; then
+                if [ "$image_boot_type" = "unpartitioned" ]; then
+                  error_message "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
+                elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
+                   [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
+                  image_create_boot_partition=true
+                else
+                  error "A separate /boot partition is required but is not clear if supported by $class_type_description!"
+                fi
+              else
+                image_create_boot_partition=false
+              fi
+              ;;
+          esac
+          if [ "$image_create_boot_partition" = "true" ]; then
+            # By creating a separate boot partition this means that GRUB should
+            # not enable its own FDE encryption support as that would make no
+            # sense (why have separate yet both encrypted boot and rootfs?).
+            image_no_grub_luks_fde_encryption=true
+          fi
+          ;;
+        uki )
+          # UKI is UEFI only so no need for a separate /boot
+          image_create_boot_partition=false ;;
+        limine | syslinux )
+          if [ "$image_encryption_type" = "both" ] || \
+             [ "$image_encryption_type" = "luks" ] || \
+             [ -n "$image_lvm_rootfs" ]; then
+            # When Syslinux is bootloader a separate boot partition is required
+            # with LUKS encrypted rootfs or LVM rootfs
+            if [ "$image_boot_type" = "unpartitioned" ]; then
+              error "A separate /boot partition is required but is not clear if supported by $class_type_description!"
+            else
+              image_create_boot_partition=true
+            fi
+          fi
           ;;
       esac
     fi
-
-  elif [ -n "${image_lvm_rootfs+x}" ] && [ -z "${needs_boot_partition+x}" ]; then
-    _boot_mount_options="rw,relatime"
-    case $image_fs_type in
-      ext4 )
-        case $image_os_device_media in
-          flash | sd | ssd )
-            # Sync every 5 minutes, rather than the default of every 5 seconds,
-            # to reduce writes to flash storage.
-            _boot_mount_options="$_boot_mount_options,commit=300" ;;
-        esac
-        ;;
-    esac
-
-    cat <<-EOF >> "$run_script"
-	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}" "/boot" "$image_fs_type" "$_boot_mount_options" "boot"
-	EOF
+  elif [ "$image_create_boot_partition" = "true" ]; then
+    if [ "$image_boot_type" = "unpartitioned" ]; then
+      error_message "A separate /boot partition was spcified but disk is unpartitioning!"
+    elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
+       [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
+    # Separate /boot is supported
+      image_create_boot_partition=true
+    else
+      error_message "A separate /boot partition is not supported by $class_type_description!"
+    fi
+  else
+    image_create_boot_partition=false
   fi
 
-  # logs filesystem
-  if [ -n "${image_lvm_rootfs+x}" ]; then
-    _logs_mount_options="rw,relatime"
-    case $image_fs_type in
-      ext4 )
-        case $image_os_device_media in
-          flash | sd | ssd )
-            # Sync every 5 minutes, rather than the default of every 5
-            # seconds to reduce writes to flash storage.
-            _logs_mount_options="$_logs_mount_options,commit=300" ;;
-        esac
-        ;;
-    esac
-
-    cat <<-EOF >> "$run_script"
-	  add_fstab_entry DEVICE "/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}" "/var/log" "$image_fs_type" "$_logs_mount_options" "logsfs"
-	EOF
+  # Swapfile
+  : "${image_swap_file_size:=0}"
+  if [ "$image_swap_file_size" != "0" ]; then
+    image_create_swap_file=true
+  else
+    image_create_swap_file=false
   fi
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Resultant /etc/fstab contents:" 2
-	    cat /etc/fstab >> "/chroot.log"
-	  }
-	EOF
+  # Swap partition
+  : "${image_swap_partition_size:=0}"
+  if [ "$image_swap_partition_size" != "0" ] && \
+     [ "$image_boot_type" != "unpartitioned" ]; then
+    if [ -n "$CADI_SUPPORTED_OS_BOOT_DISK_SWAP" ] && \
+       [ "$CADI_SUPPORTED_OS_BOOT_DISK_SWAP" = "true" ]; then
+      image_create_swap_partition=true
+    else
+      image_create_swap_partition=false
+    fi
+  elif [ "$image_swap_partition_size" != "0" ]; then
+    error_message "Disk is unpartitioned and so cannot create a swap partition!"
+  else
+    image_create_swap_partition=false
   fi
-
-  cat <<-EOF >> "$run_script"
-	}
-	EOF
 }
 
 
 #
-# Copy LUKS keyfile into place
+# Console related settings
 #
-copy_luks_keyfile_into_place() {
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Moving LUKS keyfile into chroot directory" 2
-	{
-	  mv crypto_keyfile.bin "$chroot_dir"/
-	  chmod 400 "$chroot_dir"/crypto_keyfile.bin
-	}
-	EOF
-}
+default_console_related_settings() {
+  # Console type
+  if [ -z "$image_console_type" ]; then
+    # Automatically determine console type
+    if [ -n "$CADI_DEFAULT_CONSOLE_DEVICE_TYPE" ] && \
+       [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
+       is_in_comma_list "$CADI_DEFAULT_CONSOLE_DEVICE_TYPE" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+      image_console_type="$CADI_DEFAULT_CONSOLE_DEVICE_TYPE"
+    elif [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ]; then
+      if is_in_comma_list "normal_and_serial" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+        image_console_type="normal_and_serial"
+      elif is_in_comma_list "normal" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+        image_console_type="normal"
+      elif is_in_comma_list "serial" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+        image_console_type="serial"
+      elif is_in_comma_list "hypervisor" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+        image_console_type="hypervisor"
+      elif is_in_comma_list "none" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+        image_console_type="none"
+      else
+        error_message "Unable to automatically determine console type for '$class_type_description'!"
+      fi
+    else
+      error_message "Unable to automatically determine console type for '$class_type_description'!"
+    fi
+  elif [ -n "$image_console_type" ] && \
+       [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
+       is_in_comma_list "$image_console_type" "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+    :
+  else
+    error_message "Console type '$image_console_type' is not supported for '$class_type_description'!"
+  fi
 
+  # Console output type
+  case $image_console_type in
+    hypervisor | serial )
+      image_console_output_type="text" ;;
+    none )
+      image_console_output_type="none" ;;
+    * )
+      if [ "$image_enable_graphics" != "true" ]; then
+        image_console_output_type="text"
+      else
+        # Automatically decide whether to use "generic" (i.e. all drivers)
+        # or only a specific graphics driver(s) for console.
+        if [ -n "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ] && \
+           [ "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" = "text" ] && \
+           [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+           is_in_comma_list "text" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" && \
+           [ "$image_boot_type" = "bios" ]; then
+          # Text mode can only be used for BIOS based systems
+          image_console_output_type="text"
+        elif [ -n "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ] && \
+             [ "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" = "generic" ] && \
+             [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "generic" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES"; then
+          image_console_output_type="generic"
+        elif [ -n "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ] && \
+             [ "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" = "graphics" ] && \
+             [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "graphics" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES"; then
+          image_console_output_type="graphics"
+        elif [ -n "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ] && \
+             [ "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" = "none" ] && \
+             [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "none" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES"; then
+          image_console_output_type="none"
+        elif [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "text" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" && \
+             [ "$image_boot_type" = "bios" ]; then
+          # Text mode can only be used for BIOS based systems
+          image_console_output_type="text"
+        elif [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "generic" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES"; then
+          image_console_output_type="generic"
+        elif [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
+             is_in_comma_list "graphics" "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES"; then
+          image_console_output_type="graphics"
+        else
+          error_message "Cannot determine whether to use generic, graphics, or text based console for $class_type_description!"
+        fi
+      fi
+      ;;
+  esac
 
-#
-# Create /etc/filesystems for Busybox mount
-#
-create_etc_filesystems() {
-  local _config_fs_type=$1
-
-  # Busybox mount command requires the following config
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Setting up /etc/filesystems for $_config_fs_type mount" 2
-	  {
-	EOF
-
-  cat <<EOF >> "$run_script"
-    cat <<-_SCRIPT_ > /etc/filesystems
-	#
-	# /etc/filesystems
-	#
-	
-	# Needed for cloud-init cidata $_config_fs_type
-EOF
-
-  case $_config_fs_type in
-    ISO )
-      cat <<'EOF' >> "$run_script"
-	iso9660
-	_SCRIPT_
-EOF
+  # Console keyboard
+  case $image_console_type in
+    hypervisor | serial )
+      if [ -n "$image_keyboard_type" ]; then
+        error_message "Keyboard type '$image_keyboard_type' makes no sense for a $image_console_type console!"
+      else
+        image_keyboard_type="none"
+      fi
       ;;
     * )
-      cat <<'EOF' >> "$run_script"
-	vfat
-	_SCRIPT_
-EOF
+      if [ -z "$image_keyboard_type" ]; then
+        # Automatically determine keyboard type
+        if [ -n "$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE" ] && \
+           [ -n "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" ]; then
+          image_keyboard_type="$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE"
+        elif [ -n "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" ]; then
+          image_keyboard_type="$(first_entry_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES")"
+        else
+          case $image_arch in
+            aarch64 | armv7 )
+              # Arm-based machines normally use USB keyboards
+              image_keyboard_type="${image_keyboard_type:-usb}" ;;
+            * )
+              image_keyboard_type="both" ;;
+          esac
+        fi
+      elif [ -n "$image_keyboard_type" ] && \
+           [ -n "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" ] && \
+           is_in_comma_list "$image_keyboard_type" "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES"; then
+        # Use specified keyboard type
+        :
+      else
+        error_message "Keyboard type '$image_keyboard_type' is not supported for $class_type_description!"
+      fi
       ;;
   esac
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "/etc/filesystems content:" 4
-	      cat /etc/filesystems >> /chroot.log
-	    }
-	EOF
-  fi
+  # Serial config
+  case $image_console_type in
+    normal_and_serial | serial )
+      : "${image_serial_console_port_number:=$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER}"
+      image_serial_console_name="${CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME}${image_serial_console_port_number}"
+      ;;
+  esac
 
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
+  # Console device name
+  case $image_console_type in
+    normal | normal_and_serial )
+      image_console_name="tty0" ;;
+    hypervisor )
+      image_console_name="hvc0" ;;
+    serial )
+      image_console_name=$image_serial_console_name
+      ;;
+  esac
 }
 
 
 #
-# Create an init.d script for preventing the loading of kernel modules
+# NTP related settings
 #
-create_module_blocking_initd() {
-  cat <<'EOF' >> "$run_script"
+default_ntp_related_settings() {
+  if [ -n "$CADI_DEFAULT_NTP_METHOD" ]; then
+    case $CADI_DEFAULT_NTP_METHOD in
+      none )
+        image_ntp_method="none" ;;
 
-write_log "Creating init.d script for disabling kernel module loading" 2
-{
-  cat <<-_SCRIPT_ > /etc/init.d/block-modules-loading
-	#!/sbin/openrc-run
-	
-	description="Disable loading of kernel modules"
-	
-	depend() {
-		after *
-		keyword -openvz -prefix -uml -vserver -xenu -lxc
-	}
-	
-	start() {
-		ebegin "Disabling loading of kernel modules"
-		sysctl -q -w kernel.modules_disabled=1
-		eend $?
-	}
-	_SCRIPT_
-  chmod a+x /etc/init.d/block-modules-loading
+      pools )
+        image_ntp_method="pools" ;;
 
-  {
-EOF
+      ptp )
+        if [ "$image_cloud_software" = "cloud-init" ] && \
+           [ "$image_class" != "physical" ]; then
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 | edge)
+              # PTP not supported, fallback to another option
+              if is_in_comma_list "servers" "$CADI_SUPPORTED_NTP_METHODS" && \
+                 { [ -n "$image_ntp_servers" ] || \
+                   [ -n "$CADI_NTP_SERVERS" ] || \
+                   [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+                   [ -n "$CADI_NTP_IPV6_SERVERS" ]; }; then
+                image_ntp_method="servers"
+              elif is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS"; then
+                image_ntp_method="pools"
+              else
+                image_ntp_method="unknown"
+              fi
+              ;;
+            edge-special )
+              image_ntp_method="ptp" ;;
+          esac
+        elif [ "$image_cloud_software" != "cloud-init" ] && \
+             [ "$image_ntp_daemon" = "chrony" ] && \
+             [ "$image_class" != "physical" ]; then
+          image_ntp_method="ptp"
+        else
+          # PTP not supported, fallback to another option
+          if is_in_comma_list "servers" "$CADI_SUPPORTED_NTP_METHODS" && \
+             { [ -n "$image_ntp_servers" ] || \
+               [ -n "$CADI_NTP_SERVERS" ] || \
+               [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+               [ -n "$CADI_NTP_IPV6_SERVERS" ]; }; then
+            image_ntp_method="servers"
+          elif is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS"; then
+            image_ntp_method="pools"
+          else
+            image_ntp_method="unknown"
+          fi
+        fi
+        ;;
 
-  add_init_d_service "block-modules-loading" "default" 4
+      servers )
+        if [ -n "$image_ntp_servers" ] || \
+           [ -n "$CADI_NTP_SERVERS" ] || \
+           [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+           [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          image_ntp_method="servers"
+        elif is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS" && \
+             [ -n "$CADI_NTP_POOLS" ]; then
+          image_ntp_method="pools"
+        else
+          image_ntp_method="unknown"
+        fi
+        ;;
 
-  cat <<-'EOF' >> "$run_script"
-	  } >> /chroot.log 2>&1
-	EOF
+      servers_and_pools )
+        if { [ -n "$image_ntp_servers" ] || \
+             [ -n "$CADI_NTP_SERVERS" ] || \
+             [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+             [ -n "$CADI_NTP_IPV6_SERVERS" ]; } && \
+           { is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS" && \
+             [ -n "$CADI_NTP_POOLS" ]; }; then
+          image_ntp_method="servers_and_pools"
+        elif { [ -n "$image_ntp_servers" ] || \
+               [ -n "$CADI_NTP_SERVERS" ] || \
+               [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+               [ -n "$CADI_NTP_IPV6_SERVERS" ]; } && \
+             { ! is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS" || \
+               [ -z "$CADI_NTP_POOLS" ]; }; then
+          image_ntp_method="servers"
+        elif is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS" && \
+             [ -n "$CADI_NTP_POOLS" ]; then
+          image_ntp_method="pools"
+        else
+          image_ntp_method="unknown"
+        fi
+        ;;
+    esac
+  elif is_in_comma_list "ptp" "$CADI_SUPPORTED_NTP_METHODS"; then
+    image_ntp_method="ptp"
+  elif is_in_comma_list "servers_and_pools" "$CADI_SUPPORTED_NTP_METHODS" && \
+       { [ -n "$image_ntp_servers" ] || \
+         [ -n "$CADI_NTP_SERVERS" ] || \
+         [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+         [ -n "$CADI_NTP_IPV6_SERVERS" ]; } && \
+       is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS"; then
+    image_ntp_method="servers_and_pools"
+  elif is_in_comma_list "servers" "$CADI_SUPPORTED_NTP_METHODS" && \
+       { [ -n "$image_ntp_servers" ] || \
+         [ -n "$CADI_NTP_SERVERS" ] || \
+         [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+         [ -n "$CADI_NTP_IPV6_SERVERS" ]; }; then
+    image_ntp_method="servers"
+  elif is_in_comma_list "pools" "$CADI_SUPPORTED_NTP_METHODS"; then
+    image_ntp_method="pools"
+  else
+    image_ntp_method="unknown"
+  fi
 
-  if [ "$image_class" = "virtual" ] && [ "$image_vm_type" = "virtualbox" ]; then
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    cp /etc/init.d/virtualbox-guest-additions \
-	      /etc/init.d/virtualbox-guest-additions-orig
-	  }
-	EOF
+  case $image_ntp_method in
+    pools )
+      if [ -n "$CADI_NTP_POOLS" ]; then
+        image_ntp_pools_list="$CADI_NTP_POOLS"
+      else
+        image_ntp_pools_list="$CADI_GENERAL_NTP_POOLS"
+      fi
+      image_ntp_pools_options="iburst"
+      ;;
+
+    ptp )
+      if [ -n "$CADI_PTP_DEVICE_NAME" ]; then
+        image_chrony_phc_device="$CADI_PTP_DEVICE_NAME"
+      else
+        image_chrony_phc_device="/dev/ptp0"
+      fi
+      if [ -n "$CADI_PTP_DPOLL" ]; then
+        image_chrony_phc_dpoll="$CADI_PTP_DPOLL"
+      fi
+      if [ -n "$CADI_PTP_OFFSET" ]; then
+        image_chrony_phc_offset="$CADI_PTP_OFFSET"
+      fi
+      if [ -n "$CADI_PTP_POLL" ]; then
+        image_chrony_phc_poll="$CADI_PTP_POLL"
+      fi
+      if [ -n "$CADI_PTP_STRATUM" ]; then
+        image_chrony_phc_stratum="$CADI_PTP_STRATUM"
+      fi
+      ;;
+
+    servers )
+      if [ -n "$image_ntp_servers" ]; then
+        image_ntp_servers_list="$image_ntp_servers"
+      else
+        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          if [ -z "$image_disable_ipv4" ] && [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
+            image_ntp_servers_list="$CADI_NTP_IPV4_SERVERS"
+          fi
+          if [ -z "$image_disable_ipv6" ] && [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+            image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
+          fi
+        fi
+	if [ -n "$CADI_NTP_SERVERS" ]; then
+          if [ -n "$image_ntp_servers_list" ]; then
+            image_ntp_servers_list="$image_ntp_servers_list $CADI_NTP_SERVERS"
+          else
+            image_ntp_servers_list="$CADI_NTP_SERVERS"
+          fi
+        fi
+      fi
+      if [ -n "$CADI_NTP_SERVERS_OPTIONS" ]; then
+        image_ntp_servers_options="$CADI_NTP_SERVERS_OPTIONS"
+      else
+        image_ntp_servers_options="$CADI_GENERAL_NTP_SERVERS_OPTIONS"
+      fi
+      ;;
+
+    servers_and_pools )
+      if [ -n "$image_ntp_servers" ]; then
+        image_ntp_servers_list="$image_ntp_servers"
+      else
+        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          if [ -z "$image_disable_ipv4" ] && [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
+            image_ntp_servers_list="$CADI_NTP_IPV4_SERVERS"
+          fi
+          if [ -z "$image_disable_ipv6" ] && [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+            image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
+          fi
+        fi
+	if [ -n "$CADI_NTP_SERVERS" ]; then
+          if [ -n "$image_ntp_servers_list" ]; then
+            image_ntp_servers_list="$image_ntp_servers_list $CADI_NTP_SERVERS"
+          else
+            image_ntp_servers_list="$CADI_NTP_SERVERS"
+          fi
+        fi
+      fi
+      if [ -n "$CADI_NTP_SERVERS_OPTIONS" ]; then
+        image_ntp_servers_options="$CADI_NTP_SERVERS_OPTIONS"
+      else
+        image_ntp_servers_options="$CADI_GENERAL_NTP_SERVERS_OPTIONS"
+      fi
+
+      if [ -n "$CADI_NTP_POOLS" ]; then
+        image_ntp_pools_list="$CADI_NTP_POOLS"
+        image_ntp_pools_options="iburst"
+      fi
+      ;;
+
+    none | unknown )
+      : ;;
+
+    * )
+      error_message "Not a valid NTP method: '$image_ntp_method'!"
+      ;;
+  esac
+
+  if [ "$image_ntp_daemon" = "chrony" ]; then
+    if [ -n "$CADI_CHRONY_INITSTEPSLEW_THRESHOLD" ]; then
+      image_chrony_initstepslew_threshold="$CADI_CHRONY_INITSTEPSLEW_THRESHOLD"
+      case $image_ntp_method in
+        pools )
+          image_chrony_initstepslew_hosts=$image_ntp_pools_list ;;
+
+        servers | servers_and_pools )
+          image_chrony_initstepslew_hosts=$image_ntp_servers_list ;;
+      esac
     fi
+    if [ -n "$CADI_CHRONY_MAKESTEP_THRESHOLD" ]; then
+      image_chrony_makestep_threshold="$CADI_CHRONY_MAKESTEP_THRESHOLD"
+    fi
+    if [ -n "$CADI_CHRONY_MAKESTEP_LIMIT" ]; then
+      image_chrony_makestep_limit="$CADI_CHRONY_MAKESTEP_LIMIT"
+    fi
+  fi
+}
 
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Disable the module removal upon stop as otherwise this will give an error
-	  sed -i -E -e 's|^(.*/sbin/modprobe -r .*)$|#\1|g' \
-	    /etc/init.d/virtualbox-guest-additions
-	EOF
 
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "/etc/init.d/virtualbox-guest-additions differences:" 2
-	    diff /etc/init.d/virtualbox-guest-additions-orig \
-	      /etc/init.d/virtualbox-guest-additions >> /chroot.log || true
-	    rm /etc/init.d/virtualbox-guest-additions-orig
-	  }
-	EOF
+#
+# Partition sizing related settings
+#
+partition_sizing_related() {
+  local _base_bootfs_size _base_rootfs_size _bootfs_extra_space
+  local _bootloader_files_size _bootloader_packages_size
+  local _cloud_cli_packages_size _config_software_packages_size
+  local _hypervisor_agent_packages_size _kernel_rootfs_files_size
+  local _packages_additional_size _packages_extra_size
+  local _packages_optional_size _sbom_packages_size
+
+  # Set the ESP partition filesystem type now that the boot method is known
+  case $image_boot_type in
+    hybrid | secure-uefi | uefi )
+      if [ -z "$image_esp_type" ]; then
+        case $image_bootloader in
+          uki )
+            image_esp_type="${image_esp_type:=$CADI_DEFAULT_UKI_ESP_TYPE}" ;;
+          * )
+            image_esp_type="${image_esp_type:=$CADI_DEFAULT_ESP_TYPE}"
+            ;;
+        esac
+      fi
+      ;;
+  esac
+
+  if [ "$image_create_boot_partition" = "true" ] && \
+     [ -n "$boot_part_size" ]; then
+    # Explicitly set the size of the /boot partition
+    image_boot_part_size="${boot_part_size}"
+  fi
+
+
+  # Sort out partition sizing
+  #---------------------------
+
+  # Bootloader related sizing
+  case $image_bootloader in
+    grub | limine | rpi | syslinux )
+      eval _bootloader_files_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_BOOT_FILES_SIZE
+      eval _bootloader_packages_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_PACKAGES_SIZE
+      ;;
+  esac
+  : "${_bootloader_files_size:=0}"
+  : "${_bootloader_packages_size:=0}"
+
+  # Additional kernel driver packages specific to the cloud/virtual/physical
+  # machine type
+  eval _driver_packages_list='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_LIST
+  eval _driver_packages_size='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_SIZE
+  eval _driver_packages_notpresentin='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_NOTPRESENTIN
+  if [ -n "$_driver_packages_list" ]; then
+    if [ -n "$_driver_packages_notpresentin" ] && \
+       ! is_in_comma_list "$image_alpine_release" "$_driver_packages_notpresentin"; then
+      # Packages are not available for this release of Alpine
+      _driver_packages_list=""
+    elif [ -z "$_driver_packages_size" ]; then
+      error_message "Kernel driver packages for $class_type_description defined but no installed size defined for them!"
+    else
+      _driver_packages_list="$(echo $_driver_packages_list | tr ',' ' ')"
     fi
   fi
 
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
+  # Additional packages specific to the cloud/virtual/physical machine type
+  if [ -n "$CADI_PACKAGES_ADDITIONAL" ]; then
+    if [ -n "$CADI_PACKAGES_ADDITIONAL_SIZE" ]; then
+      packages_additional="$(echo "$CADI_PACKAGES_ADDITIONAL" | tr ',' ' ')"
+      _packages_additional_size=$CADI_PACKAGES_ADDITIONAL_SIZE
+    else
+      error_message "Additional packages for $class_type_description defined but no installed size defined for them!"
+    fi
+  fi
+  : "${_packages_additional_size:=0}"
+
+  if [ -z "$image_barebones" ]; then
+    # Agent packages such as Hyper-V / QEMU Agent / Virtualbox Guest / VMware
+    # Agent which are not installed for barebones machines
+    if [ -n "$CADI_HYPERVISOR_AGENT_PACKAGES" ]; then
+      if [ -n "$CADI_HYPERVISOR_AGENT_PACKAGES_SIZE" ]; then
+        hypervisor_agent_packages="$(echo "$CADI_HYPERVISOR_AGENT_PACKAGES" | tr ',' ' ')"
+        _hypervisor_agent_packages_size=$CADI_HYPERVISOR_AGENT_PACKAGES_SIZE
+      else
+        error_message "Agent packages defined but no installed size defined for them!"
+      fi
+    fi
+
+    # CLI packages specific to the cloud/virtual/physical machine type
+    # which are not installed for barebones machines
+    if [ -n "$CADI_CLOUD_CLI_PACKAGES" ]; then
+      if [ -n "$CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN" ] && \
+         ! is_in_comma_list "$image_alpine_release" "$CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN"; then
+        # Package is not available for this release of Alpine
+        :
+      elif [ -z "$CADI_CLOUD_CLI_PACKAGES_SIZE" ]; then
+        error_message "CLI packages for $class_type_description defined but no installed size defined for them!"
+      else
+        cloud_cli_packages="$(echo "$CADI_CLOUD_CLI_PACKAGES" | tr ',' ' ')"
+        _cloud_cli_packages_size=$CADI_CLOUD_CLI_PACKAGES_SIZE
+      fi
+    fi
+
+    # Extra packages specific to the cloud/virtual/physical machine type
+    # which are not installed for barebones machines
+    if [ -n "$CADI_PACKAGES_EXTRA" ]; then
+      if [ -n "$CADI_PACKAGES_EXTRA_SIZE" ]; then
+        packages_extra="$(echo "$CADI_PACKAGES_EXTRA" | tr ',' ' ')"
+        _packages_extra_size=$CADI_PACKAGES_EXTRA_SIZE
+      else
+        error_message "Extra packages for $class_type_description defined but no installed size defined for them!"
+      fi
+    fi
+
+    # Optional packages specific to the cloud/virtual/physical machine type
+    # which are not installed for barebones machines
+    if [ -n "$CADI_PACKAGES_OPTIONAL" ]; then
+      if [ -n "$CADI_PACKAGES_OPTIONAL_SIZE" ]; then
+        packages_optional="$(echo "$CADI_PACKAGES_OPTIONAL" | tr ',' ' ')"
+        _packages_optional_size=$CADI_PACKAGES_OPTIONAL_SIZE
+      else
+        error_message "Optional packages for $class_type_description defined but no installed size defined for them!"
+      fi
+    fi
+  fi
+  : "${_hypervisor_agent_packages_size:=0}"
+  : "${_cloud_cli_packages_size:=0}"
+  : "${_packages_extra_size:=0}"
+  : "${_packages_optional_size:=0}"
+
+  # ESP partition sizing
+  #----------------------
+  case $image_boot_type in
+    secure-uefi | uefi )
+      case $image_bootloader in
+        uki )
+          general_uefi_part_size=${esp_part_size:-$CADI_DEFAULT_UKI_ESP_PART_SIZE} ;;
+        * )
+          case $image_esp_type in
+            fat32 )
+              # FAT32 is handled the same way for Cloud/PhysicalVirtual
+              # in the cli-functions code
+              : ;;
+            * )
+              general_uefi_part_size=${esp_part_size:-$CADI_DEFAULT_ESP_PART_SIZE} ;;
+          esac
+          ;;
+      esac
+      if [ -n "$debug_sizing_enabled" ]; then
+        echo "[partition_sizing_related] size for ESP partition is: $general_uefi_part_size MiB" \
+          >> "$sizing_debug"
+      fi
+      ;;
+  esac
+
+  # Bootfs sizing
+  #---------------
+
+  # This accounts for System.map, config, kernel, DTB files,
+  # initramfs, and microcode in /boot
+  eval _base_bootfs_size="$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE + CADI_INITRAMFS_SIZE + CADI_MICROCODE_SIZE))"
+
+  _bootfs_extra_space=0
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    {
+      echo "[partition_sizing_related] base size of bootfs is: $_base_bootfs_size MiB"
+      if [ "$image_boot_type" != "unpartitioned" ]; then
+        echo "[partition_sizing_related] size of bootloader files in bootfs is: $_bootloader_files_size MiB"
+      fi
+      echo "[partition_sizing_related] extra free space for bootfs is: $_bootfs_extra_space MiB"
+    } >> "$sizing_debug"
+  fi
+
+  # Add on size of bootloader-specific installed files to bootfs size
+  general_bootfs_size=$((_base_bootfs_size + _bootfs_extra_space))
+  if [ "$image_boot_type" != "unpartitioned" ]; then
+    general_bootfs_size=$((general_bootfs_size + _bootloader_files_size))
+  fi
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_sizing_related] total size for bootfs is: $general_bootfs_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  # Rootfs sizing
+  #---------------
+
+  _base_rootfs_size=$CADI_ROOTFS_SIZE
+  case $image_kernel_type in
+    edge | normal )
+      eval _kernel_rootfs_files_size='$'CADI_ROOTFS_KERNEL_"$(get_kernel_type | tr 'a-z' 'A-Z')"_FILES_SIZE ;;
+  esac
+
+  : "${general_rootfs_size:=$_base_rootfs_size}"
+
+  case $image_cloud_software in
+    cloud-init )
+      _config_software_packages_size=$CADI_CLOUDINIT_PACKAGES_SIZE ;;
+    tiny-cloud )
+      _config_software_packages_size=$CADI_TINYCLOUD_PACKAGES_SIZE ;;
+  esac
+  : "${_config_software_packages_size:=0}"
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    {
+      echo "[partition_sizing_related] base size for rootfs is: $general_rootfs_size MiB"
+      echo "[partition_sizing_related] size of kernel package files is: $_kernel_rootfs_files_size MiB"
+      echo "[partition_sizing_related] size of bootloader packages is: $_bootloader_packages_size MiB"
+      echo "[partition_sizing_related] size of configuration software packages is: $_config_software_packages_size MiB"
+      case $image_class in
+        cloud )
+          echo "[partition_sizing_related] size of Cloud Provider CLI packages is: $_cloud_cli_packages_size MiB" ;;
+        virtual )
+          echo "[partition_sizing_related] size of VM Hypervisor agent packages is: $_hypervisor_agent_packages_size MiB" ;;
+      esac
+      echo "[partition_sizing_related] size of additional packages is: $_packages_additional_size MiB"
+      echo "[partition_sizing_related] size of extra packages is: $_packages_extra_size MiB"
+      echo "[partition_sizing_related] size of optional packages is: $_packages_optional_size MiB"
+    } >> "$sizing_debug"
+  fi
+
+  # Add on size of kernel, bootloader-specific, cloud config software,
+  # hypervisor-specific packages, Cloud CLI package, additional packages,
+  # optional packages & extra packages to rootfs size
+  general_rootfs_size=$((general_rootfs_size + _kernel_rootfs_files_size + _bootloader_packages_size + _config_software_packages_size + _packages_additional_size + _packages_extra_size + _packages_optional_size))
+  case $image_class in
+    cloud )
+      general_rootfs_size=$((general_rootfs_size + _cloud_cli_packages_size)) ;;
+    virtual )
+      general_rootfs_size=$((general_rootfs_size + _hypervisor_agent_packages_size)) ;;
+  esac
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_sizing_related] size of user-specified additional packages is: $image_additional_packages_size MiB" \
+      >> "$sizing_debug"
+  fi
+
+  # Add on size of user-specified additional packages to rootfs size
+  general_rootfs_size=$((general_rootfs_size + image_additional_packages_size ))
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "[partition_sizing_related] total size for rootfs is: $general_rootfs_size MiB" \
+      >> "$sizing_debug"
+  fi
+}
+
+
+#
+# Settings shared between Cloud/Physical/Virtual machines
+#
+default_settings() {
+  local _base_bootfs_size _bootfs_extra_space _base_rootfs_size
+  local _bootloader_files_size _bootloader_packages_size
+  local _config_software_packages_size
+  local _kernel_rootfs_files_size _sbom_packages_size
+
+  do_generic_validation_checks
+
+  source_additional_definitions_files
+
+  do_specific_validation_checks
+
+  # APK static version
+  if [ -z "$apk_static_checksum" ]; then
+    eval apk_static_checksum='$'"CADI_APK_STATIC_$(echo "$image_arch" | tr 'a-z' 'A-Z')_CHECKSUM"
+  fi
+  : "${apk_static_version:=$CADI_APK_STATIC_VERSION}"
+  : "${apk_static_url:=$CADI_APK_STATIC_URL}"
+
+  # Set disk image filename
+  filename_for_image="${filename_for_image:-./alpine-$image_alpine_release-$image_arch-$image_class-$image_class_subtype.img}"
+
+
+  # If graphics is not specifically enabled then disable it
+  : "${image_enable_graphics:=false}"
+
+
+  # NTP use
+  if [ -z "$image_ntp_use" ]; then
+    case $image_ntp_use in
+      none )
+        if [ -n "$CADI_SUPPORTED_NTP_METHODS" ] && \
+           is_in_comma_list "none" "$CADI_SUPPORTED_NTP_METHODS"; then
+          image_ntp_daemon="none"
+          unset image_ntp_pools
+          unset image_ntp_servers
+        else
+          error_message "Not using a NTP is not supported!"
+        fi
+        ;;
+
+      ptp )
+        if [ -n "$CADI_SUPPORTED_NTP_METHODS" ] && \
+           is_in_comma_list "ptp" "$CADI_SUPPORTED_NTP_METHODS"; then
+          image_ntp_daemon="chrony"
+          unset image_ntp_pools
+          unset image_ntp_servers
+        else
+          error_message "PTP is not supported!"
+        fi
+        ;;
+    esac
+  fi
+
+  # Cron daemon, DHCP client, NTP daemon, SSH server, Syslog server,
+  # user/group management software, UTMP.
+  if [ -n "$image_barebones" ]; then
+    : "${image_cron_daemon:=busybox}"
+    if [ -n "$CADI_DHCP_CLIENT" ]; then
+      : "${image_dhcp_client:=$CADI_DHCP_CLIENT}"
+    else
+      : "${image_dhcp_client:=udhcpc}"
+    fi
+    : "${image_login_package:=busybox}"
+    : "${image_ntp_daemon:=busybox}"
+    : "${image_ssh_server:=dropbear}"
+    : "${image_syslog_server:=busybox}"
+    : "${image_user_management:=busybox}"
+
+    image_device_management_type=mdev
+
+    case $image_arch in
+      x86 | x86_64 )
+        case $image_boot_type in
+          bios | none | rpi )
+            : ;;
+          * )
+            # Override setting as UEFI requires graphics
+            image_enable_graphics=true ;;
+        esac
+        ;;
+    esac
+  else
+    if [ -n "$CADI_HYPERVISOR_AGENT_PACKAGES" ]; then
+      case $image_class in
+        virtual )
+          if [ -n "$CADI_DEFAULT_NTP_METHOD" ] && \
+             [ "$CADI_DEFAULT_NTP_METHOD" = "none" ]
+             is_in_comma_list "none" "$CADI_SUPPORTED_NTP_METHODS" && \
+             [ -z "$image_ntp_use" ]; then
+            case $image_class_subtype in
+              virtualbox )
+                # For these hypervisors the agent manages timesync
+                image_ntp_daemon="none"
+                ;;
+            esac
+          fi
+          ;;
+      esac
+    fi
+
+    : ${image_cron_daemon:=$CADI_DEFAULT_CRON_DAEMON}
+    if [ -n "$CADI_DHCP_CLIENT" ]; then
+      : ${image_dhcp_client:=$CADI_DHCP_CLIENT}
+    else
+      : "${image_dhcp_client:=$CADI_DEFAULT_DHCP_CLIENT}"
+    fi
+    : ${image_login_package:=$CADI_DEFAULT_LOGIN_PACKAGE}
+    if [ -n "$image_ntp_use" ] && \
+       [ "$image_ntp_use" = "none" ]; then
+      image_ntp_daemon="none"
+    else
+      : ${image_ntp_daemon:=$CADI_GLOBAL_DEFAULT_NTP_DAEMON}
+    fi
+    : ${image_ssh_server:=$CADI_DEFAULT_SSH_SERVER}
+    : ${image_syslog_server:=$CADI_DEFAULT_SYSLOG_SERVER}
+    : ${image_user_management:=$CADI_DEFAULT_USER_MANAGEMENT_PACKAGE}
+  fi
+
+  : "${image_enable_utmp:=false}"
+
+  # ACPI poweroff
+  #---------------
+  if [ -z "$image_acpi_power_method" ]; then
+    if [ -n "$CADI_DEFAULT_ACPI_BUTTON" ] && \
+       is_in_comma_list "$CADI_DEFAULT_ACPI_BUTTON" "$CADI_SUPPORTED_ACPI_BUTTONS"; then
+      image_acpi_power_method="$CADI_DEFAULT_ACPI_BUTTON"
+    elif [ -n "$CADI_SUPPORTED_ACPI_BUTTONS" ]; then
+      image_acpi_power_method="$(first_entry_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS")"
+    else
+      image_acpi_power_method="button"
+    fi
+  fi
+
+  # Timezone
+  #----------
+  case $image_cloud_software in
+    cloud-init | none )
+      : "${image_timezone:=$CADI_GLOBAL_DEFAULT_TIMEZONE}" ;;
+  esac
+
+  default_boot_related_settings
+  default_console_related_settings
+
+  case $image_ntp_daemon in
+    none )
+      : ;;
+    * )
+      default_ntp_related_settings ;;
+  esac
+
+  # Calculate additional disk space required for optional packages
+  image_sbom=${image_sbom:-false}
+  if [ "$image_sbom" = "true" ]; then
+    _sbom_packages_size="${CADI_SBOM_PACKAGE_SIZE:-0}"
+    if [ "$_sbom_packages_size" = "0" ]; then
+      error_message "SBOM package is not available!"
+    fi
+    image_additional_packages_size=$((image_additional_packages_size + _sbom_packages_size))
+  fi
+
+  partition_sizing_related
 }
 
 
@@ -863,134 +2300,248 @@ EOF
 define_additional_packages() {
   local _initial_pkgs
 
-  _initial_pkgs="ca-certificates chrony htop kbd-bkeymaps logrotate"
-  _initial_pkgs="$_initial_pkgs musl-locales rng-tools sshguard"
-  case $image_alpine_release in
-    v3.13 | v3.14 | v3.15 )
-      # These releases do not have suitable acct package
-      : ;;
-    * )
-      _initial_pkgs="$_initial_pkgs acct" ;;
-  esac
-
-  case $image_cloud_software in
-    cloud-init )
-      _initial_pkgs="$_initial_pkgs cloud-init"
-      # Fudge!
-      _initial_pkgs="$_initial_pkgs dhclient"
-      if [ "${image_mdev}" = false ]; then
-        _initial_pkgs="$_initial_pkgs eudev"
-      fi
-      ;;
-    none )
-      _initial_pkgs="$_initial_pkgs $(define_non_cloud_init_packages)"
-      if [ "${image_mdev}" = false ]; then
-        _initial_pkgs="$_initial_pkgs eudev"
-      fi
-      case $image_dhcp_client in
-        dhclient )
-          _initial_pkgs="$_initial_pkgs dhclient" ;;
-        dhcpcd )
-          _initial_pkgs="$_initial_pkgs dhcpcd" ;;
-      esac
-      ;;
-    tiny-cloud )
-      _initial_pkgs="$_initial_pkgs $(define_tiny_cloud_packages)"
-      ;;
-  esac
-
   case $image_auth_control in
     doas )
-      _initial_pkgs="$_initial_pkgs doas" ;;
+      _initial_pkgs="doas" ;;
     sudo )
-      _initial_pkgs="$_initial_pkgs sudo" ;;
+      _initial_pkgs="sudo" ;;
     both )
-      _initial_pkgs="$_initial_pkgs doas sudo" ;;
+      _initial_pkgs="doas sudo" ;;
   esac
 
-  if [ -n "${image_enable_utmp+x}" ]; then
-    _initial_pkgs="$_initial_pkgs procps utmps"
-  fi
+  # Busybox's cpio sometimes has problems with mkinitfs
+  _initial_pkgs="$_initial_pkgs cpio"
 
-  if [ -n "${image_encrypted+x}" ]; then
-    _initial_pkgs="$_initial_pkgs cryptsetup"
-    if [ -n "${image_experimental+x}" ] && \
-       [ -n "${remote_unlock_enabled+x}" ]; then
-      _initial_pkgs="$_initial_pkgs dropbear-convert dropbear-unlockdisk"
+  if [ -n "$image_barebones" ]; then
+    # Barebone packages
+    :
+  else
+    _initial_pkgs="$_initial_pkgs ca-certificates htop kbd-bkeymaps logrotate"
+    _initial_pkgs="$_initial_pkgs musl-locales sshguard"
+    if [ -n "$debug_enabled" ]; then
+      _initial_pkgs="$_initial_pkgs hwinfo lshw"
+    elif [ "$image_class" = "physical" ]; then
+      _initial_pkgs="$_initial_pkgs hwinfo"
+    fi
+
+    # Acct
+    case $image_alpine_release in
+      v3.13 | v3.14 | v3.15 )
+        # These releases do not have suitable acct package
+        : ;;
+      * )
+        _initial_pkgs="$_initial_pkgs acct" ;;
+    esac
+
+    # busybox/shadow/util-linux for login
+    case $image_login_package in
+      busybox )
+        : ;;
+      shadow )
+        _initial_pkgs="$_initial_pkgs shadow-login" ;;
+      util-linux )
+        _initial_pkgs="$_initial_pkgs util-linux-login" ;;
+    esac
+
+    # PAM support
+    if [ -n "$image_enable_pam" ]; then
+      _initial_pkgs="$_initial_pkgs linux-pam"
+    fi
+
+    # busybox or shadow for user/group management
+    case $image_user_management in
+      busybox )
+        : ;;
+      shadow )
+        _initial_pkgs="$_initial_pkgs shadow" ;;
+    esac
+
+    # UTMP
+    if [ "$image_enable_utmp" = "true" ]; then
+      _initial_pkgs="$_initial_pkgs procps utmps"
     fi
   fi
 
-  if [ -n "${image_lvm_rootfs+x}" ]; then
+  case $image_encryption_type in
+    both )
+      _initial_pkgs="$_initial_pkgs cryptsetup fscrypt"
+      if [ -n "$image_experimental" ] && \
+         [ -n "$remote_luks_unlock_enabled" ]; then
+          _initial_pkgs="$_initial_pkgs dropbear-convert dropbear-unlockdisk"
+      fi
+      ;;
+    fscrypt )
+      _initial_pkgs="$_initial_pkgs fscrypt" ;;
+    luks )
+      _initial_pkgs="$_initial_pkgs cryptsetup"
+      if [ -n "$image_experimental" ] && \
+         [ -n "$remote_luks_unlock_enabled" ]; then
+          _initial_pkgs="$_initial_pkgs dropbear-convert dropbear-unlockdisk"
+      fi
+      ;;
+  esac
+
+  if [ -n "$image_lvm_rootfs" ]; then
     _initial_pkgs="$_initial_pkgs lvm2"
   fi
 
-  if [ -n "${image_encrypted+x}" ] || \
-     [ -n "${image_lvm_rootfs+x}" ]; then
+  if [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ] || \
+     [ -n "$image_lvm_rootfs" ]; then
     _initial_pkgs="$_initial_pkgs device-mapper"
   fi
 
-  case $image_firewall in
-    awall )
-      _initial_pkgs="$_initial_pkgs awall awall-masquerade awall-policies" ;;
-    iptables )
-      _initial_pkgs="$_initial_pkgs iptables"
-      if [ -z "${image_disable_ipv6+x}" ]; then
-        _initial_pkgs="$_initial_pkgs ip6tables"
-      fi
-      ;;
-    nftables )
-      _initial_pkgs="$_initial_pkgs nftables" ;;
-  esac
+  if [ -z "$image_barebones" ]; then
+    case $image_firewall in
+      iptables )
+        _initial_pkgs="$_initial_pkgs iptables"
+        if [ -z "$image_disable_ipv6" ]; then
+          case $image_alpine_release in
+            v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+              _initial_pkgs="$_initial_pkgs ip6tables" ;;
+            * )
+              # There is no ip6tables sub-package anymore
+              : ;;
+          esac
+        fi
+        ;;
+      nftables )
+        _initial_pkgs="$_initial_pkgs nftables" ;;
+    esac
+  fi
 
   case $image_fs_type in
     btrfs )
       _initial_pkgs="$_initial_pkgs btrfs-progs btrfs-progs-extra" ;;
     ext4 )
-      _initial_pkgs="$_initial_pkgs e2fsprogs-extra" ;;
+      if [ -n "$image_barebones" ]; then
+        _initial_pkgs="$_initial_pkgs e2fsprogs"
+      else
+        _initial_pkgs="$_initial_pkgs e2fsprogs-extra"
+      fi
+      ;;
     f2fs )
       _initial_pkgs="$_initial_pkgs f2fs-tools" ;;
     xfs )
       _initial_pkgs="$_initial_pkgs xfsprogs xfsprogs-extra" ;;
   esac
 
+  # Cron
+  case $image_cron_daemon in
+    busybox )
+      : ;;
+  esac
+
+  # DHCP client
+  case $image_dhcp_client in
+    dhclient )
+      _initial_pkgs="$_initial_pkgs dhclient" ;;
+    dhcpcd )
+      _initial_pkgs="$_initial_pkgs dhcpcd" ;;
+    udhcpc )
+      : ;;
+  esac
+
+  # NTP
+  case $image_ntp_daemon in
+    busybox | none )
+      : ;;
+    chrony )
+      _initial_pkgs="$_initial_pkgs chrony" ;;
+  esac
+
+  # SSH
   case $image_ssh_server in
     dropbear )
-      _initial_pkgs="$_initial_pkgs dropbear" ;;
+      _initial_pkgs="$_initial_pkgs dropbear"
+      if [ -z "$image_barebones" ]; then
+        _initial_pkgs="$_initial_pkgs openssh-sftp-server"
+      fi
+      ;;
     openssh )
-      if [ "$image_cloud_software" = "cloud-init" ] || \
-         [ -n "${image_pam_enabled+x}" ]; then
+      if [ -n "$image_enable_pam" ]; then
         _initial_pkgs="$_initial_pkgs openssh-server-pam"
       else
         _initial_pkgs="$_initial_pkgs openssh-server"
       fi
       ;;
     tinyssh )
-      _initial_pkgs="$_initial_pkgs tinyssh openssh-sftp-server" ;;
+      _initial_pkgs="$_initial_pkgs tinyssh"
+      if [ -z "$image_barebones" ]; then
+        _initial_pkgs="$_initial_pkgs openssh-sftp-server"
+      fi
+      ;;
   esac
 
+  # Syslog
   case $image_syslog_server in
+    busybox )
+      : ;;
     rsyslog )
       _initial_pkgs="$_initial_pkgs rsyslog" ;;
   esac
 
-  case $image_class in
-    cloud )
-      case $image_cloud_software in
-        cloud-init )
-          _initial_pkgs="${_initial_pkgs} $(define_cloud_init_machine_packages)" ;;
-        none )
-          : ;;
-        tiny-cloud )
-          _initial_pkgs="${_initial_pkgs} $(define_tiny_cloud_machine_packages)" ;;
-      esac
-      ;;
-    physical )
-      _initial_pkgs="${_initial_pkgs} $(define_physical_machine_packages)" ;;
-    virtual )
-      _initial_pkgs="${_initial_pkgs} $(define_virtual_machine_packages)" ;;
-  esac
+  if [ "$image_sbom" = "true" ]; then
+    _initial_pkgs="${_initial_pkgs} syft"
+  fi
 
   echo "$_initial_pkgs"
+}
+
+
+#
+# Define list of packages related to machine characteristics
+#
+define_machine_specific_packages() {
+  local _machine_specific_packages
+
+  # Packages always installed
+  case $image_class in
+    cloud )
+      _machine_specific_packages="$(define_cloud_machine_packages)" ;;
+    physical )
+      _machine_specific_packages="$(define_physical_machine_packages)" ;;
+    virtual )
+      _machine_specific_packages="$(define_virtual_machine_packages)" ;;
+  esac
+
+  echo "$_machine_specific_packages"
+}
+
+
+#
+# Define list of os-related configuration software packages
+#
+define_os_config_software_packages() {
+  local _os_config_software_pkgs
+
+  # cloud-init / tiny-cloud / neither related packages
+  case $image_cloud_software in
+    cloud-init )
+      _os_config_software_pkgs="$(define_cloud_init_packages)" ;;
+    none )
+      _os_config_software_pkgs="$(define_non_cloud_init_machine_packages)" ;;
+    tiny-cloud )
+      _os_config_software_pkgs="$(define_tiny_cloud_packages)" ;;
+  esac
+
+  # Decide whether to use mdev, mdevd, or eudev
+  case $image_cloud_software in
+    cloud-init | none )
+      case $image_device_management_type in
+        mdev )
+          _os_config_software_pkgs="$_os_config_software_pkgs busybox" ;;
+        mdevd )
+          _os_config_software_pkgs="$_os_config_software_pkgs mdevd" ;;
+        udev )
+          _os_config_software_pkgs="$_os_config_software_pkgs eudev" ;;
+      esac
+      ;;
+    tiny-cloud )
+      # Tiny-Cloud defines its own mdev/mdevd/eudev dependancies accordingly
+      : ;;
+  esac
+
+  echo "$_os_config_software_pkgs"
 }
 
 
@@ -1004,21 +2555,24 @@ delete_users_groups() {
 	{
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	  # Debug
 	  {
 	    cp /etc/group /etc/group-orig
 	    cp /etc/passwd /etc/passwd-orig
+	    cp /etc/shadow /etc/shadow-orig
 	EOF
 
-    if [ "$image_mdev" = false ]; then
-      cat <<-'EOF' >> "$run_script"
+    case $image_device_management_type in
+      udev )
+        cat <<-'EOF' >> "$run_script"
 	
 	    cp /lib/udev/rules.d/50-udev-default.rules \
 	      /lib/udev/rules.d/50-udev-default.rules-orig
 	EOF
-    fi
+      ;;
+    esac
 
     cat <<-'EOF' >> "$run_script"
 	  }
@@ -1029,7 +2583,7 @@ delete_users_groups() {
   cat <<-'EOF' >> "$run_script"
 	  write_log "Delete unnecessary users" 2
 	  {
-	    _unreq_users_list="cyrus ftp games guest halt lp man news ntp operator"
+	    _unreq_users_list="cyrus ftp games guest halt man news ntp operator"
 	    _unreq_users_list="\$_unreq_users_list postmaster shutdown smmsp squid"
 	    _unreq_users_list="\$_unreq_users_list sync vpopmail xfs"
 	
@@ -1051,8 +2605,9 @@ delete_users_groups() {
 	    done
 	EOF
 
-  if [ "$image_mdev" = false ]; then
-    cat <<-'EOF' >> "$run_script"
+  case $image_device_management_type in
+    udev )
+      cat <<-'EOF' >> "$run_script"
 	
 	    write_log "Remove references to deleted groups from udev rules" 4
 	    {
@@ -1067,13 +2622,14 @@ delete_users_groups() {
 	      done
 	    }
 	EOF
-  fi
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -1081,191 +2637,28 @@ delete_users_groups() {
 	    write_debug_log "Users differences:" 2
 	    diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
 	
+	    write_debug_log "Users differences:" 2
+	    diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+	
 	    write_debug_log "Groups differences:" 2
 	    diff /etc/group-orig /etc/group >> /chroot.log || true
 	
-	    rm /etc/group-orig /etc/passwd-orig
+	    rm /etc/group-orig /etc/passwd-orig /etc/shadow-orig
 	EOF
 
-    if [ "$image_mdev" = false ]; then
-      cat <<-'EOF' >> "$run_script"
+    case $image_device_management_type in
+      udev )
+        cat <<-'EOF' >> "$run_script"
 	
 	    write_debug_log "50-udev-default.rules differences:" 2
 	    diff /lib/udev/rules.d/50-udev-default.rules-orig \
 	      /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
 	    rm /lib/udev/rules.d/50-udev-default.rules-orig
 	EOF
-    fi
-
-    cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
-# Disable non-server specific kernel modules
-#
-disable_kernel_modules() {
-  local _disable_modules
-
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Disable non-server kernel modules"
-	EOF
-
-  # Drivers
-  #---------
-
-  _disable_modules="$CONSTANT_DESKTOP_KERNEL_MODULES"
-  if [ "$image_class" != "physical" ] || \
-     [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-    _disable_modules="$_disable_modules $CONSTANT_VIRTUAL_XEN_KERNEL_MODULES"
-  fi
-
-  case $image_class in
-    cloud )
-      if [ "$image_cloud_type" != "aws" ] && \
-         [ "$image_cloud_type" != "generic" ]; then
-        _disable_modules="$_disable_modules $CONSTANT_CLOUD_AWS_KERNEL_MODULES"
-      fi
-      if [ "$image_cloud_type" != "azure" ] && \
-         [ "$image_cloud_type" != "generic" ]; then
-        _disable_modules="$_disable_modules $CONSTANT_CLOUD_AZURE_KERNEL_MODULES"
-        _disable_modules="$_disable_modules $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
-      fi
-      if [ "$image_cloud_type" != "google" ] && \
-         [ "$image_cloud_type" != "generic" ]; then
-        _disable_modules="$_disable_modules $CONSTANT_CLOUD_GOOGLE_KERNEL_MODULES"
-      fi
-
-      # Disable all VM modules
-      _disable_modules="$_disable_modules vmwgfx $CONSTANT_VIRTUAL_KERNEL_MODULES"
-
-      # PTP-related
-      _disable_modules="$_disable_modules ptp ptp_vmw"
-      case $image_cloud_type in
-        generic )
-          : ;;
-        * )
-        _disable_modules="$_disable_modules ptp_kvm" ;;
-      esac
-      ;;
-    physical )
-      _disable_modules="$_disable_modules $(disable_kernel_modules_on_physical)"
-      ;;
-    virtual )
-      _disable_modules="$_disable_modules ptp"
-
-      if [ "$image_vm_type" != "generic" ]; then
-        # Not generic
-        if [ "$image_vm_type" != "hyperv" ]; then
-          _disable_modules="$_disable_modules $CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES"
-          _disable_modules="$_disable_modules $CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES"
-        fi
-        case $image_vm_type in
-          libvirtd | lxd | proxmox | qemu | utm )
-            : ;;
-          * )
-            # Disable KVM/QEMU-derived modules
-            _disable_modules="$_disable_modules ptp_kvm virtio_rng" ;;
-        esac
-        if [ "$image_vm_type" != "vmware" ]; then
-          # Disable VMware modules
-          _disable_modules="$_disable_modules $CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES"
-        fi
-        if [ "$image_vm_type" != "virtualbox" ] && \
-           [ "$image_vm_type" != "vmware" ]; then
-          _disable_modules="$_disable_modules vmwgfx"
-        fi
-      fi
-
-      # Disable all cloud provider modules
-      _disable_modules="$_disable_modules $CONSTANT_CLOUD_KERNEL_MODULES"
-      ;;
-  esac
-
-  case $image_class in
-    cloud | virtual )
-      _disable_modules="$_disable_modules $CONSTANT_PHYSICAL_KERNEL_MODULES"
-      #### 'tiny-power-button' is used on Cloud and VM images
-      ###_disable_modules="$_disable_modules button"
-      _disable_modules="$_disable_modules hid ehci_hcd ehci_pci ehci_platform"
-      _disable_modules="$_disable_modules ohci_hcd ohci_pci ohci_platform"
-      _disable_modules="$_disable_modules uhci_pci usbcore xhci_hcd xhci_pci"
-      ;;
-  esac
-
-  blacklist_list_of_kernel_modules "drivers" "$_disable_modules"
-  disable_list_of_kernel_modules "drivers" "$_disable_modules"
-
-
-  # Net
-  #-----
-
-  _disable_modules="$CONSTANT_UNUSED_NET_KERNEL_MODULES"
-  if [ "$image_class" = "virtual" ]; then
-    # Virtual
-    case $image_vm_type in
-      vmware | generic )
-        # Don't disable for VMware or generic
-        : ;;
-      * )
-        _disable_modules="$_disable_modules $CONSTANT_NET_VMWARE_KERNEL_MODULES" ;;
+        ;;
     esac
-  fi
 
-  blacklist_list_of_kernel_modules "net" "$_disable_modules"
-  disable_list_of_kernel_modules "net" "$_disable_modules"
-}
-
-
-#
-# Disable a set of specified kernel modules
-#
-disable_list_of_kernel_modules() {
-  local _modules_section=$1
-  local _disable_list="$2"
-
-  local _module_name
-
-  cat <<-EOF >> "$run_script"
-	
-	write_log "Disabling ${_modules_section} kernel modules" 2
-	{
-	EOF
-
-  cat <<-EOF >> "$run_script"
-  cat <<-_SCRIPT_ > /etc/modprobe.d/disable-${_modules_section}-modules.conf
-EOF
-
-  for _module_name in $_disable_list; do
-    cat <<EOF >> "$run_script"
-	install ${_module_name} /bin/true
-EOF
-  done
-
-  cat <<EOF >> "$run_script"
-	_SCRIPT_
-EOF
-
-  cat <<-EOF >> "$run_script"
-	  sort -u -o /etc/modprobe.d/disable-${_modules_section}-modules.conf \\
-	    /etc/modprobe.d/disable-${_modules_section}-modules.conf
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Contents of disable-${_modules_section}-modules.conf:" 4
-	    cat /etc/modprobe.d/disable-${_modules_section}-modules.conf >> /chroot.log
+    cat <<-'EOF' >> "$run_script"
 	  }
 	EOF
   fi
@@ -1277,471 +2670,24 @@ EOF
 
 
 #
-# Create relevant filesystems for the disk image and mount these
-# inside the chroot directory.
+# Returns the full path to the initramfs file taking into account
+# the initramfs generator tool in use.
 #
-format_and_mount_fs() {
-  local _boot_on _logs_on _root_on
+get_initramfs_filename() {
+  local _filename _prefix
 
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Formatting and mounting filesystems"
-	{
-	EOF
-
-  # Format UEFI ESP filesystem if needed
-  case $image_boot_type in
-    secure-uefi | uefi )
-      cat <<-EOF >> "$run_script"
-	  uefi_part_device="\${loop_device}p${uefi_part_num}"
-	EOF
-      format_esp_fs
-      if [ "$image_boot_reference" = "uuid" ]; then
-        cat <<-'EOF' >> "$run_script"
-	  esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
-	EOF
-      fi
-      cat <<-EOF >> "$run_script"
-	
-	EOF
-      ;;
+  case $image_initramfs_tool in
+    booster )
+      _prefix="booster" ;;
+    dracut )
+      _prefix="initramfs" ;;
+    mkinitfs )
+      _prefix="initramfs" ;;
   esac
 
-  # Format boot filesystem if needed
-  if [ -n "${needs_boot_partition+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	  boot_part_device="\${loop_device}p${boot_part_num}"
-	EOF
-    if [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      # Ensure that RPI boot filesystem label is *not* called "boot" due to
-      # https://github.com/raspberrypi/firmware/issues/1529
-      format_fat_fs "\$boot_part_device" "RPI boot" "fat32" \
-        "$CONSTANT_RPIBOOT_LABEL" "partition"
-    else
-      case $image_fs_type in
-        btrfs )
-          format_btrfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-            "partition" ;;
-        ext4 )
-          format_ext4_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-            "partition" ;;
-        f2fs )
-          format_f2fs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-            "partition" ;;
-        xfs )
-          format_xfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-            "partition" ;;
-      esac
-      if [ "$image_boot_reference" = "uuid" ]; then
-        cat <<-'EOF' >> "$run_script"
-	  boot_fs_uuid="$(get_uuid_from_device "$boot_part_device")"
-	EOF
-      fi
-    fi
-    cat <<-EOF >> "$run_script"
-	
-	EOF
-  fi
+  _filename="${_prefix}-$(get_kernel_type)"
 
-  # Format CIDATA filesystem if needed
-  if [ "$image_class" = "physical" ] && \
-     [ "$image_cloud_software" = "cloud-init" ]; then
-    cat <<-EOF >> "$run_script"
-	  cidata_part_device="\${loop_device}p${cidata_part_num}"
-	EOF
-    format_fat_fs "\$cidata_part_device" "CIDATA" "fat12" \
-      "$CONSTANT_CIDATA_LABEL" "partition"
-
-    cat <<-EOF >> "$run_script"
-	
-	EOF
-  fi
-
-  # Set fs device variables
-  if [ -n "${image_encrypted+x}" ]; then
-    # LUKS
-    if [ -n "${image_lvm_rootfs+x}" ]; then
-      _logs_on="LVM-on-LUKS device"
-      _root_on="LVM-on-LUKS device"
-      cat <<-EOF >> "$run_script"
-	  root_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
-	  logs_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}"
-	EOF
-      if [ "$image_class" != "physical" ] || \
-         [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; then
-        # Not RPI (which has a separate non-LVM boot partition)
-      _boot_on="LVM-on-LUKS device"
-      cat <<-EOF >> "$run_script"
-	  boot_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}"
-	EOF
-      fi
-    else
-      _root_on="LUKS device"
-      cat <<-EOF >> "$run_script"
-	  root_part_device="/dev/mapper/$CONSTANT_LUKS_DEVICE_NAME"
-	EOF
-    fi
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    # LVM
-    _root_on="LVM logical volume"
-    cat <<-EOF >> "$run_script"
-	  root_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
-	EOF
-    if [ "$image_bootloader" = "grub" ]; then
-      _boot_on="LVM logical volume"
-      cat <<-EOF >> "$run_script"
-	  boot_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_BOOT_LV_NAME}"
-	EOF
-    fi
-    _logs_on="LVM logical volume"
-    cat <<-EOF >> "$run_script"
-	  logs_part_device="/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_LOGS_LV_NAME}"
-	EOF
-  else
-    # neither LUKS nor LVM
-    _root_on="partition"
-    cat <<-EOF >> "$run_script"
-	  root_part_device="\${loop_device}p${root_part_num}"
-	EOF
-  fi
-
-  # Format root filesystem (and boot & logs LVs if needed)
-  case $image_fs_type in
-    btrfs )
-      format_btrfs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
-        "$_root_on"
-      if [ -n "${image_lvm_rootfs+x}" ]; then
-        # boot & logs LVs
-        format_btrfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-          "$_boot_on"
-        format_btrfs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
-          "$_logs_on"
-      fi
-      ;;
-    ext4 )
-      format_ext4_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
-        "$_root_on"
-      if [ -n "${image_lvm_rootfs+x}" ]; then
-        if [ "$image_bootloader" = "grub" ]; then
-          # boot LV
-          format_ext4_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-            "$_boot_on"
-        fi
-        # logs LV
-        format_ext4_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
-          "$_logs_on"
-      fi
-      ;;
-    f2fs )
-      format_f2fs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
-        "$_root_on"
-      if [ -n "${image_lvm_rootfs+x}" ]; then
-        # boot and logs LVs
-        format_f2fs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-          "$_boot_on"
-        format_f2fs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
-          "$_logs_on"
-      fi
-      ;;
-    xfs )
-      format_xfs_fs "\$root_part_device" "root" "$CONSTANT_ROOTFS_LABEL" \
-        "$_root_on"
-      if [ -n "${image_lvm_rootfs+x}" ]; then
-        # boot and logs LVs
-        format_xfs_fs "\$boot_part_device" "boot" "$CONSTANT_BOOTFS_LABEL" \
-          "$_boot_on"
-        format_xfs_fs "\$logs_part_device" "logs" "$CONSTANT_LOGSFS_LABEL" \
-          "$_logs_on"
-      fi
-      ;;
-  esac
-
-  if [ "$image_boot_reference" = "uuid" ] && \
-     { [ "$image_class" != "physical" ] || \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; } && \
-     [ -z "${image_encrypted+x}" ] && \
-     { [ -z "${image_lvm_rootfs+x}" ] || \
-       [ "$image_bootloader" = "syslinux" ]; }; then
-    cat <<-'EOF' >> "$run_script"
-	  root_fs_uuid="$(get_uuid_from_device "$root_part_device")"
-	EOF
-  fi
-
-  # Mount root filesystem
-  cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Mounting root filesystem onto $chroot_dir" 2
-	  mkdir -p "$chroot_dir"
-	  mount -o private "$root_part_device" "$chroot_dir" >> "$logfile" 2>&1
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Size of root filesystem:" 2
-	    df -BM "\$chroot_dir" >> "\$logfile"
-	  }
-	EOF
-	fi
-
-  # Mount UEFI ESP filesustem if necessary
-  case $image_boot_type in
-    secure-uefi | uefi )
-      cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Mounting ESP filesystem onto $chroot_dir/efi" 2
-	  mkdir -p "$chroot_dir"/efi
-	  mount -o private "$uefi_part_device" "$chroot_dir"/efi >> "$logfile" 2>&1
-	EOF
-
-      if [ -n "${debug_enabled+x}" ]; then
-        cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Size of ESP filesystem:" 2
-	    df -BM "\$chroot_dir"/efi >> "\$logfile"
-	  }
-	EOF
-      fi
-      ;;
-  esac
-
-  # Mount boot filesystem if necessary
-  if [ -n "${needs_boot_partition+x}" ] || \
-     { [ -n "${image_lvm_rootfs+x}" ] && \
-       { [ "$image_bootloader" != "syslinux" ] || \
-         [ "$image_boot_type" = "bios" ]; }; }; then
-    # Needs a boot partition or else is LVM but not Syslinux-based UEFI
-    # (where boot is part of ESP partition)
-    cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Mounting boot filesystem onto $chroot_dir/boot" 2
-	  mkdir -p "$chroot_dir"/boot
-	  mount -o private "$boot_part_device" "$chroot_dir"/boot >> "$logfile" 2>&1
-	EOF
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Size of boot filesystem:" 2
-	    df -BM "\$chroot_dir"/boot >> "\$logfile"
-	  }
-	EOF
-  	fi
-  elif [ "$image_boot_type" = "uefi" ] && \
-       [ "$image_bootloader" = "syslinux" ]; then
-    # When using Syslinux with UEFI then, as kernel & initramfs files need
-    # to be in EFI/BOOT directory of ESP partition, EFI/BOOT directory of
-    # ESP partition is bind-mounted to /boot. This ensures that kernel,
-    # initramfs, and extlinux.conf files are in ESP partition.
-    cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Bind mounting ESP filesystem's EFI/BOOT onto $chroot_dir/boot" 2
-	  mkdir -p "$chroot_dir"/efi/EFI/BOOT
-	  mkdir -p "$chroot_dir"/boot
-	  mount -t none -o bind "$chroot_dir"/efi/EFI/BOOT "$chroot_dir"/boot \
-	    >> "$logfile" 2>&1
-	EOF
-  fi
-
-  # Mount logs filesystem if necessary
-  if [ -n "${image_lvm_rootfs+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Mounting logs filesystem onto $chroot_dir/var/logs" 2
-	  mkdir -p "$chroot_dir"/var/log
-	  mount -o private "$logs_part_device" "$chroot_dir"/var/log >> "$logfile" 2>&1
-	EOF
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Size of logs filesystem:" 2
-	    df -BM "\$chroot_dir"/var/log >> "\$logfile"
-	  }
-	EOF
-  	fi
-  fi
-
-  # Mount CIDATA filesystem if necessary
-  if [ "$image_class" = "physical" ] && \
-     [ "$image_cloud_software" = "cloud-init" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Mounting cloud-init YAML filesystem onto $chroot_dir/cidata" 2
-	  mkdir -p "$chroot_dir"/cidata
-	  mount -o private "$cidata_part_device" "$chroot_dir"/cidata >> "$logfile"
-	EOF
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Size of cloud-init YAML filesystem:" 2
-	    df -BM "\$chroot_dir"/cidata >> "\$logfile"
-	  }
-	EOF
-  	fi
-  fi
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Filesystems' UUIDs" 2
-	    lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
-	    write_debug_log "Blkid output:" 2
-	    lsblk \
-	      --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTLABEL \
-	      "$loop_device" >> "$logfile" 2>&1
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
-# Create a BTRFS filesystem
-#
-format_btrfs_fs() {
-  local device=$1
-  local fs_use="$2"
-  local label=$3
-  local formatting_where="$4"
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Loading the btrfs module before formatting a btrfs filesystem" 2
-	  modprobe -q btrfs
-	
-	  write_log "Formatting Btrfs $fs_use filesystem on $formatting_where" 2
-	  mkfs.btrfs -q -L $label "$device" >> "\$logfile" 2>&1
-	EOF
-}
-
-
-#
-# Create a F2FS filesystem
-#
-format_f2fs_fs() {
-  local device=$1
-  local fs_use="$2"
-  local label=$3
-  local formatting_where="$4"
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Formatting F2FS $fs_use filesystem on $formatting_where" 2
-	  mkfs.f2fs -q -l $label "$device" >> "\$logfile" 2>&1
-	EOF
-}
-
-
-#
-# Create a FAT filesystem
-#
-format_fat_fs() {
-  local device=$1
-  local fs_use="$2"
-  local fat_type=$3
-  local fat_label="$4"
-  local formatting_where="$5"
-
-  case $fat_type in
-    fat12 )
-      fat_info_type="12"
-      fat_mkfs_option="-F12 -s 1 -S 512"
-      ;;
-    fat16 )
-      fat_info_type="16"
-      fat_mkfs_option="-F16 -s 1 -S 512"
-      ;;
-    fat32 )
-      fat_info_type="32"
-      fat_mkfs_option="-F32"
-      ;;
-  esac
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Formatting FAT${fat_info_type} $fs_use filesystem on $formatting_where" 2
-	  mkfs.fat $fat_mkfs_option -n "$fat_label" "$device" >> "\$logfile" 2>&1
-	EOF
-}
-
-
-#
-# Create an XFS filesystem
-#
-format_xfs_fs() {
-  local device=$1
-  local fs_use="$2"
-  local label=$3
-  local formatting_where="$4"
-
-  # Force attr=2 to avoid dmesg warning
-  fs_options="-i attr=2"
-  # Ensure XFS avoids Year 2038 problem.
-  fs_options="$fs_options -m bigtime=1"
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Formatting XFS $fs_use filesystem on $formatting_where" 2
-	  mkfs.xfs -q -L $label $fs_options "$device" >> "\$logfile" 2>&1
-	EOF
-}
-
-
-#
-# Insert function define_cmdline_for_encryption into created script
-#
-insert_chroot_function_define_cmdline_for_encryption() {
-  local _cmdline_list
-
-  cat <<-'EOF' >> "$run_script"
-	
-	define_cmdline_for_encryption() {
-	EOF
-
-  _cmdline_list="cryptroot=UUID=\${luks_part_uuid} cryptdm=$CONSTANT_LUKS_DEVICE_NAME"
-
-  if [ -n "${remote_unlock_enabled+x}" ]; then
-    if [ -n "${remote_unlock_static_ip+x}" ]; then
-      # Indicate the IP address to use by initramfs for configuring
-      # the ethernet interface for Dropbear to listen on.
-      _cmdline_list="$_cmdline_list ip=${remote_unlock_static_ip}::${remote_unlock_static_gateway:-}:${remote_unlock_static_netmask:-}::${remote_unlock_static_interface:-}:none:"
-    else
-      # Indicate that DHCP should be used by initramfs' init.
-      _cmdline_list="$_cmdline_list ip=dhcp"
-    fi
-
-    # Indicate that Dropbear should be run by initramfs' init.
-    _cmdline_list="$_cmdline_list remote_unlock_luks"
-
-    if [ -n "${remote_unlock_ssh_port+x}" ]; then
-      # Indicate the port that Dropbear should listen on
-      _cmdline_list="$_cmdline_list remote_unlock_luks_ssh_port=$remote_unlock_ssh_port"
-    fi
-  fi
-
-  cat <<-EOF >> "$run_script"
-	  echo "$_cmdline_list"
-	}
-	EOF
+  echo "$_filename"
 }
 
 
@@ -1753,16 +2699,34 @@ install_alpine_base() {
 
   _base_packages="alpine-base"
   case $image_boot_type in
+    secure-uefi | uefi )
+      _base_packages="$_base_packages efivar"
+      # Needed for fsck.vfat (for ESP partition)
+      _base_packages="$_base_packages dosfstools"
+  esac
+  case $image_boot_type in
     secure-uefi )
-      _base_packages="$_base_packages efi-mkkeys efivar secureboot-hook" ;;
-    uefi )
-      _base_packages="$_base_packages efivar" ;;
+      _base_packages="$_base_packages efi-mkkeys mokutil secureboot-hook" ;;
+  esac
+
+  # Add the appropriate package for ifup / ifdown utilities
+  case $image_ifupdown_package in
+    busybox )
+      _base_packages="$_base_packages busybox-ifupdown" ;;
+    ifupdown )
+      _base_packages="$_base_packages ifupdown" ;;
+    ifupdown-ng )
+      _base_packages="$_base_packages ifupdown-ng" ;;
+    * )
+      _base_packages="$_base_packages ifupdown-ng" ;;
   esac
 
   # Add the appropriate package for managing initramfs
   case $image_initramfs_tool in
     booster )
       _base_packages="$_base_packages booster" ;;
+    dracut )
+      _base_packages="$_base_packages dracut" ;;
     mkinitfs )
       _base_packages="$_base_packages mkinitfs" ;;
   esac
@@ -1773,31 +2737,51 @@ install_alpine_base() {
       _bootloader_packages="grub"
       case $image_boot_type in
         secure-uefi | uefi )
-          _bootloader_packages="$_bootloader_packages dosfstools grub-efi" ;;
+          _bootloader_packages="$_bootloader_packages grub-efi" ;;
         * )
           _bootloader_packages="$_bootloader_packages grub-bios" ;;
       esac
       ;;
+    limine )
+      case $image_boot_type in
+        secure-uefi | uefi )
+          case $image_arch in
+            aarch64 )
+              _bootloader_packages="limine-aarch64" ;;
+            x86_64 )
+              _bootloader_packages="limine-x86_64" ;;
+          esac
+          _bootloader_packages="$_bootloader_packages limine-efi-updater"
+          if [ "$image_boot_type" = "secure-uefi" ]; then
+            _bootloader_packages="$_bootloader_packages limine-enroll-config"
+          fi
+          ;;
+        * )
+          _bootloader_packages="limine-deploy limine-sys" ;;
+      esac
+      ;;
+    rpi )
+      _bootloader_packages="dosfstools raspberrypi-bootloader-cutdown"
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 )
+          # Prior to 3.16/Edge raspberrypi-common does not exist and so
+          # raspberrypi-bootloader must also be installed.
+          _bootloader_packages="$_bootloader_packages raspberrypi-bootloader" ;;
+      esac
+      ;;
     syslinux )
-      _bootloader_packages="syslinux"
-      if [ "$image_boot_type" = "uefi" ]; then
-        _bootloader_packages="$_bootloader_packages dosfstools"
-      fi
+      _bootloader_packages="syslinux" ;;
+    uki )
+      _bootloader_packages="secureboot-hook"
+      case $image_uki_bootstub in
+        gummiboot )
+          _bootloader_packages="$_bootloader_packages gummiboot" ;;
+        stubby )
+          _bootloader_packages="$_bootloader_packages stubbyboot-efistub" ;;
+      esac
       ;;
     * )
-      if [ "$image_class" = "physical" ] && \
-         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-        _bootloader_packages="dosfstools raspberrypi-bootloader-cutdown"
-        case $image_alpine_release in
-          v3.13 | v3.14 | v3.15 )
-            # Prior to 3.16/Edge raspberrypi-common does not exist and so
-            # raspberrypi-bootloader must also be installed.
-            _bootloader_packages="$_bootloader_packages raspberrypi-bootloader" ;;
-        esac
-      else
-        _bootloader_packages="none"
-      fi
-      ;;
+      _bootloader_packages="none" ;;
   esac
   if [ "$_bootloader_packages" != "none" ]; then
     _base_packages="$_base_packages $_bootloader_packages"
@@ -1806,8 +2790,11 @@ install_alpine_base() {
   cat <<-EOF >> "$run_script"
 	
 	write_log "Bootloader packages to be installed are: $_bootloader_packages"
-	
-	_host_arch=\$(detect_host_arch)
+	EOF
+
+  case $image_script_host_os in
+    all )
+      cat <<-EOF >> "$run_script"
 	_host_os=\$(detect_host_os)
 	case \$_host_os in
 	  alpine )
@@ -1815,7 +2802,21 @@ install_alpine_base() {
 	  * )
 	    _apk_binary="\$TMPDIR/apk.static" ;;
 	esac
-	
+	EOF
+      ;;
+    alpine )
+      cat <<-EOF >> "$run_script"
+	_apk_binary="apk"
+	EOF
+      ;;
+    * )
+      cat <<-EOF >> "$run_script"
+	_apk_binary="\$TMPDIR/apk.static"
+	EOF
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
 	write_log "Install base Alpine (plus bootloader packages) for ${image_arch} arch inside chroot"
 	{
 	  # shellcheck disable=SC2086
@@ -1827,18 +2828,38 @@ install_alpine_base() {
 	    write_log "Failure while installing base Alpine, error code: \$_rc"
 	    exit 1
 	  fi
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	write_debug_log "Disk space usage for base Alpine:"
+	df -k $chroot_dir >> "$logfile"
+	EOF
+  fi
+
+  case $image_script_host_os in
+    alpine )
+      : ;;
+    * )
+      cat <<-EOF >> "$run_script"
 	
 	  # Tidy-up after apk.static run
 	  rm -f \$TMPDIR/apk.static
-	  if [ -n "\${temp_ca_dir_created+x}" ] && \\
+	  if [ -n "\$temp_ca_dir_created" ] && \\
 	     [ "\$temp_ca_dir_created" = "true" ]; then
 	    echo "deleting the temporary CA directory"
 	    rm -Rf /etc/apk
-	  elif [ -n "\${temp_ca_file_created+x}" ] && \\
+	  elif [ -n "\$temp_ca_file_created" ] && \\
 	     [ "\$temp_ca_file_created" = "true" ]; then
 	    echo "deleting the temporary CA file"
 	    rm -f /etc/apk/ca.pem
 	  fi
+	EOF
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
 	}
 	EOF
 }
@@ -1847,8 +2868,41 @@ install_alpine_base() {
 #
 # Insert function get_kernel_package_version into created script
 #
+insert_chroot_function_find_module_full_path() {
+  cat <<-'EOF' >> "$run_script"
+	
+	find_module_full_path() {
+	  local _module="\$1"
+	
+	  local _module_path
+	
+	  _module_path="\$(find /lib/modules/ -name "\${_module}.ko*" | \\
+	    sed -e 's/^.*kernel/kernel/' -e 's/\.ko.*$//')"
+	
+	  if [ -z "\$_module_path" ]; then
+	    _module="\$(echo \$_module | sed -e 's/-/_/g')"
+	    _module_path="\$(find /lib/modules/ -name "\${_module}.ko*" | \\
+	      sed -e 's/^.*kernel/kernel/' -e 's/\.ko.*$//')"
+	  fi
+	
+	  if [ -n "\$_module_path" ]; then
+	    _module_path="\${_module_path}.ko*"
+	  fi
+	
+	  echo "\$_module_path"
+	}
+	EOF
+}
+
+
+
+#
+# Insert function get_kernel_package_version into created script
+#
 insert_chroot_function_get_kernel_package_version() {
-  local _kernel_type=$(get_kernel_type)
+  local _kernel_type
+
+  _kernel_type=$(get_kernel_type)
 
   cat <<-EOF >> "$run_script"
 	
@@ -1872,9 +2926,11 @@ insert_chroot_functions() {
 	EOF
 
   insert_chroot_function_add_fstab_entry
-  if [ -n "${image_encrypted+x}" ]; then
-    insert_chroot_function_define_cmdline_for_encryption
-  fi
+  case $image_encryption_type in
+    both | luks )
+      insert_chroot_function_define_cmdline_for_luks_encryption ;;
+  esac
+  insert_chroot_function_find_module_full_path
   insert_chroot_function_get_kernel_package_version
   insert_chroot_function_get_kernel_version
   insert_chroot_function_write_debug_log
@@ -1889,18 +2945,27 @@ install_firmware() {
   local _firmware_pkgs=""
 
   if [ "$image_class" = "physical" ]; then
-    _firmware_pkgs="$(firmware_list_for_physical)"
-
-    if [ "$_firmware_pkgs" != "" ]; then
-      cat <<-EOF >> "$run_script"
-	
+    cat <<-EOF >> "$run_script"
 	write_log "Selecting firmware packages to install"
 	{
+	EOF
+
+    _firmware_pkgs="$(firmware_list_for_physical)"
+
+    if [ -n "$_firmware_pkgs" ]; then
+      cat <<-EOF >> "$run_script"
 	  write_log "Installing firmware" 2
 	  apk add $_firmware_pkgs >> /chroot.log 2>&1
-	}
+	EOF
+    else
+      cat <<-EOF >> "$run_script"
+	  write_log "No firmware to install" 2
 	EOF
     fi
+
+    cat <<-EOF >> "$run_script"
+	}
+	EOF
   fi
 }
 
@@ -1911,59 +2976,10 @@ install_firmware() {
 install_kernel() {
   local _firmware_pkg _kernel_pkg _kernel_config_file
 
-  case $image_class in
-    cloud | virtual )
-      # Cloud or Virtual machine
-      case $image_kernel_type in
-        edge )
-          _kernel_pkg="linux-edge4virt"
-          _kernel_config_file="config-edge4virt"
-          ;;
-        * )
-          _kernel_pkg="linux-virt"
-          _kernel_config_file="config-virt"
-          ;;
-      esac
-      ;;
-    physical )
-      # Physical machine
-      _firmware_pkg="linux-firmware-none"
-      case $image_physical_type in
-        arm-server | pc )
-          case $image_kernel_type in
-            edge )
-              _kernel_pkg="linux-edge"
-              _kernel_config_file="config-edge"
-              ;;
-            * )
-              _kernel_pkg="linux-lts"
-              _kernel_config_file="config-lts"
-              ;;
-          esac
-          ;;
-        rpi* )
-          case $image_physical_type in
-            rpi2 | rpi3 )
-              case $image_arch in
-                armv7 )
-                  _kernel_pkg="linux-rpi2"
-                  _kernel_config_file="config-rpi2"
-                  ;;
-                aarch64 )
-                  _kernel_pkg="linux-rpi"
-                  _kernel_config_file="config-rpi"
-                  ;;
-              esac
-              ;;
-            rpi4 )
-              _kernel_pkg="linux-rpi4"
-              _kernel_config_file="config-rpi4"
-              ;;
-          esac
-          ;;
-      esac
-      ;;
-  esac
+  _firmware_pkg="linux-firmware-none"
+
+  _kernel_pkg="linux-$(get_kernel_type)"
+  _kernel_config_file="config-$(get_kernel_type)"
 
   cat <<-EOF >> "$run_script"
 	
@@ -1978,9 +2994,12 @@ install_kernel() {
 	  _kernel_package_version=\$(get_kernel_package_version)
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	
+	  write_debug_log "Disk space usage after kernel installed:"
+	  df -k >> /chroot.log
+
 	  write_debug_log "Kernel is: \\\$_kernel_version"
 	  write_debug_log "Kernel package version is: \\\$_kernel_package_version"
 	
@@ -2016,534 +3035,6 @@ install_microcode() {
 
 
 #
-# LVM extents are 4MiB in size and so the size of a LV must be rounded
-# up to the nearest 4MiB multiple.
-#
-lvm_round_extents() {
-  local _size=$1
-
-  # 4MiB
-  local _extent=4
-
-  echo "$_size $_extent" | awk '{print int(($1/$2)+0.75)*$2}'
-}
-
-
-#
-# Partition the disk image for booting via BIOS
-#
-partition_bios() {
-  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
-  local _luks_part_start _luks_part_end _lvm_part_start _lvm_part_end
-
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Partitioning disk image for BIOS"
-	{
-	EOF
-
-  create_disk_label "msdos"
-
-  if [ -n "${image_encrypted+x}" ]; then
-    # Disk encryption
-
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # When using Syslinux with encrypted rootfs or when using remote
-      # unlock (whether with Grub or Syslinux) we need to create a separate
-      # boot partition which will be unencrypted.
-      boot_part_num=1
-      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
-      # partition alignment and to leave sufficient space for GRUB to use.
-      _boot_part_start="2"
-      _boot_part_end="$((_boot_part_start+image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
-        "${_boot_part_end}MiB" "$image_boot_part_size" "Boot" "boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=2
-        _cidata_part_start="${_boot_part_end}"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        luks_part_num=3
-        _luks_part_start="${_cidata_part_end}"
-        _luks_part_end="100%"
-      else
-        luks_part_num=2
-        _luks_part_start="${_boot_part_end}"
-        _luks_part_end="100%"
-      fi
-
-      create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
-        "$_luks_part_end" "$image_luks_part_size" "LUKS"
-    else
-      # GRUB and no remote unlock enabled
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=1
-        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _cidata_part_start="2"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        luks_part_num=2
-        _luks_part_start="$_cidata_part_end"
-        _luks_part_end="100%"
-      else
-        luks_part_num=1
-        # Start the 1st (LUKS) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _luks_part_start="2"
-        _luks_part_end="100%"
-      fi
-
-      create_disk_partition "$luks_part_num" "${_luks_part_start}MiB" \
-        "$_luks_part_end" "$image_luks_part_size" "LUKS" "boot"
-    fi
-
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    # LVM
-
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # When using Syslinux with LVM rootfs we need to create a separate
-      # boot partition.
-      boot_part_num=1
-      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
-      # partition alignment and to leave sufficient space for GRUB to use.
-      _boot_part_start="2"
-      _boot_part_end="$((_boot_part_start+image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
-        "${_boot_part_end}MiB" "$image_boot_part_size" "Boot" "boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        # Also create a separate partition for cloud-init config
-        cidata_part_num=2
-        _cidata_part_start="$_boot_part_end"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        lvm_part_num=3
-        _lvm_part_start="$_cidata_part_end"
-        _lvm_part_end="100%"
-      else
-        lvm_part_num=2
-        _lvm_part_start="$_boot_part_end"
-        _lvm_part_end="100%"
-      fi
-
-      create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
-        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
-    else
-      # no separate boot partition
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        # Create a separate partition for cloud-init config
-        cidata_part_num=1
-        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _cidata_part_start="2"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        lvm_part_num=2
-        _lvm_part_start="$_cidata_part_end"
-        _lvm_part_end="100%"
-      else
-        lvm_part_num=1
-        # Start the 1st (LVM) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _lvm_part_start="2"
-        _lvm_part_end="100%"
-      fi
-
-      create_disk_partition "$lvm_part_num" "${_lvm_part_start}MiB" \
-        "$_lvm_part_end" "$image_lvm_part_size" "LVM" "boot lvm"
-    fi
-  else
-    # No disk encryption, no LVM
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # A separate boot partition is to be created.
-      boot_part_num=1
-      # Start the 1st (boot) partition at 2MiB (4096 sectors) for both
-      # partition alignment and to leave sufficient space for GRUB to use.
-      _boot_part_start="2"
-      _boot_part_end="$((_boot_part_start+image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "${_boot_part_start}MiB" \
-        "${_boot_part_end}MiB" "$image_boot_part_size" "Boot" "boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=2
-        _cidata_part_start="$_boot_part_end"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        root_part_num=3
-        _root_part_start="$((_boot_part_end+CONSTANT_CIDATA_PART_SIZE))"
-        _root_part_end="100%"
-      else
-        root_part_num=2
-        _root_part_start="$_boot_part_end"
-        _root_part_end="100%"
-      fi
-
-      create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
-        "$_root_part_end" "$image_root_part_size" "Root"
-    else
-      # No boot partition created
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=1
-        # Start the 1st (cidata) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _cidata_part_start="2"
-        _cidata_part_end="$((_cidata_part_start+CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "${_cidata_part_start}MiB" \
-          "${_cidata_part_end}MiB" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-        root_part_num=2
-        _root_part_start="$_cidata_part_end"
-        _root_part_end="100%"
-      else
-        root_part_num=1
-        # Start the 1st (root) partition at 2MiB (4096 sectors) for both
-        # partition alignment and to leave sufficient space for GRUB to use.
-        _root_part_start="2"
-        _root_part_end="100%"
-      fi
-
-      create_disk_partition "$root_part_num" "${_root_part_start}MiB" \
-        "$_root_part_end" "$image_root_part_size" "Root" "boot"
-    fi
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
-# Partition for Raspberry Pi use
-#
-partition_rpi() {
-  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
-  local _other_part_num _other_part_start _other_part_end _other_part_size
-  local _other_part_desc _other_part_flags
-
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Partitioning disk image for Raspberry Pi"
-	{
-	EOF
-
-  create_disk_label "msdos"
-
-  boot_part_num="1"
-  _boot_part_start="0%"
-  _boot_part_end="${image_boot_part_size}MiB"
-
-  create_disk_partition "$boot_part_num" "$_boot_part_start" \
-    "$_boot_part_end" "$image_boot_part_size" "Boot" "" "fat32"
-
-  case $image_cloud_software in
-    cloud-init )
-      # cloud-init partition
-      cidata_part_num="2"
-      _cidata_part_start="${image_boot_part_size}MiB"
-      _cidata_part_end="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
-
-      create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-        "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-
-      _other_part_num="3"
-      _other_part_start="$((image_boot_part_size + CONSTANT_CIDATA_PART_SIZE))MiB"
-      _other_part_end="100%"
-
-      if [ -n "${image_encrypted+x}" ]; then
-        # Disk encryption
-        luks_part_num=$_other_part_num
-        _other_part_size=$image_luks_part_size
-        _other_part_desc="LUKS"
-      elif [ -n "${image_lvm_rootfs+x}" ]; then
-        # LVM
-        lvm_part_num=$_other_part_num
-        _other_part_size=$image_lvm_part_size
-        _other_part_desc="LVM"
-        _other_part_flags="lvm"
-      else
-        # No disk encryption
-        root_part_num=$_other_part_num
-        _other_part_size=$image_root_part_size
-        _other_part_desc="Root"
-      fi
-      ;;
-    * )
-      # No cloud-init partition
-      _other_part_num="2"
-      _other_part_start="${image_boot_part_size}MiB"
-      _other_part_end="100%"
-
-      if [ -n "${image_encrypted+x}" ]; then
-        # Disk encryption
-        luks_part_num=$_other_part_num
-        _other_part_size=$image_luks_part_size
-        _other_part_desc="LUKS"
-      elif [ -n "${image_lvm_rootfs+x}" ]; then
-        # LVM
-        lvm_part_num=$_other_part_num
-        _other_part_size=$image_lvm_part_size
-        _other_part_desc="LVM"
-        _other_part_flags="lvm"
-      else
-        # No disk encryption
-        root_part_num=$_other_part_num
-        _other_part_size=$image_root_part_size
-        _other_part_desc="Root"
-      fi
-      ;;
-  esac
-
-  create_disk_partition "$_other_part_num" "$_other_part_start" \
-    "$_other_part_end" "$_other_part_size" "$_other_part_desc" "${_other_part_flags:-}"
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-# 
-# Partition the disk image for booting via UEFI
-#
-partition_uefi() {
-  local _boot_part_start _boot_part_end _cidata_part_start _cidata_part_end
-  local _esp_part_type _luks_part_start _luks_part_end
-  local _lvm_part_start _lvm_part_end _uefi_part_start _uefi_part_end
-
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Partitioning disk image for UEFI"
-	{
-	EOF
-
-  create_disk_label "gpt"
-
-  uefi_part_num=1
-  # Start the 1st (ESP) partition at 1MiB (2048 sectors) for partition alignment.
-  _uefi_part_start="1"
-  _uefi_part_end="$((_uefi_part_start+image_uefi_part_size))"
-
-  case $esp_type in
-    fat12 | fat16 )
-      _esp_part_type="fat16" ;;
-    fat32 )
-      _esp_part_type="fat32" ;;
-  esac
-
-  create_disk_partition "$uefi_part_num" "$_uefi_part_start" \
-    "$_uefi_part_end" "$image_uefi_part_size" "ESP" "esp" "$_esp_part_type"
-  label_gpt_disk_partition 1 "ESP"
-
-  if [ -n "${image_encrypted+x}" ]; then
-    # Disk encryption
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # When using remote unlock with GRUB we need to create a separate boot
-      # partition which will be unencrypted. This is not needed for Syslinux
-      # as in that case the EFI partition contains the boot files.
-      boot_part_num=2
-      _boot_part_start="${_uefi_part_end}"
-      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "$_boot_part_start" \
-        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
-      label_gpt_disk_partition $boot_part_num "Boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=3
-        _cidata_part_start="${_boot_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        luks_part_num=4
-        _luks_part_start="${_cidata_part_end}"
-        _luks_part_end="100%"
-      else
-        luks_part_num=3
-        _luks_part_start="${_boot_part_end}"
-        _luks_part_end="100%"
-      fi
-    else
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=2
-        _cidata_part_start="${_uefi_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        luks_part_num=3
-        _luks_part_start="${_cidata_part_end}"
-        _luks_part_end="100%"
-      else
-        luks_part_num=2
-        _luks_part_start="${_uefi_part_end}"
-        _luks_part_end="100%"
-      fi
-    fi
-
-    create_disk_partition "$luks_part_num" "$_luks_part_start" \
-      "$_luks_part_end" "$image_luks_part_size" "LUKS"
-    label_gpt_disk_partition $luks_part_num "LUKS"
-
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    # LVM
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # When using Syslinux with LVM rootfs we need to create a separate
-      # boot partition.
-      boot_part_num=2
-      _boot_part_start="${_uefi_part_end}"
-      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "$_boot_part_start" \
-        "$_boot_part_end" "$image_boot_part_size" "Boot" "boot"
-      label_gpt_disk_partition $boot_part_num "Boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        # Also create a separate partition for cloud-init config
-        cidata_part_num=3
-        _cidata_part_start="${_boot_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        lvm_part_num=4
-        _lvm_part_start="${_cidata_part_end}"
-        _lvm_part_end="100%"
-      else
-        lvm_part_num=3
-        _lvm_part_start="${_boot_part_end}"
-        _lvm_part_end="100%"
-      fi
-    else
-      # no separate boot partition
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        # Create a separate partition for cloud-init config
-        cidata_part_num=2
-        _cidata_part_start="${_uefi_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        lvm_part_num=3
-        _lvm_part_start="${_cidata_part_end}"
-        _lvm_part_end="100%"
-      else
-        lvm_part_num=2
-        _lvm_part_start="${_uefi_part_end}"
-        _lvm_part_end="100%"
-      fi
-    fi
-
-    create_disk_partition "$lvm_part_num" "$_lvm_part_start" \
-      "$_lvm_part_end" "$image_lvm_part_size" "LVM" "lvm"
-    label_gpt_disk_partition $lvm_part_num "LVM"
-  else
-    # No disk encryption, no LVM
-    if [ -n "${needs_boot_partition+x}" ]; then
-      # A separate boot partition is to be created.
-      boot_part_num=2
-      _boot_part_start="${_uefi_part_end}"
-      _boot_part_end="$((_boot_part_start + image_boot_part_size))"
-
-      create_disk_partition "$boot_part_num" "$_boot_part_start" \
-        "$_boot_part_end" "$image_boot_part_size" "Boot"
-      label_gpt_disk_partition $boot_part_num "Boot"
-
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=3
-        _cidata_part_start="${_boot_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        root_part_num=4
-        _root_part_start="${_cidata_part_end}"
-        _root_part_end="100%"
-      else
-        root_part_num=3
-        _root_part_start="${_boot_part_end}"
-        _root_part_end="100%"
-      fi
-    else
-      # No boot partition
-      if [ "$image_class" = "physical" ] && \
-         [ "$image_cloud_software" = "cloud-init" ]; then
-        cidata_part_num=2
-        _cidata_part_start="${_uefi_part_end}"
-        _cidata_part_end="$((_cidata_part_start + CONSTANT_CIDATA_PART_SIZE))"
-
-        create_disk_partition "$cidata_part_num" "$_cidata_part_start" \
-          "$_cidata_part_end" "$CONSTANT_CIDATA_PART_SIZE" "cidata"
-        label_gpt_disk_partition $cidata_part_num "cidata"
-
-        root_part_num=3
-        _root_part_start="${_cidata_part_end}"
-        _root_part_end="100%"
-      else
-        root_part_num=2
-        _root_part_start="${_uefi_part_end}"
-        _root_part_end="100%"
-      fi
-    fi
-
-    create_disk_partition "$root_part_num" "$_root_part_start" \
-      "$_root_part_end" "$image_root_part_size" "Root"
-    label_gpt_disk_partition $root_part_num "Root"
-
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
 # Prepare the main section of the run script
 #
 prep_runscript_main_section() {
@@ -2565,21 +3056,32 @@ prep_runscript_main_section() {
 	
 	EOF
 
-  if [ -n "${image_console_user_password+x}" ]; then
+  if [ -n "$image_console_user_password" ]; then
     cat <<-EOF >> "$run_script"
 	console_user_password="${image_console_user_password}"
 	EOF
   fi
 
-  if [ -n "${image_default_user_password+x}" ]; then
+  if [ -n "$image_default_user_password" ]; then
     cat <<-EOF >> "$run_script"
 	default_user_password="${image_default_user_password}"
 	EOF
   fi
 
-  if [ -n "${image_encrypted+x}" ]; then
+  case $image_encryption_type in
+    both | luks )
+      cat <<-EOF >> "$run_script"
+	luks_passphrase="${image_luks_passphrase}"
+	EOF
+      ;;
+  esac
+
+  if [ -n "$image_bootloader_password" ]; then
     cat <<-EOF >> "$run_script"
-	encryption_passphrase="${image_encryption_passphrase}"
+	
+	bootloader_username="${image_bootloader_username}"
+	# shellcheck disable=SC2169
+	bootloader_hashed_password="\$(printf "%s\n%s" $image_bootloader_password $image_bootloader_password | LC_ALL=C grub-mkpasswd-pbkdf2 | awk '/hash of / {print \$NF}')"
 	EOF
   fi
 
@@ -2590,57 +3092,33 @@ prep_runscript_main_section() {
 	
 	EOF
 
-if [ -n "${use_ramdisk+x}" ]; then
-  cat <<-EOF >> "$run_script"
+  if [ -n "$use_ramdisk" ]; then
+    cat <<-EOF >> "$run_script"
 	ramdisk_dir="${ramdisk_directory}"
 	image_full_filename="\$ramdisk_dir/\$image_filename"
 	EOF
-else
-  cat <<-'EOF' >> "$run_script"
+  else
+    cat <<-'EOF' >> "$run_script"
 	image_full_filename="$images_dir/$image_filename"
 	EOF
-fi
+  fi
 
-cat <<-EOF >> "$run_script"
+  cat <<-'EOF' >> "$run_script"
 	
 	check_for_required_packages
-	check_binfmt_packages
-	
-	mkdir -p \$images_dir
-	EOF
-}
-
-
-#
-# Create the /etc/crypttab file
-#
-setup_crypttab() {
-  local _crypttab_options="luks"
-
-  case $image_os_device_media in
-    sd | ssd )
-      # Enable discard to be triggered at intervals by fstrim via cron.
-      _crypttab_options="$_crypttab_options,discard" ;;
-  esac
-
-  cat <<-EOF >> "$run_script"
-	
-	write_log "Creating /etc/crypttab" 2
-	echo \\
-	  "${CONSTANT_LUKS_DEVICE_NAME} UUID=\${luks_part_uuid} /crypto_keyfile.bin $_crypttab_options" \\
-	  > /etc/crypttab
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ "$image_script_host_arch" = "all" ] || \
+     [ "$image_script_host_arch" != "$image_arch" ]; then
     cat <<-'EOF' >> "$run_script"
-	
-	# Debug
-	{
-	  write_debug_log "/etc/crypttab contents:" 4
-	  cat /etc/crypttab >> /chroot.log
-	}
+	check_binfmt_packages
 	EOF
   fi
+
+  cat <<-'EOF' >> "$run_script"
+	
+	mkdir -p $images_dir
+	EOF
 }
 
 
@@ -2659,7 +3137,7 @@ setup_dropbear_authorized_keys() {
 	}
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
@@ -2673,381 +3151,73 @@ setup_dropbear_authorized_keys() {
 
 
 #
-# Configure modules to be loaded upon boot
+# Source additional definitions files
 #
-setup_etc_modules() {
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Setup /etc/modules"
-	{
-	EOF
+source_additional_definitions_files(){
+  local _source_script
 
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    cp /etc/modules /etc/modules-orig
-	  }
-	EOF
-  fi
-
-  cat <<'EOF' >> "$run_script"
-
-  cat <<-_SCRIPT_ > /etc/modules
-	af_packet
-EOF
-
-  if [ -z "${image_disable_ipv6+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-	ipv6
-EOF
-  fi
-
-  if [ -n "${image_encrypted+x}" ]; then
-    cat <<'EOF' >> "$run_script"
-	
-	# LUKS
-	dm-crypt
-EOF
-  fi
-
-  if [ -n "${image_experimental+x}" ]; then
-    # Experimental
-
-    if [ -n "${image_encrypted+x}" ] && \
-       [ -n "${remote_unlock_enabled+x}" ]; then
-      # Add network module(s) need for remote encryption unlock
-      case $image_class in
-        physical )
-          if [ "$image_physical_type" = "pc" ] && \
-             [ -n "${remote_unlock_network_module}" ]; then
-            cat <<EOF >> "$run_script"
-	
-	# For remote SSH unlock
-	$remote_unlock_network_module
-EOF
-          else
-            cat <<'EOF' >> "$run_script"
-	
-	# For remote SSH unlock
-	e1000
-EOF
-          fi
-          ;;
-        virtual )
-          if [ "$image_vm_type" = "vmware" ]; then
-            cat <<'EOF' >> "$run_script"
-	
-	# For remote SSH unlock
-	vmxnet3
-EOF
-          else
-            cat <<'EOF' >> "$run_script"
-	
-	# For remote SSH unlock
-	virtio_net
-	virtio_pci
-EOF
-          fi
-          ;;
-      esac
-    fi
-  fi # Experimental
-
-###  cat <<'EOF' >> "$run_script"
-###
-###	# Used by rngd
-###	jitterentropy_rng
-###EOF
-
-  case $image_class in
-    cloud )
-      case $image_cloud_software in
-        cloud-init )
-          etc_modules_list_for_cloud_init ;;
-      esac
-      ;;
-    physical )
-      etc_modules_list_for_physical ;;
-    virtual )
-      etc_modules_list_for_virtual ;;
-  esac
-
-
-  if [ -n "${image_extra_modules+x}" ]; then
-    # Add any specified extra modules to the list
-    cat <<'EOF' >> "$run_script"
-	
-	# Extra modules
-EOF
-    for _module in $image_extra_modules; do
-      cat <<EOF >> "$run_script"
-	$_module
-EOF
-    done
-  fi
-
-
-  cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    diff /etc/modules-orig /etc/modules >> /chroot.log || true
-	    rm /etc/modules-orig
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
-# Setup the LUKS device
-#
-setup_luks_device() {
-  case $image_bootloader in
-    grub )
-      if [ -n "${image_no_grub_encryption+x}" ] || \
-         [ -n "${needs_boot_partition+x}" ] || \
-         { [ "$image_alpine_release" != "v3.13" ] && \
-           [ "$image_encryption_cipher" != "adiantum" ]; }; then
-        # Only use LUKSv2 with GRUB if:
-        # - GRUB's own support for LUKS is disabled, OR
-        # - a separate /boot (unencrypted) partition is also used, OR
-        # - Alpine > 3.13 & Adantium is not used as LUKS cipher (which GRUB does not support)
-        ###image_luks_version="2"
-        #
-        # GRUB 2.06's LUKSv2 FDE support does not actually appear to work so
-        # only use v1 until it is fixed
-        image_luks_version="1"
-      else
-        image_luks_version="1"
-      fi
-      ;;
-    * )
-      image_luks_version="2" ;;
-  esac
-
-  cat <<-EOF >> "$run_script"
-	
-	write_log "Setting up LUKS v${image_luks_version} device using ${image_encryption_cipher} cipher"
-	{
-	  luks_device="\${loop_device}p${luks_part_num}"
-	  write_log "Formatting partition as LUKS version ${image_luks_version}" 2
-	  echo "\$encryption_passphrase" | cryptsetup -q --verbose luksFormat \\
-	    --pbkdf pbkdf2 --sector-size ${image_os_device_sector_size} --type luks${image_luks_version} --label ${CONSTANT_LUKS_LABEL} \\
-	EOF
-
-  case $image_encryption_cipher in
-    adiantum )
-      cat <<-'EOF' >> "$run_script"
-	    --cipher xchacha12,aes-adiantum-plain64 --hash sha256 --key-size 256 \
-	EOF
-      ;;
-    * )
-      cat <<-'EOF' >> "$run_script"
-	    --cipher aes-xts-plain64 --hash sha256 --key-size 512 \
-	EOF
-      ;;
-  esac
-
-  cat <<-'EOF' >> "$run_script"
-	    "$luks_device" >> "$logfile" 2>&1
-	EOF
-
-###      --offset 8 \
-
-  if [ "$image_bootloader" = "grub" ] && \
-     { [ -z "${image_experimental+x}" ] || \
-       [ -z "${remote_unlock_enabled+x}" ]; } && \
-     [ -z "${image_no_grub_encryption+x}" ] && \
-     [ -z "${needs_boot_partition+x}" ]; then
-    # When:
-    #  - disk image is encrypted, AND
-    #  - bootloader is Grub, AND
-    #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
-    #  - Grub LUKS encryption support is not disabled, AND
-    #  - /boot is not a separate partition
-    # then create a keyfile - this will be placed in the initramfs and used to
-    # unlock the rootfs - this prevents being prompted for passphrase twice,
-    # once by Grub and then again by initramfs.
-    cat <<-EOF >> "$run_script"
-	
-	  write_log "Creating keyfile for LUKS" 2
-	  dd bs=512 count=4 if=/dev/random of=crypto_keyfile.bin iflag=fullblock \\
-	    >> "\$logfile" 2>&1
-	
-	  write_log "Adding keyfile to LUKS device" 2
-	  echo "\$encryption_passphrase" | \\
-	    cryptsetup luksAddKey "\$luks_device" ./crypto_keyfile.bin >> "\$logfile"
-	
-	  write_log "Opening LUKS device" 2
-	  cryptsetup open --type luks${image_luks_version} --key-file ./crypto_keyfile.bin \\
-	    "\$luks_device" ${CONSTANT_LUKS_DEVICE_NAME}
-	EOF
+  # source e.g. cloud/defines, physical/defines, virtual/defines
+  _source_script="$script_dir/definitions/$image_class/defines"
+  if [ ! -f "$_source_script" ]; then
+    error_message "Unable to source settings for $image_class (definitions/$image_class/defines)!"
   else
-    # Remote unlock enabled, use default passphrase to open
-    cat <<-EOF >> "$run_script"
-	
-	  write_log "Opening LUKS device" 2
-	  echo "\$encryption_passphrase" | \\
-	    cryptsetup open --type luks${image_luks_version} "\$luks_device" ${CONSTANT_LUKS_DEVICE_NAME} -
-	EOF
+    . "$_source_script"
   fi
 
-  cat <<-'EOF' >> "$run_script"
-	  luks_part_uuid=$(get_uuid_from_device "$luks_device")
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_log "Show LUKS device details" 2
-	    cryptsetup luksDump "$luks_device" >> "$logfile"
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
-# Setup the LVM device
-#
-setup_lvm_device() {
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Setting up LVM device"
-	{
-	EOF
-
-  if [ -n "${image_encrypted+x}" ]; then
-    # LVM on top of LUKS
-    cat <<-EOF >> "$run_script"
-	  lvm_device="/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
-	EOF
+  # source e.g. cloud/aws/defines, physical/pc/defines, virtual/qemu/defines
+  _source_script="$script_dir/definitions/$image_class/$image_class_subtype/defines"
+  if [ ! -f "$_source_script" ]; then
+    error_message "Unable to source settings for $class_type_description (definitions/$image_class/$image_class_subtype/defines)!"
   else
-    cat <<-EOF >> "$run_script"
-	  lvm_device="\${loop_device}p${lvm_part_num}"
-	EOF
+    . "$_source_script"
   fi
 
-  cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Creating LVM physical volume" 2
-	  pvcreate --verbose "$lvm_device" >> "$logfile" 2>&1
-	  _pv_size=$(pvdisplay --verbose 2>&1 | grep "PV Size" | sed -e 's/^.*PV Size[ ]*//' -e 's/\.[0-9]* MiB.*$//')
-	  write_debug_log "    Resultant PV size ${_pv_size}MiB"
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Physical volume info:"
-	    pvdisplay --verbose >> "$logfile" 2>&1
-	  }
-	EOF
-  fi
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Creating LVM volume group" 2
-	  vgcreate --verbose ${CONSTANT_LVM_VG_NAME} "\$lvm_device" >> "\$logfile" 2>&1
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "Volume group info:"
-	    vgdisplay --verbose ${CONSTANT_LVM_VG_NAME} >> "\$logfile" 2>&1
-	  }
-	EOF
-  fi
-
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Creating $(calculate_lvm_root_lv_size)MiB LVM logical volume for rootfs" 2
-	  lvcreate --verbose -L $(calculate_lvm_root_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_ROOT_LV_NAME} >> "\$logfile" 2>&1
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "rootfs Logical Volume info:"
-	    lvs --verbose ${CONSTANT_LVM_VG_NAME}/${CONSTANT_LVM_ROOT_LV_NAME} >> "\$logfile" 2>&1
-	
-	    write_debug_log "Volume group info:"
-	    vgdisplay --verbose ${CONSTANT_LVM_VG_NAME} >> "\$logfile" 2>&1
-	  }
-	EOF
-  fi
-
-  if [ -z "${needs_boot_partition+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  write_log "Creating $(calculate_lvm_boot_lv_size)MiB LVM logical volume for boot" 2
-	  lvcreate --verbose -L $(calculate_lvm_boot_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_BOOT_LV_NAME} >> "\$logfile" 2>&1
-	EOF
-
-    if [ -n "${debug_enabled+x}" ]; then
-      cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "boot Logical Volume info:"
-	    lvs --verbose ${CONSTANT_LVM_VG_NAME}/${CONSTANT_LVM_BOOT_LV_NAME} >> "\$logfile" 2>&1
-	
-	    write_debug_log "Volume group info:"
-	    vgdisplay --verbose ${CONSTANT_LVM_VG_NAME} >> "\$logfile" 2>&1
-	  }
-	EOF
+  if [ -z "$image_arch" ]; then
+    if [ -n "$CADI_DEFAULT_ARCH" ] && \
+       is_in_comma_list "$CADI_DEFAULT_ARCH" "$CADI_SUPPORTED_ARCHS"; then
+      image_arch="$CADI_DEFAULT_ARCH"
+    elif [ -n "$CADI_SUPPORTED_ARCHS" ]; then
+      image_arch="$(first_entry_in_comma_list "$CADI_SUPPORTED_ARCHS")"
+    else
+      error_message "No archs defined for $class_type_description!"
     fi
   fi
 
-  cat <<-EOF >> "$run_script"
-	
-	  write_log "Creating $(calculate_lvm_logs_lv_size)MiB LVM logical volume for logs" 2
-	  lvcreate --verbose -L $(calculate_lvm_logs_lv_size)m ${CONSTANT_LVM_VG_NAME} -n ${CONSTANT_LVM_LOGS_LV_NAME} >> "\$logfile" 2>&1
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-EOF >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "logs Logical Volume info:"
-	    lvs --verbose ${CONSTANT_LVM_VG_NAME}/${CONSTANT_LVM_LOGS_LV_NAME} >> "\$logfile" 2>&1
-	
-	    write_debug_log "Volume group info:"
-	    vgdisplay --verbose ${CONSTANT_LVM_VG_NAME} >> "\$logfile" 2>&1
-	
-	    write_debug_log "lvscan output:"
-	    lvscan --verbose >> "\$logfile" 2>&1
-	  }
-	EOF
+  # source e.g. packages/aarch64-packages-defines,
+  # packages/armv7-packages-defines, packages/x86-packages-defines,
+  # packages/x86_64-packages-defines
+  _source_script="$script_dir/lib/packages/$image_arch-packages-defines"
+  if [ ! -f "$_source_script" ]; then
+    error_message "Unable to source settings from $_source_script!"
+  else
+    . "$_source_script"
   fi
 
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
+  # source e.g. cloud/x86_64-defines, physical/x86_64-defines, virtual/x86_64-defines
+  _source_script="$script_dir/definitions/$image_class/$image_arch-defines"
+  if [ ! -f "$_source_script" ]; then
+    error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
+  else
+    . "$_source_script"
+  fi
+
+  # source e.g. cloud/x86_64-normal-defines, physical/x86_64-normal-defines, virtual/x86_64-normal-defines
+  _source_script="$script_dir/definitions/$image_class/$image_arch-$(if [ -n "$image_barebones" ]; then echo "barebones"; else echo "normal"; fi)-defines"
+  if [ ! -f "$_source_script" ]; then
+    error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
+  else
+    . "$_source_script"
+  fi
+
+  if is_in_comma_list "$image_arch" "$CADI_SUPPORTED_ARCHS"; then
+    # source e.g. cloud/aws/x86_64-defines, physical/pc/x86_64-defines, virtual/qemu/x86_64-defines
+    _source_script="$script_dir/definitions/$image_class/$image_class_subtype/$image_arch-defines"
+    if [ ! -f "$_source_script" ]; then
+      error_message "Unable to source settings for $class_type_description for arch $image_arch ($_source_script)!"
+    else
+      . "$_source_script"
+    fi
+  else
+    error_message "Arch $image_arch is not supported for $class_type_description"
+  fi
 }

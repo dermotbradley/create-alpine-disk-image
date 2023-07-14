@@ -1,0 +1,33 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  physical-rpi4-aarch64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="none"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="rpi"
+readonly CADI_SUPPORTED_BOOTLOADER="rpi"
+readonly CADI_SUPPORTED_CLOCKSOURCES="arch_sys_counter"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="usb"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+
+
+# Defaults
+readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
+
+
+# Additional
+readonly CADI_BOOT_PARTITION_REQUIRED=true
+readonly CADI_KERNEL_PACKAGE="linux-rpi4"

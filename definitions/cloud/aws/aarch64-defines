@@ -1,0 +1,54 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud aws aarch64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="gpio,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="uefi"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
+readonly CADI_SUPPORTED_CLOCKSOURCES="arch_sys_counter"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,normal_and_serial,serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="usb"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="nvme,virtio-blk"
+readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="ena"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyAMA"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_VIRTIO_CONSOLE=false
+readonly CADI_SUPPORTED_VIRTIO_CRYPTO=false
+
+
+# Defaults
+readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CLOCKSOURCE="arch_sys_counter"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal_and_serial"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-blk"
+
+
+# Additional
+readonly CADI_PACKAGES_ADDITIONAL="irqbalance"
+# Size of packages & all their dependencies (in MB)
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=4
+
+readonly CADI_CLOUD_CLI_PACKAGES="aws-cli"
+# Size of packages & all their dependencies (in MB)
+readonly CADI_CLOUD_CLI_PACKAGES_SIZE=17
+
+readonly CADI_PACKAGES_EXTRA="nvme-cli"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=1

@@ -1,0 +1,345 @@
+#!/bin/sh
+# shellcheck disable=SC1117,SC2039
+
+#############################################################################
+##
+##  lvm-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Calculate size of a LVM LV for a filesystem, taking into account LV overhead
+#
+# Params:
+#
+#   - the filesystem size
+#
+calculate_lvm_lv_size() {
+  local _fs_size=$1
+
+  local  _lv_total_size _reserved _reserved_percent
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_lv_size, initial filesystem size is $_fs_size MiB" >> "$sizing_debug"
+  fi
+
+  _reserved_percent=$(fs_overhead)
+  if [ "$_reserved_percent" -gt 0 ]; then
+    _reserved=$(( ((_fs_size * _reserved_percent + 99) / 100) ))
+    _lv_total_size=$(( _fs_size + _reserved ))
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_lvm_lv_size, allowing for $image_fs_type $_reserved_percent% reserved ($_reserved) MiB), size is now $_lv_total_size MiB" >> "$sizing_debug"
+    fi
+  else
+    _lv_total_size=$_fs_size
+  fi
+
+  # Round up to next extent
+  _lv_total_size=$(lvm_round_extents "$_lv_total_size")
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_lv_size, rounding up to next extent, final LV size is now $_lv_total_size MiB" >> "$sizing_debug"
+  fi
+
+  echo "$_lv_total_size"
+}
+
+
+# Calculate size of the LVM partition taking into account whether
+# separate boot partition is not needed (so boot files add to size).
+#
+calculate_lvm_part_size() {
+  local _lvm_overhead _part_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_part_size, determining VG size" >> "$sizing_debug"
+  fi
+
+  _part_size=$(calculate_lvm_vg_size)
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_part_size, LVM LV size of $_part_size MiB" >> "$sizing_debug"
+  fi
+
+  _lvm_overhead=$(( ((_part_size * CADI_LVM_OVERHEAD_PERCENT + 99) / 100) ))
+  _part_size=$(( _part_size + _lvm_overhead ))
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_part_size, adding LVM overhead ($(( _lvm_overhead )) MiB), total LVM partition size is $_part_size MiB" >> "$sizing_debug"
+  fi
+
+  echo "$_part_size"
+}
+
+
+# Calculate size of the LVM VG taking into account whether
+# separate boot partition is not needed (so boot files add to size).
+#
+calculate_lvm_vg_size() {
+  local _boot_total_size _root_total_size _logs_total_size _vg_total_size
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_vg_size, determining Root LV size" >> "$sizing_debug"
+  fi
+
+  _root_total_size=$(calculate_lvm_lv_size "$general_rootfs_size")
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_vg_size, determining Logs LV size" >> "$sizing_debug"
+  fi
+
+  case $image_fs_type in
+    btrfs )
+      _logs_total_size=$(calculate_lvm_lv_size "$((CADI_LVM_LOGS_LV_SIZE + 12))") ;;
+    * )
+      _logs_total_size=$(calculate_lvm_lv_size "$CADI_LVM_LOGS_LV_SIZE") ;;
+  esac
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    {
+      echo "calculate_lvm_vg_size, Root LV size is $_root_total_size MiB"
+      echo "calculate_lvm_vg_size, Logs LV size is $_logs_total_size MiB"
+    } >> "$sizing_debug"
+  fi
+
+  _vg_total_size=$(( _root_total_size + _logs_total_size ))
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "calculate_lvm_vg_size, adding Root & Logs LVs together gives VG size of $_vg_total_size MiB" >> "$sizing_debug"
+  fi
+
+  if [ "$image_create_boot_partition" != "true" ]; then
+    # /boot is a LV as part of VG
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_lvm_vg_size, determining Boot LV size" >> "$sizing_debug"
+    fi
+
+    _boot_total_size=$(calculate_lvm_lv_size "$general_bootfs_size")
+    _vg_total_size=$(( _vg_total_size + _boot_total_size ))
+
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "calculate_lvm_vg_size, adding Boot LV ($_boot_total_size MiB) gives VG size of $_vg_total_size MiB" >> "$sizing_debug"
+    fi
+  fi
+
+  # Add extra extend to size for luck ;-)
+  _vg_total_size=$(( _vg_total_size + 4 ))
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    {
+      echo "calculate_lvm_vg_size, adding extra 4 MiB extent to size"
+      echo "calculate_lvm_vg_size, LVM VG total size of $_vg_total_size MiB"
+    } >> "$sizing_debug"
+  fi
+
+  echo "$_vg_total_size"
+}
+
+
+#
+# LVM extents are 4MiB in size and so the size of a LV must be rounded
+# up to the nearest 4MiB multiple.
+#
+lvm_round_extents() {
+  local _size=$1
+
+  # 4MiB
+  local _extent=4
+
+  echo "$_size $_extent" | awk '{print int(($1/$2)+0.75)*$2}'
+}
+
+
+#
+# Setup the LVM device
+#
+setup_lvm_device() {
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Setting up LVM device"
+	{
+	EOF
+
+  case $image_encryption_type in
+    both | luks )
+      # LVM on top of LUKS
+      cat <<-EOF >> "$run_script"
+	  lvm_device="/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
+	EOF
+      ;;
+    * )
+      cat <<-EOF >> "$run_script"
+	  lvm_device="\${loop_device}p${lvm_part_num}"
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Creating LVM physical volume" 2
+	  pvcreate --verbose "$lvm_device" >> "$logfile" 2>&1
+	  _pv_size=$(pvdisplay --verbose 2>&1 | grep "PV Size" | sed -e 's/^.*PV Size[ ]*//' -e 's/\.[0-9]* MiB.*$//')
+	  write_debug_log "    Resultant PV size ${_pv_size}MiB"
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Physical volume info:"
+	    pvdisplay --verbose >> "$logfile" 2>&1
+	  }
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating LVM volume group" 2
+	  vgcreate --verbose ${CADI_LVM_VG_NAME} "\$lvm_device" >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "Volume group info:"
+	    vgdisplay --verbose ${CADI_LVM_VG_NAME} >> "\$logfile" 2>&1
+	  }
+	EOF
+  fi
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "setup_lvm_device, determining Root LV size for LV creation" >> "$sizing_debug"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating $(calculate_lvm_lv_size "$general_rootfs_size")MiB LVM logical volume for rootfs" 2
+	  lvcreate --verbose -L $(calculate_lvm_lv_size "$general_rootfs_size")m ${CADI_LVM_VG_NAME} -n ${CADI_LVM_ROOT_LV_NAME} >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "rootfs Logical Volume info:"
+	    lvs --verbose ${CADI_LVM_VG_NAME}/${CADI_LVM_ROOT_LV_NAME} >> "\$logfile" 2>&1
+	
+	    write_debug_log "Volume group info:"
+	    vgdisplay --verbose ${CADI_LVM_VG_NAME} >> "\$logfile" 2>&1
+	  }
+	EOF
+  fi
+
+  if [ "$image_create_boot_partition" != "true" ]; then
+    if [ -n "$debug_sizing_enabled" ]; then
+      echo "setup_lvm_device, determining Boot LV size for LV creation" >> "$sizing_debug"
+    fi
+
+    cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating $(calculate_lvm_lv_size "$general_bootfs_size")MiB LVM logical volume for boot" 2
+	  lvcreate --verbose -L $(calculate_lvm_lv_size "$general_bootfs_size")m ${CADI_LVM_VG_NAME} -n ${CADI_LVM_BOOT_LV_NAME} >> "\$logfile" 2>&1
+	EOF
+
+    if [ -n "$debug_enabled" ]; then
+      cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "boot Logical Volume info:"
+	    lvs --verbose ${CADI_LVM_VG_NAME}/${CADI_LVM_BOOT_LV_NAME} >> "\$logfile" 2>&1
+	
+	    write_debug_log "Volume group info:"
+	    vgdisplay --verbose ${CADI_LVM_VG_NAME} >> "\$logfile" 2>&1
+	  }
+	EOF
+    fi
+  fi
+
+  if [ -n "$debug_sizing_enabled" ]; then
+    echo "setup_lvm_device, determining Logs LV size for LV creation" >> "$sizing_debug"
+  fi
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Creating $(calculate_lvm_lv_size "$CADI_LVM_LOGS_LV_SIZE")MiB LVM logical volume for logs" 2
+	  lvcreate --verbose -L $(calculate_lvm_lv_size "$CADI_LVM_LOGS_LV_SIZE")m ${CADI_LVM_VG_NAME} -n ${CADI_LVM_LOGS_LV_NAME} >> "\$logfile" 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "logs Logical Volume info:"
+	    lvs --verbose ${CADI_LVM_VG_NAME}/${CADI_LVM_LOGS_LV_NAME} >> "\$logfile" 2>&1
+	
+	    write_debug_log "Volume group info:"
+	    vgdisplay --verbose ${CADI_LVM_VG_NAME} >> "\$logfile" 2>&1
+	
+	    write_debug_log "lvscan output:"
+	    lvscan --verbose >> "\$logfile" 2>&1
+	  }
+	EOF
+  fi
+
+  case $image_os_device_media in
+    sdcard | ssd )
+      # Enable discard to be triggered at intervals by fstrim via cron.
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Enabling discard/trim support in lvm.conf" 2
+	  {
+	EOF
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      cp /etc/lvm/lvm.conf /etc/lvm/lvm.conf-orig
+	    }
+	
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	    sed -i \
+	      -e 's/# issue_discards = [0-1]+/issue_discards = 1/g' \
+	      -e 's/# thin_pool_discards = "[a-zA-Z]*"/thin_pool_discards = "passdown"/g' \
+	      /etc/lvm/lvm.conf
+	EOF
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    {
+	      diff /etc/lvm/lvm.conf-orig /etc/lvm/lvm.conf \
+	        >> /chroot.log || true
+	      rm /etc/lvm/lvm.conf-orig
+	    }
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}

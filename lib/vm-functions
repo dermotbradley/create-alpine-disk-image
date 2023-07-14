@@ -5,7 +5,7 @@
 ##
 ##  vm-functions
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
@@ -13,448 +13,28 @@
 
 
 #
-# Create VM Hyper-V mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_hyperv() {
-  # vm-hyperv.modules
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  {
-	    write_log "Setting up features.d/vm-hyperv.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-hyperv"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  if [ -n "${image_optimise+x}" ]; then
-    ###initramfs_entry_add "kernel/drivers/hv/hv_balloon.ko*"
-    initramfs_entry_add "kernel/drivers/hv/hv_utils.ko*"
-    initramfs_entry_add "kernel/drivers/hv/hv_vmbus.ko*"
-    ###initramfs_entry_add "kernel/drivers/net/hyperv/hv_netsvc.ko*"
-  else
-    initramfs_entry_add "kernel/drivers/hv"
-    ###initramfs_entry_add "kernel/drivers/net/hyperv"
-  fi
-  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-  initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
-  case $image_alpine_release in
-    v3.13 | v3.14 )
-      initramfs_entry_add "kernel/drivers/video/fbdev/hyperv_fb.ko*" ;;
-    * )
-      initramfs_entry_add "kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*" ;;
-  esac
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-hyperv.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-hyperv.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create VM QEMU mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_qemu() {
-  # vm-qemu.modules
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  # vm-qemu
-	  {
-	    write_log "Setting up features.d/vm-qemu.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-qemu"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
-  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
-  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-  initramfs_entry_add "kernel/drivers/crypto/virtio"
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi | usb )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
-  esac
-
-  ###initramfs_entry_add "kernel/drivers/virtio"
-
-  if [ -n "${remote_unlock_enabled+x}" ]; then
-    initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
-  fi
-
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-qemu.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-qemu.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create VM QEMU Microvm mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_qemu_microvm() {
-  # vm-qemu.modules
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  {
-	    write_log "Setting up features.d/vm-qemu-microvm.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-qemu"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
-  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-  initramfs_entry_add "kernel/drivers/crypto/virtio"
-  initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-  ###initramfs_entry_add "kernel/drivers/virtio"
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-qemu-microvm.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-qemu-microvm.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create VM Virtio mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_virtio() {
-  # vm-virtio.modules
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  {
-	    write_log "Setting up features.d/vm-virtio.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-virtio"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  initramfs_entry_add "kernel/drivers/gpu/drm/bochs/bochs-drm.ko*"
-  initramfs_entry_add "kernel/drivers/gpu/drm/virtio"
-  initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-  initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-  initramfs_entry_add "kernel/drivers/crypto/virtio"
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi | usb )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
-  esac
-  ###initramfs_entry_add "kernel/drivers/virtio"
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-virtio.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-virtio.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create VM Virtualbox mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_virtualbox() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  {
-	    write_log "Setting up features.d/vm-virtualbox.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-virtualbox"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  if [ -n "${image_optimise+x}" ]; then
-    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
-    ###initramfs_entry_add "kernel/drivers/virt/vboxguest/vboxguest.ko*"
-    ###initramfs_entry_add "kernel/drivers/virtio/virtio.ko*"
-    ###initramfs_entry_add "kernel/drivers/virtio/virtio_pci.ko*"
-    ###initramfs_entry_add "kernel/drivers/virtio/virtio_ring.ko*"
-  else
-    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
-    ###initramfs_entry_add "kernel/drivers/virt/vboxguest"
-    ###initramfs_entry_add "kernel/drivers/virtio"
-  fi
-  if [ -n "${remote_unlock_enabled+x}" ]; then
-    initramfs_entry_add "kernel/drivers/net/virtio_net.ko*"
-  fi
-  case $image_os_device_type in
-    nvme )
-      initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-      ;;
-    sata | scsi )
-      initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-      initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-      ;;
-  esac
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-virtualbox.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-virtualbox.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create VM VMware mkinitfs feature file
-#
-configure_mkinitfs_feature_vm_vmware() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  {
-	    write_log "Setting up features.d/vm-vmware.modules" 2
-	EOF
-
-  initramfs_entry_initialise "vm-vmware"
-  initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-  if [ -n "${image_optimise+x}" ]; then
-    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx/vmwgfx.ko*"
-  else
-    initramfs_entry_add "kernel/drivers/gpu/drm/vmwgfx"
-  fi
-  initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-  initramfs_entry_add "kernel/drivers/message/fusion/mptspi.ko*"
-  initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-  initramfs_entry_add "kernel/drivers/scsi/sr_mod.ko*"
-  if [ -n "${remote_unlock_enabled+x}" ]; then
-    initramfs_entry_add "kernel/drivers/net/vmxnet3"
-  fi
-  initramfs_entry_finish
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "vm-vmware.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/vm-vmware.modules >> /chroot.log
-	    }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Define default settings for Virtual
-#
-default_virtual_settings() {
-  esp_type="${esp_type:-$CONSTANT_VIRTUAL_ESP_TYPE}"
-  filename_for_image="${filename_for_image:-alpine-$image_alpine_release-$image_arch-$image_class-$image_vm_type.img}"
-
-  # Cloud software (cloud-init or tiny-cloud)
-  image_cloud_software="${image_cloud_software:-cloud-init}"
-  case $image_cloud_software in
-    tiny-cloud )
-      error_message "tiny-cloud is not supported for virtual machines!" ;;
-  esac
-
-  # NTP
-  if [ -z "${image_experimental+x}" ] && [ "${image_ntp_use_host+x}" = "true" ]; then
-    error_message "PTP/NTP host sync is currently experimental! Full support is not present in released Alpine packages."
-  fi
-  # The majority of VM hypervisors do not support PTP host time sync.
-  image_ntp_use_host=${image_ntp_use_host:-false}
-  if [ -n "${image_ntp_servers+x}" ]; then
-    error_message "NTP servers can only be specified for physical servers, other servers obtain this information from user-data!"
-  fi
-
-  if [ -n "${image_console_type+x}" ]; then
-    case $image_console_type in
-      hypervisor )
-        image_console_name="hvc0" ;;
-      normal )
-        image_console_name="tty0"
-        case $image_arch in
-          aarch64 )
-            # aarch64 VMs normally use USB keyboards
-            image_keyboard_type="${image_keyboard_type:-usb}" ;;
-          x86 | x86_64 )
-            case $image_vm_type in
-              virtualbox )
-                image_keyboard_type="ps2" ;;
-              * )
-                image_keyboard_type="${image_keyboard_type:-both}" ;;
-            esac
-            ;;
-        esac
-        ;;
-      serial )
-        case $image_arch in
-          aarch64 )
-            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}" ;;
-          x86 | x86_64 )
-            image_serial_console_name="${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_X86_BASE_NAME}${image_serial_console_port_number}" ;;
-        esac
-        image_console_name=$image_serial_console_name
-        ;;
-    esac
-  else
-    image_console_type="normal"
-    image_console_name="${image_console_name:-tty0}"
-  fi
-
-  # Arch-specific settings
-  case $image_arch in
-    armv7 )
-      error_message "armv7 virtual machines are not supported!" ;;
-    aarch64 )
-      if [ -n "${image_bootloader+x}" ] && [ "$image_bootloader" = "syslinux" ]; then
-        error_message "aarch64 virtual machine can not use Syslinux bootloader!"
-      elif [ "${image_vm_type}" = "qemu-microvm" ]; then
-        image_bootloader="none"
-      else
-        image_bootloader="grub"
-      fi
-      # aarch64 VMs always use UEFI
-      image_boot_type="uefi"
-
-      case $image_vm_type in
-        virtualbox )
-          error_message "aarch64 Virtualbox images cannot be created!" ;;
-      esac
-      ;;
-    x86 )
-      if [ -n "${image_boot_type+x}" ]; then
-        case $image_boot_type in
-          secure-uefi | uefi )
-            error_message "UEFI is not supported for x86!" ;;
-        esac
-      else
-        image_boot_type="bios"
-      fi
-      if [ -z "${image_bootloader+x}" ]; then
-        if [ "${image_vm_type}" = "qemu-microvm" ]; then
-          image_bootloader="none"
-        else
-          image_bootloader="syslinux"
-        fi
-      fi
-      ;;
-    x86_64 )
-      if [ -z ${image_boot_type+x} ]; then
-        image_boot_type="bios"
-      fi
-      if [ -z ${image_bootloader+x} ]; then
-        if [ "${image_vm_type}" = "qemu-microvm" ]; then
-          image_bootloader="none"
-        else
-          image_bootloader="grub"
-        fi
-      fi
-
-      if [ "$image_bootloader" = "syslinux" ] && [ "$image_boot_type" = "uefi" ] && \
-         [ -z "${image_experimental+x}" ]; then
-        error_message "Syslinux UEFI is an experimental option!"
-      fi
-      ;;
-  esac
-
-  # Sort out partition sizing
-  #---------------------------
-  case $image_arch in
-    aarch64 )
-      general_boot_part_size=$CONSTANT_VIRTUAL_AARCH64_BOOT_PART_SIZE ;;
-    x86 )
-      general_boot_part_size=$CONSTANT_VIRTUAL_X86_BOOT_PART_SIZE ;;
-    x86_64 )
-      general_boot_part_size=$CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE ;;
-  esac
-  general_root_part_size=${general_root_part_size:-$CONSTANT_VIRTUAL_ROOT_PART_SIZE}
-  general_uefi_part_size=${esp_part_size:-$CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE}
-}
-
-
-#
 # Define virtual machine specific packages
 #
 define_virtual_machine_packages() {
-  local _virtual_pkgs=""
+  local _virtual_pkgs
 
-  case $image_vm_type in
-    hyperv )
-      _virtual_pkgs="hvtools" ;;
-    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
-      _virtual_pkgs="qemu-guest-agent" ;;
-    virtualbox )
-      _virtual_pkgs="virtualbox-guest-additions" ;;
-    vmware )
-      case $image_arch in
-        aarch64 | x86_64 )
-          _virtual_pkgs="open-vm-tools open-vm-tools-guestinfo"
-          _virtual_pkgs="${_virtual_pkgs} open-vm-tools-timesync open-vm-tools-vix"
-          _virtual_pkgs="${_virtual_pkgs} open-vm-tools-vmbackup"
-          ;;
+  if [ -z "$image_barebones" ]; then
+    _virtual_pkgs="virt-what"
+
+    if [ -n "$hypervisor_agent_packages" ]; then
+      _virtual_pkgs="$_virtual_pkgs $hypervisor_agent_packages"
+    fi
+  fi
+
+  case $image_cloud_software in
+    cloud-init )
+      case $image_vm_type in
+        vmware )
+          # Required by VMware cloud-init DataSource
+          _virtual_pkgs="$_virtual_pkgs py3-netifaces" ;;
+        generic )
+          # Required by VMware cloud-init DataSource
+          _virtual_pkgs="$_virtual_pkgs py3-netifaces" ;;
       esac
       ;;
   esac
@@ -464,110 +44,62 @@ define_virtual_machine_packages() {
 
 
 #
-# Define the cloud-init DataSource(s) to enable for the relevant VM type
+# Disable unrequired kernel drivers modules on a virtual machine
 #
-define_virtual_settings() {
-  case $image_vm_type in
-    hyperv )
-      datasource_list="'NoCloud'" ;;
-    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm )
-      datasource_list="'NoCloud'"
-      if [ "$image_console_type" = "serial" ] && \
-         { [ "$image_arch" = "armv7" ] || [ "$image_arch" = "aarch64" ]; }; then
-        image_serial_console_port_number="${image_serial_console_port_number:-$CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_NUMBER}"
-        image_serial_console_name="${image_serial_console_name:-${CONSTANT_DEFAULT_SERIAL_CONSOLE_PORT_ARM_BASE_NAME}${image_serial_console_port_number}}"
-      fi
-      ;;
-    opennebula )
-      datasource_list="'OpenNebula'" ;;
-    openstack )
-      datasource_list="'OpenStack'" ;;
-    rhvm )
-      datasource_list="'AltCloud','OpenStack'" ;;
-    virtualbox )
-      datasource_list="'NoCloud'" ;;
-    vmware )
-      datasource_list="'AltCloud','OVF','VMware'" ;;
-    generic )
-      datasource_list="'AltCloud','ConfigDrive','OpenNebula','OpenStack','NoCloud','OVF'" ;;
+disable_kernel_drivers_modules_on_virtual() {
+  local _disable_list=""
+
+  # Disable all cloud provider modules
+  _disable_list="$_disable_list $CADI_CLOUD_KERNEL_MODULES"
+
+  # Disable all physical modules
+  _disable_list="$_disable_list $CADI_PHYSICAL_KERNEL_MODULES"
+  _disable_list="$_disable_list ehci-platform ohci-platform xhci-plat-hcd"
+  # Display physical KMS modules
+  _disable_list="$_disable_list $CADI_PHYSICAL_GENERAL_KMS_MODULES"
+  case $image_arch in
+    aarch64 | armv7 )
+      _disable_list="$_disable_list $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+    x86_| x86_64 )
+      _disable_list="$_disable_list $CADI_PHYSICAL_X86_KMS_MODULES" ;;
   esac
 
-  if [ "$datasource_list" = "'NoCloud'" ] && [ -n "${cloud_seed_url+x}" ]; then
-    datasource_settings="$(printf \\t%s\\n "  NoCloud:" "    seedfrom: $cloud_seed_url")"
+  if [ "$image_vm_type" != "generic" ]; then
+    case $image_vm_type in
+      hyperv )
+        : ;;
+      * )
+        _disable_list="$_disable_list $CADI_VIRTUAL_HYPERV_KERNEL_MODULES"
+        _disable_list="$_disable_list $CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES"
+        ;;
+    esac
+    case $image_vm_type in
+      vmware )
+        : ;;
+      * )
+        # Disable VMware modules
+        _disable_list="$_disable_list $CADI_VIRTUAL_VMWARE_KERNEL_MODULES" ;;
+    esac
+    case $image_vm_type in
+      virtualbox | vmware )
+        : ;;
+      * )
+        _disable_list="$_disable_list vmwgfx" ;;
+    esac
   fi
-}
 
+  if [ -z "$image_enable_graphics" ] || \
+     [ "$image_console_type" = "hypervisor" ] || \
+     [ "$image_console_type" = "serial" ]; then
+    # Disable all KMS/DRM modules
+    _disable_list="$_disable_list $CADI_PHYSICAL_GENERAL_KMS_MODULES"
+    case $image_arch in
+      aarch64 | armv7 )
+        _disable_list="$_disable_list $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+      x86 | x86_64 )
+        _disable_list="$_disable_list $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+    esac
+  fi
 
-#
-# Add virtual machine related entries to /etc/modules
-#
-etc_modules_list_for_virtual() {
-  cat <<'EOF' >> "$run_script"
-	
-	# VM modules
-	tiny-power-button
-EOF
-
-  case $image_vm_type in
-    hyperv )
-      cat <<'EOF' >> "$run_script"
-	
-	# Hyper-V specific modules
-	hv_balloon
-	hv_netsvc
-	hv_storsvc
-	hv_utils
-	hv_vmbus
-EOF
-      ;;
-    libvirtd | lxd | proxmox | qemu | qemu-microvm | utm | generic )
-      cat <<'EOF' >> "$run_script"
-	
-	# KVM-based hypervisor specific modules
-EOF
-
-      case $image_os_device_type in
-        nvme )
-          cat <<'EOF' >> "$run_script"
-	nvme
-EOF
-          ;;
-      esac
-      cat <<'EOF' >> "$run_script"
-	ptp_kvm
-	virtio_net
-	virtio-rng
-EOF
-      ;;
-    virtualbox )
-      cat <<'EOF' >> "$run_script"
-	
-	# Virtualbox-specific modules
-EOF
-
-      case $image_os_device_type in
-        nvme )
-          cat <<'EOF' >> "$run_script"
-	nvme
-EOF
-          ;;
-      esac
-
-      cat <<'EOF' >> "$run_script"
-	virtio_net
-EOF
-      ;;
-    vmware )
-      cat <<'EOF' >> "$run_script"
-	
-	# VMware-specific modules
-	floppy
-	ptp_vmw
-	vmw_balloon
-	vmw_vmci
-	vmw_vsock_vmci_transport
-	vmxnet3
-EOF
-      ;;
-  esac
+  echo "$_disable_list"
 }

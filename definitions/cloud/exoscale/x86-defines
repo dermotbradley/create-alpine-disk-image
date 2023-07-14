@@ -1,0 +1,51 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud exoscale x86-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios,hybrid"
+readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,syslinux,limine"
+readonly CADI_SUPPORTED_BOOTLOADERS_HYBRID="grub,limine"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,normal_and_serial,serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="ps2"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
+readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="nvme,virtio-blk,virtio-scsi"
+readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_VIRTIO_CONSOLE=false
+readonly CADI_SUPPORTED_VIRTIO_CRYPTO=false
+readonly CADI_SUPPORTED_RNGS="virtio"
+
+
+# Defaults
+readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
+readonly CADI_DEFAULT_BOOT_TYPE="bios"
+readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CLOCKSOURCE="kvm"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal_and_serial"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="serial"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="bochs"
+readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-blk"
+
+
+# Additional
+readonly CADI_CLOUD_CLI_PACKAGES="exoscale"
+readonly CADI_CLOUD_CLI_PACKAGES_SIZE=28
+readonly CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN="v3.13,v3.14,v3.15,3.16"

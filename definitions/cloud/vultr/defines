@@ -1,0 +1,31 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud vultr defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Vultr"
+readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
+readonly CADI_SUPPORTED_DHCP_CLIENT="dhclient"
+readonly CADI_SUPPORTED_IPv4=true
+readonly CADI_SUPPORTED_IPv6=true
+readonly CADI_SUPPORTED_IPv4_IPv6=true
+readonly CADI_SUPPORTED_NTP_METHODS="pools,servers"
+readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
+
+
+# Defaults
+readonly CADI_DEFAULT_ARCH="x86_64"
+readonly CADI_DEFAULT_OS_FILESYSTEM="ext4"
+
+
+# Additional

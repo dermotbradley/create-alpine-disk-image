@@ -1,0 +1,309 @@
+#!/bin/sh
+# shellcheck disable=SC1117,SC2039
+
+#############################################################################
+##
+##  ntp-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure Busybox NTP daemon
+#
+configure_busybox_ntpd() {
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Busybox NTP daemon" 4
+	    {
+	EOF
+
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/conf.d/ntpd /etc/conf.d/ntpd-orig
+	      }
+	
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	      :
+	
+	EOF
+      ;;
+  esac
+
+
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Enable Busybox ntpd init.d service" 6
+	      {
+	EOF
+
+  add_init_d_service "ntpd" "default" 8
+
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	EOF
+
+  case $image_cloud_software in
+    cloud-init )
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/conf.d/ntpd-orig /etc/conf.d/ntpd >> /chroot.log || true
+	        rm /etc/conf.d/ntpd-orig
+	      }
+	EOF
+      fi
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
+}
+
+
+#
+# Configure Chrony server daemon
+#
+configure_chronyd() {
+  local _chrony_config_file _chrony_config_file_type
+  local _init_threshold _makestep_limit _makestep_threshold
+  local _ntp_pool_list _ntp_pool_options _ntp_server_list _ntp_server_options
+
+  cat <<-'EOF' >> "$run_script"
+	    write_log "Configuring Chrony NTP server" 4
+	    {
+	EOF
+
+  case $image_cloud_software in
+    cloud-init )
+      write_cloud_init_ntp_config ;;
+    none | tiny-cloud )
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      {
+	        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
+	      }
+	
+	EOF
+      fi
+
+      write_chrony_ntp_config
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      {
+	        diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
+	          /chroot.log || true
+	        rm /etc/chrony/chrony.conf-orig
+	      }
+	EOF
+      fi
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	
+	      write_log "Enable Chrony init.d service" 6
+	      {
+	EOF
+
+  add_init_d_service "chronyd" "default" 8
+
+  cat <<-'EOF' >> "$run_script"
+	      } >> /chroot.log 2>&1
+	    }
+	EOF
+}
+
+
+#
+# Configure the relevant NTP server
+#
+configure_ntpd() {
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Configuring NTP server" 2
+	  {
+	EOF
+
+  case $image_ntp_daemon in
+    busybox )
+      configure_busybox_ntpd ;;
+    chrony )
+      configure_chronyd ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
+# Create /etc/chrony/chrony.conf with required configuration
+#
+write_chrony_ntp_config() {
+  local _description _entry _phc_options_line _pool_line _server_line
+
+  if [ "$image_ntp_method" = "ptp" ]; then
+    _description="to use hypervisor PHC"
+  else
+    _description="for NTP"
+  fi
+
+  cat <<EOF >> "$run_script"
+      write_log "Configuring Chrony ${_description}" 6
+      {
+        cat <<-_SCRIPT_ > /etc/chrony/chrony.conf
+	# /etc/chrony/chrony.conf
+	
+	driftfile /var/lib/chrony/chrony.drift
+	rtcsync
+	cmdport 0
+EOF
+
+  if [ -n "$image_chrony_initstepslew_threshold" ]; then
+    cat <<EOF >> "$run_script"
+	
+	#
+	# At boot time rapidly check the listed NTP servers and if the system clock
+	# is more than X seconds wrong then step the clock, otherwise slew the clock
+	#
+	initstepslew ${image_chrony_initstepslew_threshold} ${image_ntp_pools_list}
+EOF
+  fi
+
+  if [ -n "$image_chrony_makestep_threshold" ]; then
+    case $image_class in
+      cloud | virtual )
+        cat <<EOF >> "$run_script"
+	
+	#
+	# Step the system clock if the adjustment is larger than X seconds, either
+	# only in the first Y clock updates (i.e. at system boot) or at any time
+	# if Y is "-1" (used for VMs that might be suspended & resumed).
+	#
+EOF
+        ;;
+      * )
+        cat <<EOF >> "$run_script"
+	
+	#
+	# Step the system clock if the adjustment is larger than X seconds, either
+	# only in the first Y clock updates (i.e. at system boot).
+	#
+EOF
+        ;;
+    esac
+
+    cat <<EOF >> "$run_script"
+	makestep ${image_chrony_makestep_threshold} ${image_chrony_makestep_limit}
+EOF
+  fi
+
+  case "$image_ntp_method" in
+    pools )
+      _pool_line="pool $image_ntp_pools_list"
+      if [ -n "$image_ntp_pools_list" ]; then
+        _pool_line="$_pool_line $image_ntp_pools_options"
+      fi
+      cat <<EOF >> "$run_script"
+	
+	#
+	# Use the following pool of NTP servers
+	#
+	$_pool_line
+EOF
+      ;;
+
+    ptp )
+      # Use PHC device
+      _phc_options_line="refclock PHC ${image_chrony_phc_device}"
+      if [ -n "$image_chrony_phc_poll" ]; then
+        _phc_options_line="$_phc_options_line poll $image_chrony_phc_poll"
+      fi
+      if [ -n "$image_chrony_phc_dpoll" ]; then
+        _phc_options_line="$_phc_options_line dpoll $image_chrony_phc_dpoll"
+      fi
+      if [ -n "$image_chrony_phc_offset" ]; then
+        _phc_options_line="$_phc_options_line offset $image_chrony_phc_offset"
+      fi
+      if [ -n "$image_chrony_phc_stratum" ]; then
+        _phc_options_line="$_phc_options_line stratum $image_chrony_phc_stratum"
+      fi
+
+      cat <<EOF >> "$run_script"
+	
+	#
+	# Use hypervisor-provided PHC
+	#
+	${_phc_options_line}
+EOF
+      ;;
+
+    servers )
+      cat <<EOF >> "$run_script"
+	
+	#
+	# Use the following NTP servers
+	#
+EOF
+      for _entry in $image_ntp_servers_list; do
+        _server_line="server $_entry"
+        if [ -n "$image_ntp_servers_list" ]; then
+        _server_line="$_server_line $image_ntp_servers_options"
+        fi
+        cat <<EOF >> "$run_script"
+	$_server_line
+EOF
+      done
+      ;;
+
+    servers_and_pools )
+      _pool_line="pool $image_ntp_pools_list"
+      if [ -n "$image_ntp_pools_list" ]; then
+        _pool_line="$_pool_line $image_ntp_pools_options"
+      fi
+      cat <<EOF >> "$run_script"
+	
+	#
+	# Use the following pool of NTP servers
+	#
+	$_pool_line
+	
+	#
+	# Use the following NTP servers
+	#
+EOF
+      for _entry in $image_ntp_servers_list; do
+        _server_line="server $_entry"
+        if [ -n "$image_ntp_servers_list" ]; then
+        _server_line="$_server_line $image_ntp_servers_options"
+        fi
+        cat <<EOF >> "$run_script"
+	$_server_line
+EOF
+      done
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+      }
+EOF
+}

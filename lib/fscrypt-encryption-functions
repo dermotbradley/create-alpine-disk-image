@@ -1,0 +1,40 @@
+#!/bin/sh
+# shellcheck disable=SC1117,SC2039
+
+#############################################################################
+##
+##  fscrypt-encryption-functions
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Setup the fscrypt device
+#
+setup_fscrypt_device() {
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Setting up fscrypt on rootfs"
+	{
+	  fscrypt setup >> "$logfile"
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_log "Show fscrypt rootfs details" 2
+	    fscrypt status / >> "$logfile"
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
