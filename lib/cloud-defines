@@ -1,0 +1,135 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+
+###########################################################################
+#        Cloud Partition / filesystem sizing (in MiB)
+###########################################################################
+###
+###readonly CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE=1
+###readonly CONSTANT_CLOUD_ESP_TYPE="fat12"
+
+
+#### aarch64
+############
+###
+###readonly CONSTANT_CLOUD_AARCH64_BOOTFS_SIZE=64
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_CLOUD_AARCH64_BOOTFS_EXTRA_SPACE=$CONSTANT_CLOUD_AARCH64_BOOTFS_SIZE
+###readonly CONSTANT_CLOUD_AARCH64_ROOTFS_SIZE=325
+###readonly CONSTANT_CLOUD_AARCH64_GRUB_BOOT_FILES_SIZE=3
+###
+###readonly CONSTANT_CLOUD_AARCH64_BAREBONES_BOOTFS_SIZE=30
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_CLOUD_AARCH64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_CLOUD_AARCH64_BAREBONES_ROOTFS_SIZE=160
+###readonly CONSTANT_CLOUD_AARCH64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+
+
+#### x86
+############
+###
+###readonly CONSTANT_CLOUD_X86_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_CLOUD_X86_BOOTFS_EXTRA_SPACE=$CONSTANT_CLOUD_X86_BOOTFS_SIZE
+###readonly CONSTANT_CLOUD_X86_ROOTFS_SIZE=325
+###readonly CONSTANT_CLOUD_X86_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_CLOUD_X86_SYSLINUX_BOOT_FILES_SIZE=1
+###
+###readonly CONSTANT_CLOUD_X86_BAREBONES_BOOTFS_SIZE=16
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_CLOUD_X86_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_CLOUD_X86_BAREBONES_ROOTFS_SIZE=40
+###readonly CONSTANT_CLOUD_X86_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_CLOUD_X86_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+
+
+### x86_64
+############
+###
+#### Installed size of the linux-virt package
+###readonly CONSTANT_CLOUD_X86_64_KERNEL_PACKAGE_SIZE=33
+#### Size of System.map, config, and kernel files from kernel package
+###readonly CONSTANT_CLOUD_X86_64_OTHER_BOOTFS_FILES=11
+#### Size of kernel package files placed in rootfs rather than in /boot (i.e. kernel modules)
+###readonly CONSTANT_CLOUD_X86_64_KERNEL_ROOTFS_FILES_SIZE=$((CONSTANT_CLOUD_X86_64_KERNEL_PACKAGE_SIZE - CONSTANT_CLOUD_X86_64_OTHER_BOOTFS_FILES))
+###
+#### Size of initramfs
+###readonly CONSTANT_CLOUD_X86_64_INITRAMFS_SIZE=7
+#### This accounts for System.map, config, kernel and initramfs files in /boot
+###readonly CONSTANT_CLOUD_X86_64_BOOTFS_SIZE=$((CONSTANT_CLOUD_X86_64_OTHER_BOOTFS_FILES + CONSTANT_CLOUD_X86_64_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_CLOUD_X86_64_BOOTFS_EXTRA_SPACE=$CONSTANT_CLOUD_X86_64_BOOTFS_SIZE
+###readonly CONSTANT_CLOUD_X86_64_GRUB_BOOT_FILES_SIZE=5
+###readonly CONSTANT_CLOUD_X86_64_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_CLOUD_X86_64_ROOTFS_SIZE=135
+###
+###readonly CONSTANT_CLOUD_X86_64_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_CLOUD_X86_64_BOOTFS_EXTRA_SPACE=$CONSTANT_CLOUD_X86_64_BOOTFS_SIZE
+###readonly CONSTANT_CLOUD_X86_64_ROOTFS_SIZE=325
+###readonly CONSTANT_CLOUD_X86_64_GRUB_BOOT_FILES_SIZE=5
+###readonly CONSTANT_CLOUD_X86_64_SYSLINUX_BOOT_FILES_SIZE=1
+###
+#### Size of initramfs
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_INITRAMFS_SIZE=7
+#### This accounts for System.map, kernel and initramfs files in /boot
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_BOOTFS_SIZE=$((CONSTANT_CLOUD_X86_64_OTHER_BOOTFS_FILES + CONSTANT_CLOUD_X86_64_BAREBONES_INITRAMFS_SIZE))
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_GRUB_BOOT_FILES_SIZE=5
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+#### Size of files in rootfs except for kernel package
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_ROOTFS_SIZE=50
+###
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_BOOTFS_SIZE=18
+######readonly CONSTANT_CLOUD_X86_64_BAREBONES_BOOTFS_SIZE=80
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_ROOTFS_SIZE=36
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_CLOUD_X86_64_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+
+
+###########################################################################
+#        Cloud-specific settings
+###########################################################################
+
+#### AWS-specific defines
+####
+###readonly CONSTANT_AWS_NTP_IPV4ADDRESS="169.254.169.123"
+###readonly CONSTANT_AWS_NTP_IPV6ADDRESS="fd00:ec2::123"
+
+#### Azure-specific defines
+###
+###readonly CONSTANT_AZURE_PHC_PTP_DPOLL=-2
+###readonly CONSTANT_AZURE_PHC_PTP_OFFSET="0.0"
+###readonly CONSTANT_AZURE_PHC_PTP_POLL=3
+###readonly CONSTANT_AZURE_PHC_PTP_STRATUM=2
+###
+###
+#### Google-specific defines
+####
+#### https://morganpeat.github.io/cloudmigration/2019/02/01/time-sync-on-cloud-vms-2.html
+###readonly CONSTANT_GOOGLE_NTP_INTERNAL_SERVER="metadata.google.internal"
+###
+#### Oracle-specific defines
+####
+#### https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/configuringntpservice.htm
+###readonly CONSTANT_ORACLE_NTP_IPV4ADDRESS="169.254.169.254"
+###
+#### Outscale-specific defines
+####
+#### https://docs.outscale.com/en/userguide/On-Premises-to-Cloud-Migration-Guidelines.html
+###readonly CONSTANT_OUTSCALE_NTP_INTERNAL_SERVER1="ntp1.outscale.net"
+###readonly CONSTANT_OUTSCALE_NTP_INTERNAL_SERVER2="ntp2.outscale.net"

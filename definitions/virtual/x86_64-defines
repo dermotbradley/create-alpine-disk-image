@@ -1,0 +1,49 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Size of Gummiboot/Stubby EFI stub file
+readonly CADI_EFI_STUB_SIZE=1
+
+
+# linux-edge
+#------------
+
+# Installed size of the linux-edge package (in MiB)
+readonly CADI_KERNEL_EDGE_PACKAGE_SIZE=99
+# Size of linux-edge kernel file (in MiB)
+readonly CADI_KERNEL_EDGE_FILE_SIZE=8
+# Size of linux-edge System.map (in MiB)
+readonly CADI_KERNEL_EDGE_SYSTEMMAP_FILE_SIZE=3
+# Size of linux-edge config-lts (in MiB)
+readonly CADI_KERNEL_EDGE_CONFIG_FILE_SIZE=1
+# Size of linux-edge System.map, config, and kernel files (in MiB)
+readonly CADI_BOOTFS_KERNEL_EDGE_FILES_SIZE=$((CADI_KERNEL_EDGE_SYSTEMMAP_FILE_SIZE + CADI_KERNEL_EDGE_CONFIG_FILE_SIZE + CADI_KERNEL_EDGE_FILE_SIZE))
+# Size of linux-edge package files placed in rootfs rather than in /boot (i.e. kernel modules) (in MiB)
+readonly CADI_ROOTFS_KERNEL_EDGE_FILES_SIZE=$((CADI_KERNEL_EDGE_PACKAGE_SIZE - CADI_BOOTFS_KERNEL_EDGE_FILES_SIZE))
+
+
+# linux-virt
+#------------
+
+# Installed size of the linux-virt package (in MiB)
+readonly CADI_KERNEL_VIRT_PACKAGE_SIZE=33
+# Size of linux-virt kernel file (in MiB)
+readonly CADI_KERNEL_VIRT_FILE_SIZE=8
+# Size of linux-virt System.map (in MiB)
+readonly CADI_KERNEL_VIRT_SYSTEMMAP_FILE_SIZE=3
+# Size of linux-virt config-virt (in MiB)
+readonly CADI_KERNEL_VIRT_CONFIG_FILE_SIZE=1
+# Size of linux-virt System.map, config, and kernel files (in MiB)
+readonly CADI_BOOTFS_KERNEL_VIRT_FILES_SIZE=$((CADI_KERNEL_VIRT_SYSTEMMAP_FILE_SIZE + CADI_KERNEL_VIRT_CONFIG_FILE_SIZE + CADI_KERNEL_VIRT_FILE_SIZE))
+# Size of linux-virt package files placed in rootfs rather than in /boot (i.e. kernel modules) (in MiB)
+readonly CADI_ROOTFS_KERNEL_VIRT_FILES_SIZE=$((CADI_KERNEL_VIRT_PACKAGE_SIZE - CADI_BOOTFS_KERNEL_VIRT_FILES_SIZE))

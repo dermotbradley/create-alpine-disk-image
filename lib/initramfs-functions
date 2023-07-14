@@ -13,16 +13,6 @@
 
 
 #
-# Returns a list of kernel modules either by filepath or just by name
-#
-initramfs_modules_load_list() {
-  local list_type=$1
-
-
-}
-
-
-#
 # Passed a path relative to /lib/modules/<version>/ for a module,
 # returns the module's name. Caters for where module name is
 # different than module filename.
@@ -45,47 +35,43 @@ module_name() {
 
 
 #
+# Show contents of generated initramfs
 #
-#
-create_modules_dep_script() {
-  cat <<'EOF' >> "$run_script"
-
-  write_debug_log "Creating script to determine modules dependancies on other modules" 2
-  {
-    cat <<-'_SCRIPT_' > /root/module-deps
-	#!/bin/sh
+show_initramfs_contents() {
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
 	
-	for mod in \$(lsmod | sort | sed -e '/^Module .*/d' -e 's/[ ].*$//g'); do
-	  mod_name_len=\${#mod}
-	  if [ "\$mod_name_len" -le 7 ]; then
-	    padding="\t\t\t\t"
-	  elif [ "\$mod_name_len" -le 15 ]; then
-	    padding="\t\t\t"
-	  elif [ "\$mod_name_len" -le 23 ]; then
-	    padding="\t\t"
-	  else
-	    padding="\t"
-	  fi
-	
-	  deps=\$(modinfo "\$mod" | grep "depends:" | sed -e 's/^depends:[ ]*//g')
-	  if [ "\$deps" != "" ]; then
-	    echo -e "\${mod}\${padding}\${deps}"
-	  else
-	    echo -e "\${mod}"
-	  fi
-	done
-	
-	exit
-	_SCRIPT_
-    chmod +x /root/module-deps
-  }
-EOF
-
-  cat <<-'EOF' >> "$run_script"
-	
-	  # Fudge
-	  {
-	    sed -i -e 's|^set -e$|set -ex|' /sbin/mkinitfs
-	  }
+	# Debug
+	{
 	EOF
+
+    _initramfs_filename="$(get_initramfs_filename)"
+
+    case $image_initramfs_tool in
+      booster )
+        cat <<-EOF >> "$run_script"
+	  write_debug_log "booster $_initramfs_filename contents:"
+	  booster ls "/boot/$_initramfs_filename" >> /chroot.log 2>&1
+	EOF
+        ;;
+      dracut )
+        cat <<-'EOF' >> "$run_script"
+	  write_debug_log "dracut ??? contents:"
+	  ###mkinitfs -l "\$_kernel_version" >> /chroot.log 2>&1
+	EOF
+        ;;
+      mkinitfs )
+        cat <<-EOF >> "$run_script"
+	  write_debug_log "mkinitfs contents:"
+	  zcat /boot/$_initramfs_filename | cpio -t >> /chroot.log 2>/dev/null
+	EOF
+        ;;
+      * )
+        : ;;
+    esac
+
+    cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+  fi
 }

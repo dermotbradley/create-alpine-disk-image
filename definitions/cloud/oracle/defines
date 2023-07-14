@@ -1,0 +1,34 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud oracle defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/configuringntpservice.htm
+
+# Supported
+readonly CADI_SUPPORTED_ARCHS="aarch64,x86,x86_64"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Oracle"
+readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none,tiny-cloud"
+readonly CADI_SUPPORTED_DHCP_CLIENT="dhclient"
+readonly CADI_SUPPORTED_NTP_METHODS="pools,servers"
+readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
+
+
+# Defaults
+readonly CADI_DEFAULT_ARCH="x86_64"
+readonly CADI_DEFAULT_NTP_METHOD="servers"
+
+
+# Additional
+readonly CADI_CHRONY_INITSTEPSLEW_THRESHOLD=30
+readonly CADI_CHRONY_MAKESTEP_THRESHOLD=1
+readonly CADI_CHRONY_MAKESTEP_LIMIT=-1
+readonly CADI_NTP_IPV4_SERVERS="169.254.169.254"

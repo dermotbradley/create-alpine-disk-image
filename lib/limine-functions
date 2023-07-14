@@ -1,0 +1,215 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  limine-functions
+##
+##  Copyright 2022-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Check if Limine supports booting from the selected filesystem type
+#
+check_limine_supports_fs() {
+  case $image_fs_type in
+    ext4 )
+      : ;;
+    * )
+      error_message "Limine bootloader does not support booting from $image_fs_type filesystem!"
+  esac
+}
+
+
+#
+# Check if Limine supports booting from LUKS
+#
+check_limine_supports_luks() {
+  # Limine does support booting from LUKS
+  :
+}
+
+
+#
+# Check if Limine supports booting from LVM
+#
+check_limine_supports_lvm() {
+  # Limine does support booting from LVM
+  :
+}
+
+
+#
+# Configure Limine
+#
+configure_bootloader_limine() {
+  local _cmdline _config_file_path _kernel_type
+
+  _cmdline="$base_cmdline"
+  _kernel_type="$(get_kernel_type)"
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring Limine"
+	{
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	  # Debug
+	  {
+	    write_debug_log "Root fs partition device is $root_part_device" 2
+	    write_debug_log "Loopback device is $loop_device" 2
+	  }
+	
+	EOF
+  fi
+
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    cat <<-EOF >> "$run_script"
+	  rootfs_reference="/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
+	EOF
+  elif [ "$image_boot_reference" = "label" ]; then
+    # Use LABELs to refer to filesystems
+    cat <<-EOF >> "$run_script"
+	  rootfs_reference="LABEL=${CADI_ROOTFS_LABEL}"
+	EOF
+  else
+    # Use UUIDs to refer to filesystems
+    cat <<-'EOF' >> "$run_script"
+	  rootfs_reference="UUID=$root_fs_uuid"
+	EOF
+  fi
+
+  case $image_boot_type in
+    bios )
+      _config_file_path="/boot/limine.cfg" ;;
+    uefi )
+      _config_file_path="/boot/limine.cfg"
+      cat <<-'EOF' >> "$run_script"
+	
+	  mkdir -p /boot/efi/EFI/BOOT
+	
+	EOF
+      ;;
+  esac
+
+  cat <<EOF >> "$run_script"
+  cmdline="${_cmdline} root=\\\$rootfs_reference"
+
+  write_log "Creating limine.cfg" 2
+  {
+    cat <<-_SCRIPT_ >> $_config_file_path
+	# limine.cfg
+	
+	TIMEOUT=5
+EOF
+
+  case $image_console_type in
+    serial | normal_and_serial )
+      cat <<'EOF' >> "$run_script"
+	SERIAL=yes
+EOF
+      ;;
+  esac
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<'EOF' >> "$run_script"
+	VERBOSE=yes
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+	
+	:Alpine Linux
+	    PROTOCOL=linux
+	    CMDLINE=\\\$cmdline
+	    KERNEL_PATH=boot:///boot/vmlinuz-${_kernel_type}
+	    MODULE_PATH=boot:///boot/initramfs-${_kernel_type}
+	
+	:Alpine Linux (recovery)
+	    PROTOCOL=linux
+	    CMDLINE=\\\$cmdline single
+	    KERNEL_PATH=boot:///boot/vmlinuz-${_kernel_type}
+	    MODULE_PATH=boot:///boot/initramfs-${_kernel_type}
+EOF
+
+  cat <<EOF >> "$run_script"
+	_SCRIPT_
+
+    chmod g=r,o=r $_config_file_path
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	    # Debug
+	    {
+	      write_debug_log "Contents of limine.cfg:" 2
+	      cat $_config_file_path >> /chroot.log 2>&1 || true
+	    }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	}
+	EOF
+}
+
+
+#
+# Install Limine onto disk
+#
+install_limine() {
+  local _config_file_path _deploy_options _efi_filename
+
+  case $image_boot_type in
+    bios )
+      _config_file_path="/boot/limine.cfg" ;;
+    uefi )
+      _config_file_path="/boot/efi/EFI/BOOT/limine.cfg" ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Installing Limine bootloader" 2
+	{
+	EOF
+
+  case $image_boot_type in
+    secure-uefi | uefi )
+      case $image_arch in
+        aarch64 )
+          _efi_filename="BOOTAA64.EFI" ;;
+        x86_64 )
+          _efi_filename="BOOTX64.EFI" ;;
+      esac
+      cat <<-EOF >> "$run_script"
+	  mkdir -p /boot/efi/EFI/BOOT
+	  write_log "Copying ${_efi_filename} to /boot/efi/EFI/BOOT/" 4
+	  cp /usr/share/limine/${_efi_filename} /boot/efi/EFI/BOOT/
+	EOF
+      ;;
+    bios )
+      if [ -z "$debug_enabled" ]; then
+        _deploy_options="-q"
+      fi
+      cat <<-EOF >> "$run_script"
+	  write_log "Running limine-deploy" 4
+	  limine-deploy $_deploy_options \$loop_device >> /chroot.log 2>&1
+	  write_log "Copying limine.sys to /boot/" 4
+	  cp /usr/share/limine/limine.sys /boot/ >> /chroot.log 2>&1
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}

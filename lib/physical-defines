@@ -1,0 +1,145 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  physical-defines
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+###########################################################################
+#        Partition / filesystem sizing (in MiB)
+###########################################################################
+###
+###readonly CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE=16
+###readonly CONSTANT_PHYSICAL_ESP_TYPE="fat16"
+
+
+
+# aarch64
+#########
+###
+###readonly CONSTANT_PHYSICAL_AARCH64_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_PHYSICAL_AARCH64_BOOTFS_EXTRA_SPACE=$CONSTANT_PHYSICAL_AARCH64_BOOTFS_SIZE
+###readonly CONSTANT_PHYSICAL_AARCH64_ROOTFS_SIZE=260
+###readonly CONSTANT_PHYSICAL_AARCH64_GRUB_BOOT_FILES_SIZE=3
+###
+###readonly CONSTANT_PHYSICAL_AARCH64_BAREBONES_BOOTFS_SIZE=30
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_PHYSICAL_AARCH64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_PHYSICAL_AARCH64_BAREBONES_ROOTFS_SIZE=160
+###readonly CONSTANT_PHYSICAL_AARCH64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+
+# RPI-specific
+##############
+###readonly CONSTANT_RPI_AARCH64_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_RPI_AARCH64_BOOTFS_EXTRA_SPACE=$CONSTANT_RPI_AARCH64_BOOTFS_SIZE
+###readonly CONSTANT_RPI_AARCH64_BOOTLOADER_BOOT_FILES_SIZE=3
+###readonly CONSTANT_RPI_AARCH64_ROOTFS_SIZE=180
+###
+###readonly CONSTANT_RPI_AARCH64_BAREBONES_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_RPI_AARCH64_BAREBONES_BOOTFS_EXTRA_SPACE=4
+###readonly CONSTANT_RPI_AARCH64_BAREBONES_BOOTLOADER_BOOT_FILES_SIZE=3
+###readonly CONSTANT_RPI_AARCH64_BAREBONES_ROOTFS_SIZE=180
+
+
+
+# armv7
+#######
+###
+#### RPI-specific
+#################
+######readonly CONSTANT_RPI_ARMV7_BOOTFS_SIZE=64
+###readonly CONSTANT_RPI_ARMV7_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_RPI_ARMV7_BOOTFS_EXTRA_SPACE=$CONSTANT_RPI_ARMV7_BOOTFS_SIZE
+###readonly CONSTANT_RPI_ARMV7_BOOTLOADER_BOOT_FILES_SIZE=3
+######readonly CONSTANT_RPI_ARMV7_ROOTFS_SIZE=240
+###readonly CONSTANT_RPI_ARMV7_ROOTFS_SIZE=180
+###
+###readonly CONSTANT_RPI_ARMV7_BAREBONES_BOOTFS_SIZE=32
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_RPI_ARMV7_BAREBONES_BOOTFS_EXTRA_SPACE=4
+###readonly CONSTANT_RPI_ARMV7_BAREBONES_BOOTLOADER_BOOT_FILES_SIZE=3
+###readonly CONSTANT_RPI_ARMV7_BAREBONES_ROOTFS_SIZE=180
+
+
+
+# x86
+#####
+###
+###readonly CONSTANT_PHYSICAL_X86_BOOTFS_SIZE=64
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_PHYSICAL_X86_BOOTFS_EXTRA_SPACE=$CONSTANT_PHYSICAL_X86_BOOTFS_SIZE
+###readonly CONSTANT_PHYSICAL_X86_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_PHYSICAL_X86_SYSLINUX_BOOT_FILES_SIZE=1
+###readonly CONSTANT_PHYSICAL_X86_FIRMWARE_SIZE=50
+###readonly CONSTANT_PHYSICAL_X86_MICROCODE_SIZE=20
+###readonly CONSTANT_PHYSICAL_X86_ROOTFS_SIZE=350
+###
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_BOOTFS_SIZE=16
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_FIRMWARE_SIZE=50
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_MICROCODE_SIZE=20
+###readonly CONSTANT_PHYSICAL_X86_BAREBONES_ROOTFS_SIZE=40
+
+
+
+# x86_64
+########
+###
+#### Installed size of the linux-lts package
+###readonly CONSTANT_PHYSICAL_X86_64_KERNEL_PACKAGE_SIZE=110
+#### Size of System.map, config, and kernel files from kernel package
+###readonly CONSTANT_PHYSICAL_X86_64_OTHER_BOOTFS_FILES=11
+#### Size of kernel package files placed in rootfs rather than in /boot (i.e. kernel modules)
+###readonly CONSTANT_PHYSICAL_X86_64_KERNEL_ROOTFS_FILES_SIZE=$((CONSTANT_PHYSICAL_X86_64_KERNEL_PACKAGE_SIZE - CONSTANT_PHYSICAL_X86_64_OTHER_BOOTFS_FILES))
+###
+#### Size of initramfs
+###readonly CONSTANT_PHYSICAL_X86_64_INITRAMFS_SIZE=25
+#### This accounts for System.map, config, kernel and initramfs files in /boot
+###readonly CONSTANT_PHYSICAL_X86_64_BOOTFS_SIZE=$((CONSTANT_PHYSICAL_X86_64_OTHER_BOOTFS_FILES + CONSTANT_PHYSICAL_X86_64_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt and for kernel package updates
+###readonly CONSTANT_PHYSICAL_X86_64_BOOTFS_EXTRA_SPACE=$CONSTANT_PHYSICAL_X86_64_BOOTFS_SIZE
+###readonly CONSTANT_PHYSICAL_X86_64_GRUB_BOOT_FILES_SIZE=5
+###readonly CONSTANT_PHYSICAL_X86_64_SYSLINUX_BOOT_FILES_SIZE=1
+###
+######readonly CONSTANT_PHYSICAL_X86_64_BOOTFS_SIZE=40
+####### allow for initramfs being rebuilt and for kernel package updates
+######readonly CONSTANT_PHYSICAL_X86_64_BOOTFS_EXTRA_SPACE=$CONSTANT_PHYSICAL_X86_64_BOOTFS_SIZE
+######readonly CONSTANT_PHYSICAL_X86_64_GRUB_BOOT_FILES_SIZE=3
+######readonly CONSTANT_PHYSICAL_X86_64_SYSLINUX_BOOT_FILES_SIZE=1
+###readonly CONSTANT_PHYSICAL_X86_64_FIRMWARE_SIZE=50
+###readonly CONSTANT_PHYSICAL_X86_64_MICROCODE_SIZE=20
+###readonly CONSTANT_PHYSICAL_X86_64_ROOTFS_SIZE=300
+
+#### Size of initramfs
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_INITRAMFS_SIZE=20
+#### This accounts for System.map, kernel and initramfs files in /boot
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_BOOTFS_SIZE=$((CONSTANT_PHYSICAL_X86_64_OTHER_BOOTFS_FILES + CONSTANT_PHYSICAL_X86_64_BAREBONES_INITRAMFS_SIZE))
+#### allow for initramfs being rebuilt
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_FIRMWARE_SIZE=50
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_MICROCODE_SIZE=20
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_ROOTFS_SIZE=250
+
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_BOOTFS_SIZE=16
+# allow for initramfs being rebuilt
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_BOOTFS_EXTRA_SPACE=10
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_GRUB_BOOT_FILES_SIZE=3
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_SYSLINUX_BOOT_FILES_SIZE=1
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_FIRMWARE_SIZE=50
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_MICROCODE_SIZE=20
+###readonly CONSTANT_PHYSICAL_X86_64_BAREBONES_ROOTFS_SIZE=36

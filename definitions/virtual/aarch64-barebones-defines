@@ -1,0 +1,30 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual aarch64-barebones-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Size of initramfs for barebones
+readonly CADI_INITRAMFS_SIZE=6
+
+# Arbitrary "base" size of barebones rootfs (in MB)
+readonly CADI_ARBITRARY_ROOTFS_SIZE=160
+
+# Size of Grub files in /boot
+readonly CADI_BOOTLOADER_GRUB_BOOT_FILES_SIZE=3
+# Size of Limine files in /boot
+readonly CADI_BOOTLOADER_LIMINE_BOOT_FILES_SIZE=1
+
+# Size of files in rootfs except for kernel package
+readonly CADI_ROOTFS_SIZE=$((CADI_ARBITRARY_ROOTFS_SIZE - CADI_KERNEL_PACKAGE_SIZE))
+
+# Size of an ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs for barebones
+readonly CADI_DEFAULT_UKI_ESP_PART_SIZE=$((CADI_EFI_STUB_SIZE + CADI_KERNEL_VIRT_FILE_SIZE + CADI_INITRAMFS_SIZE))
+readonly CADI_DEFAULT_EDGE_UKI_ESP_PART_SIZE=$((CADI_EFI_STUB_SIZE + CADI_KERNEL_EDGE_FILE_SIZE + CADI_INITRAMFS_SIZE))

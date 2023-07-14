@@ -1,0 +1,182 @@
+#!/bin/sh -u
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  uki-functions
+##
+##  Copyright 2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Configure UKI
+#
+configure_bootloader_uki() {
+  local _cmdline _efi_arch_name _efi_filename
+
+  _cmdline="$base_cmdline"
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 )
+      # Ensure that USB keyboard work when in initramfs
+      case $image_keyboard_type in
+        usb | both )
+          # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
+          # warning will appear in 'dmesg' output:
+          #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_pci, not after
+          _cmdline="$_cmdline modules=xhci-pci,ehci-pci"
+          case $image_cpu_vendor in
+            amd )
+              _cmdline="${_cmdline},ohci-pci" ;;
+            intel )
+              _cmdline="${_cmdline},uhci-hcd" ;;
+            * )
+              _cmdline="${_cmdline},ohci-pci,uhci-hcd" ;;
+          esac
+          _cmdline="${_cmdline},usbhid,hid-generic"
+          ;;
+      esac
+      ;;
+    * )
+      # mkinitfs' init takes care of USB keyboards
+      : ;;
+  esac
+
+  case $image_arch in
+    aarch64 )
+      _efi_filename="BOOTAA64.EFI" ;;
+    x86_64 )
+      _efi_filename="BOOTX64.EFI" ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Configuring UKI"
+	{
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	  # Debug
+	  {
+	    cp /etc/kernel-hooks.d/secureboot.conf \
+	      /etc/kernel-hooks.d/secureboot.conf-orig
+	EOF
+
+    case $image_uki_bootstub in
+      stubby )
+        cat <<-'EOF' >> "$run_script"
+	
+	    cp /usr/share/kernel-hooks.d/secureboot.hook \
+	      /usr/share/kernel-hooks.d/secureboot.hook-orig
+	EOF
+        ;;
+    esac
+
+    cat <<-'EOF' >> "$run_script"
+	  }
+	
+	EOF
+  fi
+
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    cat <<-EOF >> "$run_script"
+	  _rootfs_reference="/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
+	EOF
+  elif [ "$image_boot_reference" = "label" ]; then
+    # Use LABELs to refer to filesystems
+    cat <<-EOF >> "$run_script"
+	  _rootfs_reference="LABEL=${CADI_ROOTFS_LABEL}"
+	EOF
+  else
+    # Use UUIDs to refer to filesystems
+    cat <<-'EOF' >> "$run_script"
+	  _rootfs_reference="UUID=$root_fs_uuid"
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	  _cmdline="$_cmdline root=\\\$_rootfs_reference"
+	
+	  write_log "Configuring secureboot.conf" 2
+	  sed -i \\
+	    -e "s|^cmdline=.*$|cmdline=\"\\\$_cmdline\"|" \\
+	    -e 's|^[#]signing_disabled=.*$|signing_disabled=yes|' \\
+	    -e 's|^[#]output_dir=.*$|output_dir="/boot/efi/EFI/BOOT"|' \\
+	    -e 's|^[#]output_name=.*$|output_name="$_efi_filename"|' \\
+	    -e 's|^[#]backup_old=.*$|backup_old=no|' \\
+	    /etc/kernel-hooks.d/secureboot.conf
+	EOF
+
+  case $image_uki_bootstub in
+    stubby )
+      # Hack to modify secure-boot hook to use Stubby instead of Gummiboot
+      case $image_arch in
+        aarch64 )
+          _efi_arch_name="aa64" ;;
+        x86 )
+          _efi_arch_name="ia32" ;;
+        x86_64 )
+          _efi_arch_name="x64" ;;
+      esac
+      cat <<-EOF >> "$run_script"
+	
+	  write_log "Hacking the secureboot.hook script for Stubby" 2
+	  sed -i \\
+	    -E -e 's|^([\t]*\\-s .*)$|\1\n\t\\-S /usr/lib/stubbyboot/linux${_efi_arch_name}.efi.stub \\\\\|g' \\\\
+	    /usr/share/kernel-hooks.d/secureboot.hook
+	EOF
+      ;;
+  esac
+
+  cat <<-EOF >> "$run_script"
+	
+	  write_log "Disabling mkinitfs trigger" 2
+	  echo 'disable_trigger=yes' >> /etc/mkinitfs/mkinitfs.conf
+	
+	  write_log "Triggering hook to create UKI" 2
+	  apk fix kernel-hooks >> /chroot.log 2>&1
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  {
+	    write_debug_log "secureboot.conf differences:" 2
+	    diff /etc/kernel-hooks.d/secureboot.conf-orig \
+	      /etc/kernel-hooks.d/secureboot.conf >> /chroot.log || true
+	
+	    rm /etc/kernel-hooks.d/secureboot.conf-orig
+	EOF
+
+    case $image_uki_bootstub in
+      stubby )
+        cat <<-EOF >> "$run_script"
+	
+	    write_debug_log "secureboot.hook differences:" 2
+	    diff /usr/share/kernel-hooks.d/secureboot.hook-orig \
+	      /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log || true
+	
+	    write_debug_log "secureboot.hook contents:" 2
+	    cat /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log
+	
+	    rm /usr/share/kernel-hooks.d/secureboot.hook-orig
+	EOF
+        ;;
+    esac
+
+    cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}

@@ -1,0 +1,42 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  physical-rpi2-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ARCHS="armv7,aarch64"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud"
+readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
+readonly CADI_SUPPORTED_IPv4=true
+readonly CADI_SUPPORTED_IPv6=true
+readonly CADI_SUPPORTED_IPv4_IPv6=true
+readonly CADI_SUPPORTED_NTP_METHODS="pools,servers"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,flash,sdcard,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="sd,usb"
+readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
+
+
+# Defaults
+readonly CADI_DEFAULT_ARCH="aarch64"
+readonly CADI_DEFAULT_NTP_METHOD="servers"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="sdcard"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="sd"
+readonly CADI_DEFAULT_OS_FILESYSTEM="ext4"
+
+
+# Additional
+readonly CADI_CHRONY_INITSTEPSLEW_THRESHOLD=30
+readonly CADI_CHRONY_MAKESTEP_THRESHOLD=1
+readonly CADI_CHRONY_MAKESTEP_LIMIT=3
+
+
+readonly CONSTANT_OS_BOOT_CONSOLE_OUTPUT_TYPES="text,graphics"

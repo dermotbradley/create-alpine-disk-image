@@ -1,0 +1,230 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  kernel-module-defines
+##
+##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+###########################################################################
+#        General kernel modules
+###########################################################################
+
+# Non-server driver kernel modules
+readonly CADI_DESKTOP_KERNEL_MODULES="mousedev psmouse usbmouse"
+
+# General unused modules
+readonly CADI_GENERAL_KERNEL_MODULES="usbkbd"
+
+# USB-keyboard specific kernel modules
+CADI_USB_KBD_KM_1="hid-apple hid-asus hid-cherry hid-cougar hid-generic"
+CADI_USB_KBD_KM_2="${CADI_USB_KBD_KM_1} hid-keytouch hid-lenovo"
+CADI_USB_KBD_KM_3="${CADI_USB_KBD_KM_2} hid-logitech-hidpp hid-logitech"
+CADI_USB_KBD_KM_4="${CADI_USB_KBD_KM_3} hid-microsoft hid-roccat-arvo"
+CADI_USB_KBD_KM_5="${CADI_USB_KBD_KM_4} hid-roccat-common hid-roccat-isku"
+CADI_USB_KBD_KM_6="${CADI_USB_KBD_KM_5} hid-roccat-ryos hid-roccat hid-semitek"
+readonly CADI_USB_KEYBOARD_KERNEL_MODULES="${CADI_USB_KBD_KM_6}"
+
+# USB controller kernel modules
+readonly CADI_USB_CONTROLLER_KERNEL_MODULES="ehci-pci ohci-pci uhci-hcd xhci-pci"
+
+# DRM/KMS
+CADI_CMN_KMS_M_1="cfbcopyarea cfbfillrect cfbimgblt drm drm_kms_helper"
+CADI_CMN_KMS_M_2="${CADI_CMN_KMS_M_1} drm_panel_orientation_quirks"
+CADI_CMN_KMS_M_3="${CADI_CMN_KMS_M_2} drm_ttm_helper drm_vram_helper fb"
+CADI_CMN_KMS_M_4="${CADI_CMN_KMS_M_3} fb_sys_fops fbdev syscopyarea sysfillrect"
+CADI_CMN_KMS_M_5="${CADI_CMN_KMS_M_4} sysimgblt ttm"
+readonly CADI_COMMON_KMS_MODULES="${CADI_CMN_KMS_M_5}"
+
+readonly CADI_GENERAL_KMS_MODULES="bochs cirrus qxl"
+
+# FS
+readonly CADI_CLOUD_UNUSED_FS_KERNEL_MODULES="9p vboxsf virtiofs"
+
+readonly CADI_VIRTUAL_FS_VIRTUALBOX_KERNEL_MODULES="vboxsf"
+
+CADI_UNUSD_FS_KM_1="cramfs dlm ecryptfs efs exfat gfs2 hfs hfsplus hpfs jfs"
+CADI_UNUSD_FS_KM_2="${CADI_UNUSD_FS_KM_1} minix nilfs2 ntfs ntfs3 ocfs2"
+CADI_UNUSD_FS_KM_3="${CADI_UNUSD_FS_KM_2} ocfs2_stack_o2cb ocfs2_stack_user"
+CADI_UNUSD_FS_KM_4="${CADI_UNUSD_FS_KM_3} ocfs2_stackglue ocfs2_nodemanager"
+CADI_UNUSD_FS_KM_5="${CADI_UNUSD_FS_KM_4} ocfs2_dlm ocfs2_dlmfs omfs reiserfs"
+CADI_UNUSD_FS_KM_6="${CADI_UNUSD_FS_KM_5} romfs sysv ufs"
+readonly CADI_UNUSED_FS_KERNEL_MODULES="${CADI_UNUSD_FS_KM_6}"
+
+
+# Net
+readonly CADI_CLOUD_UNUSED_NET_KERNEL_MODULES="9pnet_virtio"
+
+CADI_UNUSD_NET_GNRL_KM_1="ah4 ah6 esp4 esp6 fou fou6 ife ila ip_gre ip_vti"
+CADI_UNUSD_NET_GNRL_KM_2="${CADI_UNUSD_NET_GNRL_KM_1} ip6_gre ip6_vti ipcomp"
+CADI_UNUSD_NET_GNRL_KM_3="${CADI_UNUSD_NET_GNRL_KM_2} ipcomp6 libceph llc2 mip6"
+CADI_UNUSD_NET_GNRL_KM_4="${CADI_UNUSD_NET_GNRL_KM_3} nsh pktgen"
+readonly CADI_UNUSED_NET_GENERAL_KERNEL_MODULES="${CADI_UNUSD_NET_GNRL_KM_4}"
+
+CADI_UNUSD_NT_DCCP_KM="dccp dccp_diag dccp_ipv4 dccp_ipv6"
+readonly CADI_UNUSED_NET_DCCP_KERNEL_MODULES="${CADI_UNUSD_NT_DCCP_KM}"
+
+CADI_UNUSD_NT_IPTNNL_KM_1="ip_tunnel ip6_tunnel ip6_udp_tunnel ipip tunnel4"
+CADI_UNUSD_NT_IPTNNL_KM_2="${CADI_UNUSD_NT_IPTNNL_KM_1} udp_tunnel"
+readonly CADI_UNUSED_NET_IPTUNNEL_KERNEL_MODULES="${CADI_UNUSD_NT_IPTNNL_KM_2}"
+
+CADI_UNUSD_NT_IPVS_KM_1="ip_vs ip_vs_dh ip_vs_fo ip_vs_ftp ip_vs_lblc"
+CADI_UNUSD_NT_IPVS_KM_2="${CADI_UNUSD_NT_IPVS_KM_1} ip_vs_lblcr ip_vs_lc"
+CADI_UNUSD_NT_IPVS_KM_3="${CADI_UNUSD_NT_IPVS_KM_2} ip_vs_nq ip_vs_ovf"
+CADI_UNUSD_NT_IPVS_KM_4="${CADI_UNUSD_NT_IPVS_KM_3} ip_vs_pe_sip ip_vs_rr"
+CADI_UNUSD_NT_IPVS_KM_5="${CADI_UNUSD_NT_IPVS_KM_4} ip_vs_sed ip_vs_sh"
+CADI_UNUSD_NT_IPVS_KM_6="${CADI_UNUSD_NT_IPVS_KM_5} ip_vs_wlc ip_vs_wrr"
+readonly CADI_UNUSED_NET_IPVS_KERNEL_MODULES="${CADI_UNUSD_NT_IPVS_KM_6}"
+
+CADI_UNUSD_NT_L2TP_KM_1="l2tp_core l2tp_eth l2tp_ip l2tp_ip6 l2tp_netlink"
+CADI_UNUSD_NT_L2TP_KM_2="${CADI_UNUSD_NT_L2TP_KM_1} l2tp_ppp"
+readonly CADI_UNUSED_NET_L2TP_KERNEL_MODULES="${CADI_UNUSD_NT_L2TP_KM_2}"
+
+CADI_UNUSD_NT_MPLS_KM="mpls_gso mpls_iptunnel mpls_router"
+readonly CADI_UNUSED_NET_MPLS_KERNEL_MODULES="${CADI_UNUSD_NT_MPLS_KM}"
+
+CADI_UNUSD_NT_OPNVSWTCH_KM="openvswitch vport-geneve vport-gre vport-vxlan"
+readonly CADI_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES="${CADI_UNUSD_NT_OPNVSWTCH_KM}"
+
+readonly CADI_UNUSED_NET_SCTP_KERNEL_MODULES="sctp sctp_diag"
+
+CADI_UNUSD_NT_KM_1="$CADI_UNUSED_NET_GENERAL_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_2="${CADI_UNUSD_NT_KM_1} $CADI_UNUSED_NET_DCCP_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_3="${CADI_UNUSD_NT_KM_2} $CADI_UNUSED_NET_IPTUNNEL_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_4="${CADI_UNUSD_NT_KM_3} $CADI_UNUSED_NET_IPVS_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_5="${CADI_UNUSD_NT_KM_4} $CADI_UNUSED_NET_L2TP_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_6="${CADI_UNUSD_NT_KM_5} $CADI_UNUSED_NET_MPLS_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_7="${CADI_UNUSD_NT_KM_6} $CADI_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES"
+CADI_UNUSD_NT_KM_8="${CADI_UNUSD_NT_KM_7} $CADI_UNUSED_NET_SCTP_KERNEL_MODULES"
+readonly CADI_UNUSED_NET_KERNEL_MODULES="${CADI_UNUSD_NT_KM_8}"
+
+CADI_NT_VMWR_KM_1="vmw_vsock_virtio_transport vmw_vsock_virtio_transport_common"
+CADI_NT_VMWR_KM_2="${CADI_NT_VMWR_KM_1} vmw_vsock_vmci_transport vsock"
+CADI_NT_VMWR_KM_3="${CADI_NT_VMWR_KM_2} vsock_diag vsock_loopback"
+readonly CADI_NET_VMWARE_KERNEL_MODULES="${CADI_NT_VMWR_KM_3}"
+
+
+# Application-layer gateways
+CADI_NT_ALG_KM_1="nf_conntrack_amanda nf_nat_amanda nf_conntrack_ftp nf_nat_ftp"
+CADI_NT_ALG_KM_2="${CADI_NT_ALG_KM_1} nf_conntrack_h323 nf_conntrack_irc"
+CADI_NT_ALG_KM_3="${CADI_NT_ALG_KM_2} nf_nat_irc nf_conntrack_sip nf_nat_sip"
+CADI_NT_ALG_KM_4="${CADI_NT_ALG_KM_3} nf_conntrack_snmp nf_conntrack_tftp"
+CADI_NT_ALG_KM_5="${CADI_NT_ALG_KM_4} nf_nat_tftp"
+readonly CADI_NET_ALG_KERNEL_MODULES="${CADI_NT_ALG_KM_5}"
+
+# UEFI-specific modules
+readonly CADI_UEFI_KERNEL_MODULES="efivarsfs efi-pstore"
+
+
+
+
+###########################################################################
+#        Cloud and Virtual common
+###########################################################################
+
+# Modules shared between Azure Cloud & Hyper-V VMs
+readonly CADI_AZURE_HYPERV_COMMON_GRAPHICS_KERNEL_MODULES="hyperv_drm hyperv_fb"
+
+CADI_AZURE_HV_CMN_KM_1="hid-hyperv hv_netvsc hv_storvsc hv_utils hv_vmbus"
+CADI_AZURE_HV_CMN_KM_2="${CADI_AZURE_HV_CMN_KM_1} hyperv-keyboard"
+CADI_AZURE_HV_CMN_KM_3="${CADI_AZURE_HV_CMN_KM_2} pci-hyperv pci-hyperv-intf"
+CADI_AZURE_HV_CMN_KM_4="${CADI_AZURE_HV_CMN_KM_3} $CADI_AZURE_HYPERV_COMMON_GRAPHICS_KERNEL_MODULES"
+readonly CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES="${CADI_AZURE_HV_CMN_KM_4}"
+
+
+###########################################################################
+#        Cloud-specific
+###########################################################################
+
+# AWS-specific
+readonly CADI_CLOUD_AWS_KERNEL_MODULES="efa ena"
+
+# Azure-specific
+readonly CADI_CLOUD_AZURE_KERNEL_MODULES="mana"
+
+# Google-specific
+readonly CADI_CLOUD_GOOGLE_KERNEL_MODULES="gve"
+
+# General Cloud
+CADI_CLD_KM_1="${CADI_CLOUD_AWS_KERNEL_MODULES}"
+CADI_CLD_KM_2="${CADI_CLD_KM_1} ${CADI_CLOUD_AZURE_KERNEL_MODULES}"
+readonly CADI_CLOUD_KERNEL_MODULES="${CADI_CLD_KM_2} ${CADI_CLOUD_GOOGLE_KERNEL_MODULES}"
+
+
+###########################################################################
+#        Physical-specific
+###########################################################################
+
+# General physical
+CADI_PHYSICAL_KM_1="ac acpi_power_meter battery evdev hwmon i2c-piix4"
+CADI_PHYSICAL_KM_2="${CADI_PHYSICAL_KM_1} usb_storage usbmon"
+readonly CADI_PHYSICAL_KERNEL_MODULES="${CADI_PHYSICAL_KM_2}"
+
+# KMS
+CADI_PG_KMS_M_1="amdgpu analogix-anx78xx analogix_dp ast gpu-sched gud mgag200"
+CADI_PG_KMS_M_2="${CADI_PG_KMS_M_1} nouveau radeon sil164 tda998x vgem"
+readonly CADI_PHYSICAL_GENERAL_KMS_MODULES="${CADI_PG_KMS_M_2}"
+
+CADI_P_ARM_KMS_M_1="adv7511 dw-hdmi-ahb-audio dw-hdmi-cec dw-hdmi-i2s dw-hdmi"
+CADI_P_ARM_KMS_M_2="${CADI_P_ARM_KMS_M_1} dw_drm_dsi etnaviv exynosdrm gm12u320"
+CADI_P_ARM_KMS_M_3="${CADI_P_ARM_KMS_M_2} hdlcd kirin-drm komeda lima mali-dp"
+CADI_P_ARM_KMS_M_4="${CADI_P_ARM_KMS_M_3} msm panel-arm-versatile"
+CADI_P_ARM_KMS_M_5="${CADI_P_ARM_KMS_M_4} panel-ilitek-ili9322"
+CADI_P_ARM_KMS_M_6="${CADI_P_ARM_KMS_M_5} panel-orisetech-otm8009a"
+CADI_P_ARM_KMS_M_7="${CADI_P_ARM_KMS_M_6} panel-panasonic-vvx10f034n00"
+CADI_P_ARM_KMS_M_8="${CADI_P_ARM_KMS_M_7} panel-raspberrypi-touchscreen"
+CADI_P_ARM_KMS_M_9="${CADI_P_ARM_KMS_M_8} panel-raydium-rm68200"
+CADI_P_ARM_KMS_M_10="${CADI_P_ARM_KMS_M_9} panel-samsung-s6e63j0x03"
+CADI_P_ARM_KMS_M_11="${CADI_P_ARM_KMS_M_10} panel-seiko-43wvf1g"
+CADI_P_ARM_KMS_M_12="${CADI_P_ARM_KMS_M_11} panel-sharp-ls043t1le01 panfrost"
+CADI_P_ARM_KMS_M_13="${CADI_P_ARM_KMS_M_12} pl111_drm sii9234 sun4i-backend"
+CADI_P_ARM_KMS_M_14="${CADI_P_ARM_KMS_M_13} sun4i-drm-hdmi sun4i-drm"
+CADI_P_ARM_KMS_M_15="${CADI_P_ARM_KMS_M_14} sun4i-frontend sun4i-tcon sun4i_tv"
+CADI_P_ARM_KMS_M_16="${CADI_P_ARM_KMS_M_15} sun6i_drc sun6i_mipi_dsi"
+CADI_P_ARM_KMS_M_17="${CADI_P_ARM_KMS_M_16} sun8i-drm-hdmi sun8i-mixer"
+CADI_P_ARM_KMS_M_18="${CADI_P_ARM_KMS_M_17} sun8i_tcon_top tegra-drm tidss udl"
+CADI_P_ARM_KMS_M_19="${CADI_P_ARM_KMS_M_18} vc4"
+readonly CADI_PHYSICAL_ARM_KMS_MODULES="${CADI_P_ARM_KMS_M_19}"
+
+CADI_P_X86_KMS_M="gma500_gfx i810 i915 mga r128 savage sis tdfx via"
+readonly CADI_PHYSICAL_X86_KMS_MODULES="${CADI_P_X86_KMS_M}"
+
+
+###########################################################################
+#        Virtual-specific
+###########################################################################
+
+# KMS
+readonly CADI_VIRTUAL_KMS_MODULES="drm_xen_xfront vboxvideo virtio-gpu vmwgfx"
+
+# Hyper-v-specific
+readonly CADI_VIRTUAL_HYPERV_KERNEL_MODULES="hv_balloon"
+
+# QEMU-specific
+readonly CADI_VIRTUAL_QEMU_KERNEL_MODULES="qemu_fw_cfg"
+
+# Virtualbox-specific
+readonly CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES=""
+
+# VMWare-specific
+CADI_VRTL_VMWR_KM_1="ptp_vmw vmw_balloon vmw_vmci vmw_vsock_virtio_transport"
+CADI_VRTL_VMWR_KM_2="${CADI_VRTL_VMWR_KM_1} vmw_vsock_virtio_transport_common"
+CADI_VRTL_VMWR_KM_3="${CADI_VRTL_VMWR_KM_2} vmw_vsock_vmci_transport vmxnet3"
+CADI_VRTL_VMWR_KM_4="${CADI_VRTL_VMWR_KM_3} vsock vsock_diag vsock_loopback"
+readonly CADI_VIRTUAL_VMWARE_KERNEL_MODULES="${CADI_VRTL_VMWR_KM_4}"
+
+# Xen-specific
+readonly CADI_VIRTUAL_XEN_KERNEL_MODULES="xen-scsiback xen-scsifront"
+
+# General Virtual
+CADI_VIRTUAL_KM_1="${CADI_VIRTUAL_HYPERV_KERNEL_MODULES}"
+CADI_VIRTUAL_KM_2="${CADI_VIRTUAL_KM_1} ${CADI_VIRTUAL_QEMU_KERNEL_MODULES}"
+CADI_VIRTUAL_KM_3="${CADI_VIRTUAL_KM_2} ${CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES}"
+CADI_VIRTUAL_KM_4="${CADI_VIRTUAL_KM_3} ${CADI_VIRTUAL_VMWARE_KERNEL_MODULES}"
+CADI_VIRTUAL_KM_5="${CADI_VIRTUAL_KM_4} ${CADI_VIRTUAL_XEN_KERNEL_MODULES}"
+readonly CADI_VIRTUAL_KERNEL_MODULES="${CADI_VIRTUAL_KM_5}"

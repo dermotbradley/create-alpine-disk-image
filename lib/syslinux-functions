@@ -5,11 +5,45 @@
 ##
 ##  syslinux-functions
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
 #############################################################################
+
+
+#
+# Check if Syslinux supports booting from the selected filesystem type
+#
+check_syslinux_supports_fs() {
+  case $image_boot_type in
+    bios )
+      case $image_fs_type in
+        btrfs | ext4 | xfs )
+          : ;;
+        * )
+          error_message "Syslinux bootloader does not support booting from $image_fs_type filesystem!"
+      esac
+      ;;
+  esac
+}
+
+
+#
+# Check if Syslinux supports booting from LUKS
+#
+check_syslinux_supports_luks() {
+  error_message "Syslinux bootloader does not support booting from LUKS!"
+}
+
+
+#
+# Check if Syslinux supports booting from LVM
+#
+check_syslinux_supports_lvm() {
+  # Syslinux does support booting from LVM
+  :
+}
 
 
 #
@@ -18,6 +52,33 @@
 configure_bootloader_syslinux() {
   local _cmdline _modules_list
 
+  _cmdline="$base_cmdline"
+
+ 
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 )
+      # Ensure that USB keyboard works when in initramfs
+      case $image_keyboard_type in
+        usb | both )
+          # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
+          # warning will appear in 'dmesg' output:
+          #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_hcd, not after
+          _modules_list="xhci-pci,ehci-pci"
+          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
+            _modules_list="${_modules_list},ohci-pci"
+          fi
+          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+            _modules_list="${_modules_list},uhci-hcd"
+          fi
+          _modules_list="${_modules_list},usbhid,hid-generic"
+          ;;
+      esac
+      ;;
+    * )
+      # mkinitfs' init takes care of USB keyboards
+      : ;;
+  esac
+
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Configuring Syslinux"
@@ -25,7 +86,7 @@ configure_bootloader_syslinux() {
 	  mkdir -p /boot
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -35,81 +96,22 @@ configure_bootloader_syslinux() {
 	EOF
   fi
 
-  cat <<-'EOF' >> "$run_script"
+  cat <<-EOF >> "$run_script"
 	
 	  write_log "Updating update-extlinux.conf" 2
 	  {
-	EOF
-
-  # Increase the kernel message buffer so all messages during boot are retained
-  _cmdline="log_buf_len=32768"
-
-  _cmdline="$_cmdline rootfstype=$image_fs_type"
-  case $image_fs_type in
-    btrfs | ext4 )
-      case $image_os_device_media in
-        flash | sd | ssd )
-          case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 | v3.16 | edge )
-              # For older Alpine releases add commit mount option for rootfs
-              # when on flash device as this is *not* read from /etc/fstab by
-              # initramfs' init when it mounts rootfs.
-              _cmdline="$_cmdline rootflags=commit=300" ;;
-            * )
-              : ;;
-          esac
-          ;;
-      esac
-      ;;
-  esac
-  case $image_console_type in
-    normal )
-      _cmdline="$_cmdline console=${image_console_name}" ;;
-    serial )
-      _cmdline="$_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}" ;;
-  esac
-  case $image_boot_type in
-    bios )
-      _cmdline="$_cmdline nomodeset" ;;
-  esac
-  if [ -n "${image_disable_ipv6+x}" ]; then
-    _cmdline="$_cmdline ipv6.disable=1"
-  fi
-  case $image_class in
-    cloud | virtual )
-      # Using tiny-power-button for Cloud/VMs but Busybox init doesn't
-      # handle the usual signal this sends, so specify USR2 which Busybox
-      # accepts for "poweroff" situations.
-      _cmdline="$_cmdline tiny_power_button.power_signal=12" ;;
-  esac
-  if [ -n "${image_bootchart+x}" ]; then
-    _cmdline="$_cmdline chart rootflags=rw"
-  fi
-  _cmdline="$_cmdline quiet"
-
-  if [ -n "${image_encrypted+x}" ]; then
-    _cmdline="$_cmdline \\\$(define_cmdline_for_encryption)"
-  fi
-
-  if [ -n "${image_extra_cmdline_options+x}" ]; then
-    # Add any additionally specified cmdline options
-    _cmdline="$_cmdline $image_extra_cmdline_options"
-  fi
-
-  cat <<-EOF >> "$run_script"
 	    kernel_opts="${_cmdline}"
 	EOF
 
-  _modules_list="$image_fs_type"
-
-  if [ -n "${image_encrypted+x}" ]; then
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
     cat <<-EOF >> "$run_script"
-	    fs_reference="/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME}"
+	    fs_reference="/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
 	EOF
   elif [ "$image_boot_reference" = "label" ]; then
     # Use LABELs to refer to filesystems
     cat <<-EOF >> "$run_script"
-	    fs_reference="LABEL=${CONSTANT_ROOTFS_LABEL}"
+	    fs_reference="LABEL=${CADI_ROOTFS_LABEL}"
 	EOF
   else
     # Use UUIDs to refer to filesystems
@@ -130,14 +132,14 @@ configure_bootloader_syslinux() {
 	      -e "s|^default_kernel_opts=.*$|default_kernel_opts=\"\$kernel_opts\"|g" \
 	      -e "s|^root=.*$|root=\$fs_reference|g" \
 	      /etc/update-extlinux.conf
-	    if [ -n "\${modules+x}" ]; then
+	    if [ -n "\$modules" ]; then
 	      sed -i -e "s|^modules=.*$|modules=\$modules|g" /etc/update-extlinux.conf
 	    fi
 	EOF
 
 
   case $image_console_type in
-    serial )
+    serial | normal_and_serial )
       enable_syslinux_serial_console ;;
   esac
 
@@ -146,7 +148,7 @@ configure_bootloader_syslinux() {
 	EOF
 
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -196,7 +198,7 @@ enable_syslinux_serial_console() {
 # Install Syslinux onto disk
 #
 install_syslinux() {
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
@@ -224,7 +226,7 @@ install_syslinux() {
 	  extlinux --install /boot/ >> /chroot.log 2>&1
 	EOF
 
-      if [ -n "${debug_enabled+x}" ]; then
+      if [ -n "$debug_enabled" ]; then
         cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -235,56 +237,15 @@ install_syslinux() {
 	EOF
       fi
       ;;
-    uefi )
-      cat <<-'EOF' >> "$run_script"
-	  ###write_log "Installing Syslinux files in EFI/boot" 2
-	  ###mkdir -p /boot/EFI/BOOT
-	  ###cp \
-	  ###  /usr/share/syslinux/efi64/syslinux.efi \
-	  ###  /boot/EFI/boot/bootx64.efi
-	  ###cp \
-	  ###  /boot/initramfs-* \
-	  ###  /boot/vmlinuz-* \
-	  ###  /usr/share/syslinux/efi64/ldlinux.e64 \
-	  ###  /boot/EFI/alpine/*.c32 \
-	  ###  /boot/EFI/boot/
-	
-	  write_log "Installing Syslinux UEFI files in EFI/BOOT aka /boot" 2
-	  cp /usr/share/syslinux/efi64/syslinux.efi /boot/bootx64.efi
-	  rm /boot/*.c32
-	  cp \\
-	    /usr/share/syslinux/efi64/syslinux.c32 \\
-	    /usr/share/syslinux/efi64/ldlinux.e64 \\
-	    /usr/share/syslinux/efi64/libcom32.c32 \\
-	    /usr/share/syslinux/efi64/libutil.c32 \\
-	    /usr/share/syslinux/efi64/mboot.c32 \\
-	    /usr/share/syslinux/efi64/menu.c32 \\
-	    /usr/share/syslinux/efi64/vesamenu.c32 \\
-	    /boot/
-	EOF
-
-      if [ -n "${debug_enabled+x}" ]; then
-        cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    write_debug_log "After installing Syslinux UEFI files" 2
-	    ls -ltrR /boot/ >> /chroot.log
-	    write_debug_log "/boot/extlinux.conf contents:"
-	    cat /boot/extlinux.conf >> /chroot.log
-	  }
-	EOF
-      fi
-      ;;
   esac
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
 	    write_debug_log "Before update-extlinux" 2
-	    ls -ltrR /boot/ >> /chroot.log
+	    busybox ls -ltrR /boot/ >> /chroot.log
 	  }
 	EOF
   fi
@@ -295,7 +256,7 @@ install_syslinux() {
 	  update-extlinux --verbose --warn-only >> /chroot.log 2>&1
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -312,25 +273,13 @@ install_syslinux() {
 	  chmod g=,o= /boot/extlinux.conf*
 	EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
 
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
 	  {
 	EOF
-
-    case $image_boot_type in
-      uefi )
-        cat <<-'EOF' >> "$run_script"
-	    write_debug_log "/boot/extlinux.conf contents after everything:"
-	    cat /boot/extlinux.conf >> /chroot.log
-	    write_debug_log "/boot contents:" 2
-	    ls -ltrR /boot/ >> /chroot.log
-	
-	EOF
-        ;;
-    esac
 
     cat <<-'EOF' >> "$run_script"
 	    diff /boot/extlinux.conf-orig /boot/extlinux.conf >> /chroot.log || true

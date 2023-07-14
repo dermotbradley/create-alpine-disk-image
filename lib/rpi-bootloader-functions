@@ -13,56 +13,57 @@
 
 
 #
+# Check if Raspberry Pi supports booting from the selected filesystem type
+#
+check_rpi_supports_fs() {
+  # Special case - for RPI boot partition is always FAT filesystem,
+  # filesystem type used for rootfs is irrelevant.
+  :
+}
+
+
+#
+# Check if Raspberry Pi supports booting from LUKS
+#
+check_rpi_supports_luks() {
+  # Special case - for RPI boot partition is always FAT filesystem,
+  # whether LUKS is used for rootfs is irrelevant.
+  :
+}
+
+
+#
+# Check if Raspberry Pi supports booting from LVM
+#
+check_rpi_supports_lvm() {
+  # Special case - for RPI boot partition is always FAT filesystem,
+  # whether LVM is used for rootfs is irrelevant.
+  :
+}
+
+
+#
 # Setup the config files used by Raspberry Pi bootloader
 #
 configure_bootloader_rpi() {
-  local _cmdline _modules
+  local _cmdline _modules_list
 
-  ###_modules="sd-mod,usb-storage"
-
-  # Increase the kernel message buffer so all messages during boot are retained
-  _cmdline="log_buf_len=32768"
-
-  _cmdline="$_cmdline rootfstype=$image_fs_type ro"
-  if [ -n "${_modules+x}" ]; then
-    _cmdline="$_cmdline modules=$_modules"
-  fi
-  case $image_fs_type in
-    btrfs | ext4 )
-      case $image_os_device_media in
-        flash | sd | ssd )
-          # For older Alpine releases add commit mount option for rootfs when
-          # on flash device as this is *not* read from /etc/fstab by
-          # initramfs' init when it mounts rootfs.
-          case $image_alpine_release in
-            v3.13 | v3.14 | v3.15 | v3.16 )
-              _cmdline="$_cmdline rootflags=commit=300" ;;
-            * )
-              # MR outstanding to fix this
-              : ;;
-          esac
-          ;;
-      esac
-      ;;
-  esac
-  if [ -n "${image_encrypted+x}" ]; then
-    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LUKS_DEVICE_NAME} \\\$(define_cmdline_for_encryption)"
-  elif [ -n "${image_lvm_rootfs+x}" ]; then
-    _cmdline="$_cmdline root=/dev/mapper/${CONSTANT_LVM_VG_NAME}-${CONSTANT_LVM_ROOT_LV_NAME}"
+  _cmdline="$base_cmdline "
+  if { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
+    _cmdline="${_cmdline}root=/dev/mapper/${CADI_LUKS_DEVICE_NAME}"
+  elif [ -n "$image_lvm_rootfs" ]; then
+    _cmdline="${_cmdline}root=/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_ROOT_LV_NAME}"
   else
-    _cmdline="$_cmdline root=/dev/mmcblk0p${root_part_num}"
+    _cmdline="${_cmdline}root=/dev/mmcblk0p${root_part_num}"
   fi
-  if [ -n "${image_disable_ipv6+x}" ]; then
-	  _cmdline="$_cmdline ipv6.disable=1"
-	fi
-  if [ -n "${image_bootchart+x}" ]; then
-    _cmdline="$_cmdline chart rootflags=rw"
-  fi
-  _cmdline="$_cmdline console=${image_console_name} quiet"
 
-  if [ -n "${image_extra_cmdline_options+x}" ]; then
-    # Add any additionally specified cmdline options
-    _cmdline="$_cmdline $image_extra_cmdline_options"
+  case $image_os_device_type in
+    usb )
+      _modules_list="sd-mod,usb-storage" ;;
+  esac
+  if [ -n "$_modules" ]; then
+    _cmdline="$_cmdline modules=$_modules_list"
   fi
 
   create_rpi_bootloader_cmdline_file "$_cmdline"
@@ -91,7 +92,7 @@ write_log "Create RPI bootloader configuration"
 	_SCRIPT_
 EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -190,7 +191,7 @@ EOF
 	_SCRIPT_
 EOF
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
@@ -207,16 +208,18 @@ EOF
 # Create RPI usercfg.txt bootloader file
 #
 create_rpi_bootloader_usercfg_file() {
-  local _fixup_file _start_file
+  local _fixup_file _overlay_name _start_file
 
   case $image_physical_type in
     rpi4 )
       _fixup_file="fixup4cd.dat"
       _start_file="start4cd.elf"
+      _overlay_name="vc4-fkms-v3d-pi4"
       ;;
     * )
       _fixup_file="fixup_cd.dat"
       _start_file="start_cd.elf"
+      _overlay_name="vc4-fkms-v3d"
       ;;
   esac
 
@@ -264,7 +267,17 @@ create_rpi_bootloader_usercfg_file() {
 	_SCRIPT_
 EOF
 
-  if [ -n "${image_enable_watchdog+x}" ]; then
+  cat <<EOF >> "$run_script"
+
+  write_log "Adding DRM/KMS configuration to /boot/usercfg.txt" 2
+  cat <<-_SCRIPT_ >> /boot/usercfg.txt
+	
+	# Enable DRM/KMS
+	dtoverlay=$_overlay_name
+	_SCRIPT_
+EOF
+
+  if [ -n "$image_enable_watchdog" ]; then
     cat <<'EOF' >> "$run_script"
 
   write_log "Adding watchdog configuration to /boot/usercfg.txt" 2
@@ -276,7 +289,7 @@ EOF
 EOF
   fi
 
-  if [ -n "${rpi_use_rtc+x}" ]; then
+  if [ -n "$rpi_use_rtc" ]; then
     cat <<'EOF' >> "$run_script"
 
   write_log "Adding RTC configuration to /boot/usercfg.txt" 2
@@ -288,7 +301,7 @@ EOF
 EOF
   fi
 
-  if [  -n "${rpi_use_poe_hat+x}" ]; then
+  if [  -n "$rpi_use_poe_hat" ]; then
     cat <<'EOF' >> "$run_script"
 	
   write_log "Adding PoE HAT configuration to /boot/usercfg.txt" 2
@@ -302,7 +315,7 @@ EOF
 EOF
   fi
 
-  if [ -n "${debug_enabled+x}" ]; then
+  if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug

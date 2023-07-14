@@ -2,205 +2,65 @@
 
 #############################################################################
 ##
-##  image-defines
+##  disk-image-defines
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
 #############################################################################
 
 # Defaults
-readonly CONSTANT_DEFAULT_ADMIN_USERNAME="alpine"
-readonly CONSTANT_DEFAULT_AUTH_CONTROL="doas"
-readonly CONSTANT_DEFAULT_BOOT_REFERENCE="uuid"
-readonly CONSTANT_DEFAULT_CRON_DAEMON="busybox"
-readonly CONSTANT_DEFAULT_DHCP_CLIENT="dhclient"
-readonly CONSTANT_DEFAULT_DISK_RESIZE_FREE_PERCENT=10
-readonly CONSTANT_DEFAULT_FIREWALL="iptables"
-readonly CONSTANT_DEFAULT_FS_TYPE="ext4"
-readonly CONSTANT_DEFAULT_LUKS_CIPHER="aes-xts-plain64"
-readonly CONSTANT_DEFAULT_LUKS_PASSPHRASE="InsecureDefault"
-readonly CONSTANT_DEFAULT_SSH_KEYTYPES="ed25519"
-readonly CONSTANT_DEFAULT_SSH_SERVER="openssh"
-readonly CONSTANT_DEFAULT_SYSLOG_SERVER="rsyslog"
+readonly CADI_DEFAULT_ADMIN_USERNAME="alpine"
+readonly CADI_DEFAULT_BOOT_REFERENCE="uuid"
+readonly CADI_DEFAULT_DISK_RESIZE_FREE_PERCENT=10
+readonly CADI_DEFAULT_FS_TYPE="ext4"
+readonly CADI_DEFAULT_LUKS_CIPHER="aes-xts-plain64"
+readonly CADI_DEFAULT_LUKS_PASSPHRASE="InsecureDefault"
+readonly CADI_DEFAULT_SSH_KEYTYPES="ed25519"
+readonly CADI_DEFAULT_UKI_BOOTSTUB="gummiboot"
 
 
 # Filesystem labels and LVM device names
-readonly CONSTANT_BOOTFS_LABEL="boot"
-readonly CONSTANT_CIDATA_LABEL="CIDATA"
-readonly CONSTANT_LOGSFS_LABEL="logs"
-readonly CONSTANT_ROOTFS_LABEL="alpine-root"
-readonly CONSTANT_RPIBOOT_LABEL="RPIBOOT"
-readonly CONSTANT_ESP_FS_LABEL="SYSTEM EFI"
-readonly CONSTANT_LUKS_DEVICE_NAME="cryptroot"
-readonly CONSTANT_LUKS_LABEL="luks-main"
-readonly CONSTANT_LVM_BOOT_LV_NAME="boot"
-readonly CONSTANT_LVM_LOGS_LV_NAME="logs"
-readonly CONSTANT_LVM_ROOT_LV_NAME="root"
-readonly CONSTANT_LVM_VG_NAME="vg0"
+readonly CADI_BOOTFS_LABEL="boot"
+readonly CADI_CIDATA_LABEL="CIDATA"
+readonly CADI_ESP_FS_LABEL="SYSTEM EFI"
+readonly CADI_LOGSFS_LABEL="logs"
+readonly CADI_LUKS_DEVICE_NAME="lukspart"
+readonly CADI_LUKS_LABEL="luks-main"
+readonly CADI_LVM_BOOT_LV_NAME="boot"
+readonly CADI_LVM_LOGS_LV_NAME="logs"
+readonly CADI_LVM_ROOT_LV_NAME="root"
+readonly CADI_LVM_VG_NAME="vg0"
+readonly CADI_ROOTFS_LABEL="alpine-root"
+readonly CADI_RPIBOOT_LABEL="RPIBOOT"
+readonly CADI_SWAP_PART_LABEL="Swap"
 
 # Filesystem reserved space in %
-readonly CONSTANT_EXT4_RESERVED_PERCENT="5"
-readonly CONSTANT_F2FS_RESERVED_PERCENT="40"
-readonly CONSTANT_XFS_RESERVED_PERCENT="7"
+readonly CADI_BTRFS_RESERVED_PERCENT="5"
+readonly CADI_EXT4_RESERVED_PERCENT="20"
+readonly CADI_F2FS_RESERVED_PERCENT="40"
+readonly CADI_XFS_RESERVED_PERCENT="7"
 
 # Storage overhead for LUKS and LVM in %
-readonly CONSTANT_LUKS_OVERHEAD_PERCENT="4"
-readonly CONSTANT_LVM_OVERHEAD_PERCENT="7"
+readonly CADI_LUKSv1_OVERHEAD_PERCENT="4"
+readonly CADI_LUKSv2_OVERHEAD_MB="16"
+readonly CADI_LVM_OVERHEAD_PERCENT="7"
+
 
 ###########################################################################
-#        Partition / filesystem sizes (in MiB)
+#        Partition / filesystem sizing (in MiB)
 ###########################################################################
 
-readonly CONSTANT_CIDATA_PART_SIZE=1
+readonly CADI_CIDATA_PART_SIZE=1
 # With XFS the minimum size must be 16MiB
-readonly CONSTANT_LVM_LOGS_LV_SIZE=16
+readonly CADI_LVM_LOGS_LV_SIZE=16
 
-# Cloud
-########
-readonly CONSTANT_DEFAULT_CLOUD_ESP_PART_SIZE=1
-# Boot size takes into account size of kernel & initramfs
-readonly CONSTANT_CLOUD_AARCH64_BOOT_PART_SIZE=64
-readonly CONSTANT_CLOUD_X86_BOOT_PART_SIZE=32
-readonly CONSTANT_CLOUD_X86_64_BOOT_PART_SIZE=32
-readonly CONSTANT_CLOUD_ROOT_PART_SIZE=325
-readonly CONSTANT_CLOUD_ESP_TYPE="fat12"
-
-# Physical
-###########
-readonly CONSTANT_DEFAULT_PHYSICAL_ESP_PART_SIZE=16
-# FAT32 minimum filesystem size on 512-byte sector device,
-# 65525 clusters x 512 byte sector = 32 MiB
-readonly CONSTANT_DEFAULT_PHYSICAL_FAT32_512_ESP_PART_SIZE=32
-# FAT32 minimum filesystem size on 4K sector device,
-# 65525 clusters x 4096 byte sector = 256MiB
-readonly CONSTANT_DEFAULT_PHYSICAL_FAT32_4096_ESP_PART_SIZE=256
-# Boot size takes into account size of firmware, kernel and initramfs
-readonly CONSTANT_PHYSICAL_BOOT_PART_SIZE=64
-readonly CONSTANT_PHYSICAL_ROOT_PART_SIZE=450
-readonly CONSTANT_PHYSICAL_ESP_TYPE="fat16"
-
-# RPI
-######
-readonly CONSTANT_RPI_AARCH64_BOOT_PART_SIZE=64
-readonly CONSTANT_RPI_AARCH64_ROOT_PART_SIZE=256
-readonly CONSTANT_RPI_ARMV7_BOOT_PART_SIZE=40
-readonly CONSTANT_RPI_ARMV7_ROOT_PART_SIZE=240
-
-# Virtual
-##########
-readonly CONSTANT_DEFAULT_VIRTUAL_ESP_PART_SIZE=1
-# Boot size takes into account size of kernel & initramfs
-readonly CONSTANT_VIRTUAL_AARCH64_BOOT_PART_SIZE=64
-readonly CONSTANT_VIRTUAL_X86_BOOT_PART_SIZE=32
-readonly CONSTANT_VIRTUAL_X86_64_BOOT_PART_SIZE=40
-readonly CONSTANT_VIRTUAL_ROOT_PART_SIZE=270
-readonly CONSTANT_VIRTUAL_ESP_TYPE="fat12"
-
-
-readonly CONSTANT_GENERAL_NTP_SERVER="pool.ntp.org"
-
-
-
-###########################################################################
-
-# Modules shared between Azure Cloud & Hyper-V VMs
-readonly CONSTANT_AZURE_HYPERV_COMMON_KERNEL_MODULES="hid-hyperv \
-           hv_netvsc hv_storvsc hv_utils hv_vmbus hyperv-keyboard \
-           hyperv_drm hyperv_fb pci-hyperv pci-hyperv-intf"
-
-###########################################################################
-#        Cloud-specific settings
-###########################################################################
-
-# AWS-specific defines
-readonly CONSTANT_AWS_NTP_IPV4ADDRESS="169.254.169.123"
-readonly CONSTANT_AWS_NTP_IPV6ADDRESS="fd00:ec2::123"
-readonly CONSTANT_CLOUD_AWS_KERNEL_MODULES="efa ena"
-
-# Azure-specific defines
-readonly CONSTANT_CLOUD_AZURE_KERNEL_MODULES="mana"
-
-# Google-specific defines
+# FAT32 minimum filesystem size depends on the device's sector size
 #
-# https://morganpeat.github.io/cloudmigration/2019/02/01/time-sync-on-cloud-vms-2.html
-readonly CONSTANT_GOOGLE_NTP_INTERNAL_SERVER="metadata.google.internal"
-readonly CONSTANT_CLOUD_GOOGLE_KERNEL_MODULES="gve"
-
-# General Cloud defines
-readonly CONSTANT_CLOUD_KERNEL_MODULES="${CONSTANT_CLOUD_AWS_KERNEL_MODULES} \
-           ${CONSTANT_CLOUD_AZURE_KERNEL_MODULES} \
-           ${CONSTANT_CLOUD_GOOGLE_KERNEL_MODULES}"
-
-###########################################################################
-#        Virtual-specific settings
-###########################################################################
-
-# Hyper-v-specific defines
-readonly CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES="hv_balloon"
-
-# QEMU-specific defines
-readonly CONSTANT_VIRTUAL_QEMU_KERNEL_MODULES=""
-
-# Virtualbox-specific defines
-readonly CONSTANT_VIRTUAL_VIRTUALBOX_KERNEL_MODULES=""
-
-# VMWare-specific defines
-readonly CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES="ptp_vmw vmw_balloon vmw_vmci \
-            vmw_vsock_virtio_transport vmw_vsock_virtio_transport_common \
-            vmw_vsock_vmci_transport vmxnet3 vsock vsock_diag vsock_loopback"
-
-# Xen-specific defines
-readonly CONSTANT_VIRTUAL_XEN_KERNEL_MODULES="xen-scsiback xen-scsifront"
-
-# General Virtual defines
-readonly CONSTANT_VIRTUAL_KERNEL_MODULES="${CONSTANT_VIRTUAL_HYPERV_KERNEL_MODULES} \
-           ${CONSTANT_VIRTUAL_QEMU_KERNEL_MODULES} \
-           ${CONSTANT_VIRTUAL_VIRTUALBOX_KERNEL_MODULES} \
-           ${CONSTANT_VIRTUAL_VMWARE_KERNEL_MODULES} \
-           ${CONSTANT_VIRTUAL_XEN_KERNEL_MODULES}"
-
-
-###########################################################################
-#        General kernel modules
-###########################################################################
-
-# Non-server driver kernel modules
-readonly CONSTANT_DESKTOP_KERNEL_MODULES="mousedev psmouse usbmouse"
-
-readonly CONSTANT_PHYSICAL_KERNEL_MODULES="ac battery button evdev i2c-piix4 \
-            usb_common usb_storage usbmon"
-
-# Net
-readonly CONSTANT_UNUSED_NET_GENERAL_KERNEL_MODULES="ah4 ah6 esp4 esp6 fou \
-            fou6 ife ila ip_gre ip_vti ip6_gre ip6_vti ipcomp ipcomp6 libceph \
-            llc llc2 mip6 nsh pktgen"
-readonly CONSTANT_UNUSED_NET_DCCP_KERNEL_MODULES="dccp dccp_diag dccp_ipv4 \
-            dccp_ipv6"
-readonly CONSTANT_UNUSED_NET_IPTUNNEL_KERNEL_MODULES="ip_tunnel ip6_tunnel \
-            ip6_udp_tunnel ipip tunnel4 udp_tunnel"
-readonly CONSTANT_UNUSED_NET_IPVS_KERNEL_MODULES="ip_vs ip_vs_dh ip_vs_fo \
-            ip_vs_ftp ip_vs_lblc ip_vs_lblcr ip_vs_lc ip_vs_nq ip_vs_ovf \
-            ip_vs_pe_sip ip_vs_rr ip_vs_sed ip_vs_sh ip_vs_wlc ip_vs_wrr"
-readonly CONSTANT_UNUSED_NET_L2TP_KERNEL_MODULES="l2tp_core l2tp_eth l2tp_ip \
-            l2tp_ip6 l2tp_netlink l2tp_ppp"
-readonly CONSTANT_UNUSED_NET_MPLS_KERNEL_MODULES="mpls_gso mpls_iptunnel \
-            mpls_router"
-readonly CONSTANT_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES="openvswitch \
-            vport-geneve vport-gre vport-vxlan"
-readonly CONSTANT_UNUSED_NET_SCTP_KERNEL_MODULES="sctp sctp_diag"
-
-readonly CONSTANT_UNUSED_NET_KERNEL_MODULES="\
-            $CONSTANT_UNUSED_NET_GENERAL_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_DCCP_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_IPTUNNEL_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_IPVS_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_L2TP_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_MPLS_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_OPENVSWITCH_KERNEL_MODULES \
-            $CONSTANT_UNUSED_NET_SCTP_KERNEL_MODULES"
-
-readonly CONSTANT_NET_VMWARE_KERNEL_MODULES="vmw_vsock_virtio_transport \
-            vmw_vsock_virtio_transport_common vmw_vsock_vmci_transport vsock \
-            vsock_diag vsock_loopback"
+# Minimum filesystem size on 512-byte sector device,
+# 65525 clusters x 512 byte sector = 32 MiB
+readonly CADI_DEFAULT_FAT32_512_ESP_PART_SIZE=32
+# Minimum filesystem size on 4K sector device,
+# 65525 clusters x 4096 byte sector = 256MiB
+readonly CADI_DEFAULT_FAT32_4096_ESP_PART_SIZE=256

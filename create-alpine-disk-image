@@ -5,7 +5,7 @@
 ##
 ##  create-alpine-disk-image
 ##
-##  Copyright 2021-2022 Dermot Bradley <dermot_bradley@yahoo.com>
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
 ##  Licensed via GPL version 2.0
 ##
@@ -20,32 +20,43 @@
 ##
 #############################################################################
 
-TMPDIR="/var/tmp"
+readonly TMPDIR="/var/tmp"
 
-readonly script_version="0.2.1-DEV"
+readonly script_version="0.3-DEV"
 readonly script_type="creator"
 readonly script_name="create-alpine-disk-image"
 readonly script_dir="$(dirname "$0")"
 
 
 # Source read-only variables
+. "${script_dir}"/lib/cloud-init-defines
 . "${script_dir}"/lib/common-defines
 . "${script_dir}"/lib/disk-image-defines
-
+. "${script_dir}"/lib/kernel-module-defines
+. "${script_dir}"/lib/ntp-defines
 
 # Source functions, some shared with create-alpine-disk-installer
 . "${script_dir}"/lib/cli-functions
 . "${script_dir}"/lib/common-functions
 . "${script_dir}"/lib/disk-image-functions
+. "${script_dir}"/lib/filesystems-functions
+. "${script_dir}"/lib/fscrypt-encryption-functions
+. "${script_dir}"/lib/kernel-module-functions
+. "${script_dir}"/lib/luks-encryption-functions
+. "${script_dir}"/lib/lvm-functions
+. "${script_dir}"/lib/ntp-functions
+. "${script_dir}"/lib/partitions-functions
 . "${script_dir}"/lib/services-functions
 
-. "${script_dir}"/lib/booster-functions
 . "${script_dir}"/lib/initramfs-functions
 . "${script_dir}"/lib/mkinitfs-functions
 
+. "${script_dir}"/lib/bootloader-general-functions
 . "${script_dir}"/lib/grub-functions
+. "${script_dir}"/lib/limine-functions
 . "${script_dir}"/lib/rpi-bootloader-functions
 . "${script_dir}"/lib/syslinux-functions
+. "${script_dir}"/lib/uki-functions
 
 . "${script_dir}"/lib/cloud-init-functions
 . "${script_dir}"/lib/non-cloud-functions
@@ -61,46 +72,77 @@ readonly script_dir="$(dirname "$0")"
 
 full_command_options="$*"
 
-echo
-echo "$script_name version $script_version"
+printf '\n%s version %s\n' "$script_name" "$script_version"
 
 parse_cli_options "$@"
 validate_cli_options
 
-echo
-echo "Using the following settings:"
-echo "  Image arch: $image_arch"
-echo "  Image class: $image_class"
+printf "\nUsing the following settings:\n\n"
+printf '  Image arch: %s\n' "$image_arch"
+printf '  Image class: %s' "$image_class"
 case $image_class in
   cloud )
-    echo "  Cloud type: $image_cloud_type" ;;
+    printf ', Cloud type: %s\n' "$image_cloud_type" ;;
   physical )
-    echo "  Physical machine type: $image_physical_type" ;;
+    printf ', Physical machine type: %s\n' "$image_physical_type" ;;
   virtual )
-    echo "  VM type: $image_vm_type" ;;
+    printf ', VM type: %s\n' "$image_vm_type" ;;
 esac
-echo "  Alpine release: $image_alpine_release"
-echo "  Boot Type: $image_boot_type"
-echo "  Bootloader: $image_bootloader"
-echo "  Filesystem type: $image_fs_type"
-if [ -n "${image_encrypted+x}" ]; then
-  echo "  Image LUKS partition size: $image_luks_part_size"
-elif [ -n "${image_lvm_rootfs+x}" ]; then
-  echo "  Image LVM partition size: $image_lvm_part_size"
-else
-  echo "  Image root partition size: $image_root_part_size"
+printf '  Config software type: %s\n\n' "$image_cloud_software"
+printf '  Alpine release: %s\n\n' "$image_alpine_release"
+printf '  OS device type: %s, OS device media: %s\n' \
+  "$image_os_device_type" "$image_os_device_media"
+printf '  OS device sector size: %s bytes\n' "$image_os_device_sector_size"
+printf '  Boot type: %s, Bootloader: %s\n' "$image_boot_type" "$image_bootloader"
+printf '  Root filesystem type: %s\n' "$image_fs_type"
+case $image_boot_type in
+  secure-uefi | uefi )
+    printf '  ESP fs type: %s, ESP partition size: %s MiB\n' \
+      "$image_esp_type" "$image_uefi_part_size"
+    ;;
+  * )
+    : ;;
+esac
+if [ "$image_swap_file_size" != "0" ]; then
+  printf '  Swapfile size: %s\n' "$image_swap_file_size"
 fi
+if [ "$image_swap_partition_size" != "0" ]; then
+  printf '  Swap partition size: %s\n' "$image_swap_partition_size"
+fi
+if { [ "$image_encryption_type" = "both" ] || \
+     [ "$image_encryption_type" = "luks" ]; }; then
+  printf '\n  Using LUKS encryption\n'
+  if [ -n "$image_lvm_rootfs" ]; then
+    printf '  Using LVM\n'
+  fi
+elif [ -n "$image_lvm_rootfs" ]; then
+  printf '\n  Using LVM\n'
+elif [ -n "$image_root_part_size" ]; then
+  printf '  Image root filesystem size: %s MiB\n' "$image_root_part_size"
+fi
+printf '\n  Console type: %s, Console output type: %s\n' \
+  "$image_console_type" "$image_console_output_type"
+printf '  Keyboard type: %s\n' "$image_keyboard_type"
+if [ -n "$image_enable_graphics" ]; then
+  printf '  Enable graphics: %s\n' "$image_enable_graphics"
+fi
+printf '\n  Cron daemon: %s\t\tDHCP client: %s\n' \
+  "$image_cron_daemon" "$image_dhcp_client"
+printf '  Login package: %s\tNTP daemon: %s\n' \
+  "$image_login_package" "$image_ntp_daemon"
+printf '  SSH daemon: %s\t\tSyslog server: %s\n' \
+  "$image_ssh_server" "$image_syslog_server"
+printf '  User management: %s\n' "$image_user_management"
 
 #############################################################################
 ##		Prepare the run script
 #############################################################################
 
-run_script="$generated_script_filename"
 create_runscript_header
 insert_runscript_functions
 prep_runscript_main_section
 
-if [ -n "${use_ramdisk+x}" ]; then
+if [ -n "$use_ramdisk" ]; then
   mount_ramdisk
 fi
 
@@ -121,7 +163,7 @@ case $image_boot_type in
     partition_uefi ;;
 esac
 
-if [ -n "${debug_enabled+x}" ]; then
+if [ -n "$debug_enabled" ] && [ "$image_boot_type" != "unpartitioned" ]; then
   cat <<-'EOF' >> "$run_script"
 	
 	# Debug
@@ -137,41 +179,47 @@ fi
 
 setup_loop_device
 
-if [ -n "${image_encrypted+x}" ]; then
-  setup_luks_device
-fi
-if [ -n "${image_lvm_rootfs+x}" ]; then
+case $image_encryption_type in
+  both | luks )
+    setup_luks_device ;;
+esac
+if [ -n "$image_lvm_rootfs" ]; then
   setup_lvm_device
 fi
 
 format_and_mount_fs
 
-if [ -n "${image_encrypted+x}" ] && [ "$image_bootloader" = "grub" ] && \
-   { [ -z "${image_experimental+x}" ] || [ -z "${remote_unlock_enabled+x}" ]; } && \
-   [ -z "${image_no_grub_encryption+x}" ] && \
-   [ -z "${needs_boot_partition+x}" ]; then
-  # LUKS keyfile is used to unlock rootfs without 2nd password prompt.
-  # It applies only when:
-  #  - disk image is encrypted, AND
-  #  - bootloader is Grub, AND
-  #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
-  #  - Grub LUKS encryption support is not disabled, AND
-  #  - /boot is not a separate partition.
-  copy_luks_keyfile_into_place
-  setup_crypttab
-fi
+case $image_encryption_type in
+  both | fscrypt )
+    setup_fscrypt_device ;;
+esac
 
-download_static_apk
-copy_host_resolv_conf_to_chroot
-create_repositories_file_inside_chroot
-if [ -n "${local_repo_signature_file+x}" ]; then
-  copy_local_repo_key_to_chroot
-fi
-install_alpine_base
+case $image_bootloader in
+  grub )
+    case $image_encryption_type in
+      both | luks )
+        if { [ -z "$image_experimental" ] || \
+             [ -z "$remote_luks_unlock_enabled" ]; } && \
+           [ -z "$image_no_grub_luks_fde_encryption" ] && \
+           [ -z "$needs_boot_partition" ]; then
+          # LUKS keyfile is used to unlock LUKS rootfs without 2nd password prompt.
+          # It applies only when:
+          #  - bootloader is Grub, AND
+          #  - disk image is LUKS encrypted, AND
+          #  - remote unlock is not enabled (otherwise /boot is not encrypted), AND
+          #  - Grub LUKS encryption support is not disabled, AND
+          #  - /boot is not a separate partition.
+          copy_luks_keyfile_into_place
+        fi
+        ;;
+    esac
+    ;;
+esac
 
+setup_alpine_base
 mount_host_special_fs_in_chroot
 
-if [ -n "${extra_files_directory+x}" ]; then
+if [ -n "$extra_files_directory" ]; then
   install_extra_files
 fi
 
@@ -186,12 +234,12 @@ cat <<-'EOF' >> "$run_script"
 	
 	EOF
 
-if [ -n "${image_short_hostname+x}" ]; then
+if [ -n "$image_short_hostname" ]; then
   cat <<-EOF >> "$run_script"
 	short_hostname="${image_short_hostname}"
 	
 	EOF
-elif [ -n "${image_full_hostname+x}" ]; then
+elif [ -n "$image_full_hostname" ]; then
   cat <<-EOF >> "$run_script"
 	full_hostname="${image_full_hostname}"
 	
@@ -202,11 +250,13 @@ cat <<-EOF >> "$run_script"
 	locale="${image_locale}"
 	EOF
 
-if [ "$image_class" = "physical" ]; then
-  cat <<-EOF >> "$run_script"
+case $image_class in
+  physical )
+    cat <<-EOF >> "$run_script"
 	timezone="${image_timezone}"
 	EOF
-fi
+    ;;
+esac
 
 insert_chroot_functions
 
@@ -217,6 +267,7 @@ cat <<-'EOF' >> "$run_script"
 	############################################################################
 	EOF
 
+configure_base_cmdline_values
 configure_fstab
 add_additional_repos
 update_upgrade_packages
@@ -225,95 +276,39 @@ setup_etc_modules
 add_base_init_d
 install_additional_packages
 additional_os_configuration
+configure_autoconfiguration_software
 
-case $image_cloud_software in
-  cloud-init )
-    configure_cloud_init ;;
-  none )
-    configure_non_cloud_init ;;
-  tiny-cloud )
-    configure_tiny_cloud ;;
-esac
+if [ -z "$image_barebones" ]; then
+  if [ -n "$image_optimise" ]; then
+    disable_kernel_modules
+  fi
 
-if [ -n "${image_optimise+x}" ]; then
-  disable_kernel_modules
+  if [ -n "$image_harden" ]; then
+    create_module_blocking_initd
+    delete_users_groups
+  fi
 fi
 
-if [ -n "${image_harden+x}" ]; then
-  create_module_blocking_initd
-  delete_users_groups
-fi
-
-case $image_initramfs_tool in
-  booster )
-    configure_booster ;;
-  mkinitfs )
-    configure_mkinitfs ;;
-esac
-
-if [ -n "${remote_unlock_enabled+x}" ] && [ -n "${ssh_public_key+x}" ]; then
+if [ -n "$remote_unlock_enabled" ] && [ -n "$ssh_public_key" ]; then
   setup_dropbear_authorized_keys
-fi
-
-if [ -n "${image_lvm_rootfs+x}" ] && [ "$image_bootloader" = "grub" ]; then
-  cat <<-'EOF' >> "$run_script"
-	
-	{
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	  # Debug
-	  {
-	    cp /usr/sbin/grub-mkconfig /usr/sbin/grub-mkconfig-orig
-	  }
-	
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  write_log "Tweaking grub-mkconfig to prevent LVM-related warning" 2
-	  sed -i \\
-	    -Ee 's|^(GRUB_DEVICE="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    -Ee 's|^(GRUB_DEVICE_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    -Ee 's|^(GRUB_DEVICE_PARTUUID="\`)(.*)|\1 export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    -Ee 's|^(GRUB_DEVICE_BOOT="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    -Ee 's|^(GRUB_DEVICE_BOOT_UUID="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    -Ee 's|^(GRUB_FS="\`)(.*)|\1export LVM_SUPPRESS_FD_WARNINGS=1; \2|' \\
-	    /usr/sbin/grub-mkconfig
-	EOF
-
-  if [ -n "${debug_enabled+x}" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  {
-	    diff /usr/sbin/grub-mkconfig-orig /usr/sbin/grub-mkconfig \\
-	      >> /chroot.log || true
-	    rm /usr/sbin/grub-mkconfig-orig
-	  }
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
 fi
 
 case $image_alpine_release in
   v3.13 | v3.14 | v3.15 | v3.16 )
-    if [ "$image_mdev" = true ]; then
-      # Hack/kludge for grub-probe problems - it will use "udevadm info" to
-      # determine info related to the boot device/fs if eudev package is
-      # installed, if not then it falls back to its own way of figuring stuff out
-      # which does not work for filesystems on a loopback device, so let's
-      # temporarily install eudev to let it use udevadm.
-      cat <<-'EOF' >> "$run_script"
+    case $image_device_management_type in
+      mdev | mdevd )
+        # Hack/kludge for grub-probe problems - it will use "udevadm info" to
+        # determine info related to the boot device/fs if eudev package is
+        # installed, if not then it falls back to its own way of figuring stuff out
+        # which does not work for filesystems on a loopback device, so let's
+        # temporarily install eudev to let it use udevadm.
+        cat <<-'EOF' >> "$run_script"
 	
 	write_log "Temporarily installing eudev so that grub-probe can use it"
 	apk add eudev >> /chroot.log 2>&1
 	EOF
-    fi
+        ;;
+    esac
     ;;
   * )
     # No longer needed as patch added to Grub to work without udevadm
@@ -321,6 +316,8 @@ case $image_alpine_release in
 esac
 
 install_kernel
+configure_initramfs_tool
+
 case $image_arch in
   x86 | x86_64 )
     if [ "$image_class" = "physical" ]; then
@@ -330,138 +327,121 @@ case $image_arch in
 esac
 install_firmware
 
+show_initramfs_contents
+
 case $image_bootloader in
   grub )
     configure_bootloader_grub ;;
+  limine )
+    configure_bootloader_limine ;;
+  rpi )
+    configure_bootloader_rpi ;;
   syslinux )
     configure_bootloader_syslinux ;;
-  * )
-    if [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      configure_bootloader_rpi
-    fi
+  uki )
+    configure_bootloader_uki ;;
 esac
 
-if [ -n "${image_encrypted+x}" ] && [ "$image_bootloader" = "grub" ] && \
-   { [ -z "${image_experimental+x}" ] || [ -z "${remote_unlock_enabled+x}" ]; } && \
-   [ -z "${image_no_grub_encryption+x}" ] && \
-   [ -z "${needs_boot_partition+x}" ]; then
-  # When using GRUB encryption along with a keyfile (to avoid 2nd prompt),
-  # ensure that initramfs is only readable by root as it contains the
-  # keyfile to decrypt the root partition.
-  case $image_class in
-    cloud | virtual )
-      case $image_kernel_type in
-        edge )
-          _initramfs_filename="initramfs-edge2virt" ;;
-        * )
-          _initramfs_filename="initramfs-virt" ;;
-      esac
-      ;;
-    physical )
-      case $image_physical_type in
-        rpi* )
-          _initramfs_filename="initramfs-rpi" ;;
-        * )
-          case $image_kernel_type in
-            edge )
-              _initramfs_filename="initramfs-edge" ;;
-            * )
-              _initramfs_filename="initramfs-lts" ;;
-          esac
-          ;;
-      esac
-      ;;
-  esac
-  cat <<-EOF >> "$run_script"
-	
-	chmod 600 /boot/${_initramfs_filename}
-	EOF
-fi
-
-if [ -n "${debug_enabled+x}" ]; then
-  cat <<-'EOF' >> "$run_script"
-	
-	# Debug
-	{
-	EOF
-
-  case $image_initramfs_tool in
-    booster )
-      case $image_class in
-        cloud | virtual )
-          case $image_kernel_type in
-            edge )
-              _initramfs_filename="booster-edge2virt" ;;
-            * )
-              _initramfs_filename="booster-virt" ;;
-          esac
-          ;;
-        physical )
-          case $image_physical_type in
-            rpi* )
-              _initramfs_filename="booster-rpi" ;;
-            * )
-              case $image_kernel_type in
-                edge )
-                  _initramfs_filename="booster-edge" ;;
-                * )
-                  _initramfs_filename="booster-lts" ;;
-              esac
-              ;;
-          esac
-          ;;
-      esac
-
-      cat <<-EOF >> "$run_script"
-	  write_debug_log "booster $_initramfs_filename contents:"
-	  booster ls "/boot/$_initramfs_filename" >> /chroot.log 2>&1
-	EOF
-      ;;
-    mkinitfs )
-      cat <<-'EOF' >> "$run_script"
-	  write_debug_log "mkinitfs contents:"
-	  mkinitfs -l "\$_kernel_version" >> /chroot.log 2>&1
-	EOF
-      ;;
-    * )
-      : ;;
-  esac
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-fi
-
-case $image_bootloader in
-  grub )
-    install_grub ;;
-  syslinux )
-    install_syslinux ;;
+case $image_boot_type in
+  unpartitioned )
+    : ;;
+  * )
+    case $image_bootloader in
+      grub )
+        install_grub ;;
+      limine )
+        install_limine ;;
+      syslinux )
+        install_syslinux ;;
+    esac
+    ;;
 esac
 
 configure_services
 
-if [ -n "${extra_packages_list+x}" ]; then
+if [ -n "$extra_packages_list" ]; then
   install_extra_packages
 fi
 
-if [ -n "${debug_enabled+x}" ]; then
+cat <<-'EOF' >> "$run_script"
+	
+	apk info -v | sort > /final-packages.list
+	
+	write_log "Clearing APK cache"
+	rm /var/cache/apk/*
+	
+	write_log "Final disk space usage:"
+	busybox df -k >> /chroot.log
+	EOF
+
+if [ -n "$debug_enabled" ]; then
   cat <<-'EOF' >> "$run_script"
 	
 	# Debug
 	{
 	  write_debug_log "Final installed packages list:"
-	  apk info -v | sort >> /chroot.log
-	
-	  write_debug_log "Disk space usage:"
-	  df -k >> /chroot.log
+	  cat /final-packages.list >> /chroot.log
 	
 	  write_debug_log "/boot size:"
 	  du -k /boot/ |sort -n >> /chroot.log
+	EOF
+
+  cat <<-'EOF' >> "$run_script"
+	  write_debug_log "general boot files disk space usage:"
+	  du -k -c /boot/System.map* /boot/config-* /boot/vmlinuz-* >> /chroot.log
+	
+	  write_debug_log "initramfs boot file disk space usage:"
+	  du -k -c /boot/initramfs-* >> /chroot.log
+	
+	EOF
+
+  if [ "$image_class" = "physical" ]; then
+    case $image_physical_type in
+      rpi* )
+        : ;;
+      * )
+        cat <<-'EOF' >> "$run_script"
+	  if [ "$(find /boot/*-ucode.img 2>/dev/null)" ]; then
+	    write_debug_log "microcode boot files disk space usage:"
+	    du -k -c /boot/*-ucode.img >> /chroot.log
+	  fi
+	
+	EOF
+        ;;
+    esac
+  fi
+
+  case $image_bootloader in
+    grub )
+      cat <<-'EOF' >> "$run_script"
+	  write_debug_log "Grub-specfic boot files disk space usage:"
+	  du -k -c /boot/grub >> /chroot.log
+	EOF
+      ;;
+    limine )
+      cat <<-'EOF' >> "$run_script"
+	  write_debug_log "Limine-specific boot files disk space usage:"
+	  du -k -c /boot/limine* >> /chroot.log
+	EOF
+      ;;
+    rpi )
+      cat <<-'EOF' >> "$run_script"
+	  write_debug_log "RPI-specific boot files disk space usage:"
+	  du -k -c /boot/* >> /chroot.log
+	EOF
+      ;;
+    syslinux )
+      cat <<-'EOF' >> "$run_script"
+	  write_debug_log "Syslinux-specific boot files disk space usage:"
+	  du -k -c /boot/extlinux.conf* /boot/ldlinux.sys /boot/*.c32 >> /chroot.log
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
 	  write_debug_log "/boot contents:"
 	  # Remove date/time from "ls" output
-	  ls -laR /boot/ \
+	  busybox ls -laR /boot/ \
 	    | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
 	     -e 's| Jan [ ]*1 1970||g' \
 	    >> /chroot.log
@@ -469,29 +449,26 @@ if [ -n "${debug_enabled+x}" ]; then
 
   case $image_boot_type in
     secure-uefi | uefi )
-      # UEFI
       cat <<-'EOF' >> "$run_script"
 	
-	  write_debug_log "/efi size:"
-	  du -k /efi/ |sort -n >> /chroot.log
-	  write_debug_log "Contents of /efi directory:"
+	  write_debug_log "/boot/efi size:"
+	  du -k /boot/efi/ |sort -n >> /chroot.log
+	  write_debug_log "Contents of /boot/efi directory:"
 	  # Remove date/time from "ls" output
-	  ls -lR /efi | \
+	  busybox ls -lR /boot/efi | \
 	    sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
 	    -e 's| Jan [ ]*1 1970||g' \
-	  >> /chroot.log
+	    >> /chroot.log
 	EOF
       ;;
   esac
 
   cat <<-'EOF' >> "$run_script"
-	
-	  apk info | sort > /final-packages.list
 	}
 	EOF
 fi
 
-cat <<-'EOF' >> "$run_script"
+cat <<-EOF >> "$run_script"
 	
 	EOT
 	
@@ -499,22 +476,25 @@ cat <<-'EOF' >> "$run_script"
 	##		End of Chroot section
 	#############################################################################
 	
-	cat "$chroot_dir"/chroot.log >> "$logfile"
-	rm "$chroot_dir"/chroot.log
+	cat "\$chroot_dir"/chroot.log >> "\$logfile"
+	rm "\$chroot_dir"/chroot.log
 	
 	write_log "Finished chroot section"
 	
 	write_log "Removing temporary /etc/resolv.conf from chroot filesystem"
-	rm "$chroot_dir"/etc/resolv.conf
+	rm "\$chroot_dir"/etc/resolv.conf
+	
+	mv "\$chroot_dir"/final-packages.list \\
+	  ./"\$(basename -s .log \$logfile)".final-packages
 	EOF
 
-if [ -n "${debug_enabled+x}" ]; then
-  cat <<-'EOF' >> "$run_script"
+if [ -n "$debug_enabled" ]; then
+  cat <<-EOF >> "$run_script"
 	
 	# Debug
-	mv "$chroot_dir"/base-packages.list .
-	mv "$chroot_dir"/final-packages.list .
-	mv "$chroot_dir"/kernel-config_* .
+	mv "\$chroot_dir"/base-packages.list ./"\$(basename -s .log \$logfile)".base-packages
+	_kernel_config_file="\$(basename "\$(ls \$chroot_dir/kernel-config_*)")"
+	mv "\$chroot_dir"/"\$_kernel_config_file" ./"\$(basename -s .log \$logfile)"."\$_kernel_config_file"
 	EOF
 fi
 
@@ -524,7 +504,7 @@ cat <<-'EOF' >> "$run_script"
 	normal_cleanup
 	EOF
 
-if [ -n "${use_ramdisk+x}" ]; then
+if [ -n "$use_ramdisk" ]; then
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Copying image from ramdisk to final location"
@@ -533,13 +513,17 @@ if [ -n "${use_ramdisk+x}" ]; then
 	EOF
 fi
 
+if [ -z "$image_do_not_convert_format" ]; then
+  convert_raw_disk_image
+fi
+
 cat <<-'EOF' >> "$run_script"
 	
 	exit
 	EOF
 
-if [ -n "${debug_enabled+x}" ] && \
-   command -v shellcheck >/dev/null 2>&1; then
+if [ -n "$debug_enabled" ] && \
+  command -v shellcheck >/dev/null 2>&1; then
   shellcheck -s ash -e SC1117 "$run_script"
   # shellcheck disable=SC2034
   _rc=$?

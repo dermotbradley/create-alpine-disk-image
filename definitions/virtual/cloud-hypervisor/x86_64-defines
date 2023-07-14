@@ -1,0 +1,33 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual cloud-hypervisor x86_64-defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ACPI_BUTTONS="none"
+readonly CADI_SUPPORTED_BOOT_TYPES="none"
+readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="virtio-blk"
+readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+readonly CADI_SUPPORTED_RNGS="virtio"
+
+
+# Defaults
+readonly CADI_DEFAULT_CLOCKSOURCE="kvm"
+
+
+# Additional
+readonly CADI_PACKAGES_ADDITIONAL_LIST="irqbalance"

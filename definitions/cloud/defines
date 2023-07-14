@@ -1,0 +1,20 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  cloud defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+###########################################################################
+#        Partition / filesystem sizing (in MiB)
+###########################################################################
+
+readonly CADI_DEFAULT_ESP_PART_SIZE=1
+readonly CADI_DEFAULT_ESP_TYPE="fat12"
+readonly CADI_DEFAULT_UKI_ESP_TYPE="fat16"

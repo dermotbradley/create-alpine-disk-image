@@ -1,0 +1,36 @@
+#!/bin/sh
+
+#############################################################################
+##
+##  virtual utm-qemu defines
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+# Supported
+readonly CADI_SUPPORTED_ARCHS="aarch64,x86,x86_64"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud"
+readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,normal_and_serial,hypervisor,serial"
+readonly CADI_SUPPORTED_NTP_METHODS="ptp,pools,servers"
+readonly CONSTANT_SUPPORTED_NVME=true
+readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
+
+
+# Defaults
+readonly CADI_DEFAULT_ARCH="x86_64"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal"
+readonly CADI_DEFAULT_NTP_METHOD="ptp"
+readonly CADI_DEFAULT_OS_FILESYSTEM="ext4"
+
+
+# Additional
+readonly CADI_CHRONY_INITSTEPSLEW_THRESHOLD=30
+readonly CADI_CHRONY_MAKESTEP_THRESHOLD=1
+readonly CADI_CHRONY_MAKESTEP_LIMIT=-1
+readonly CADI_PTP_DEVICE_NAME="/dev/ptp_kvm"
+readonly CADI_PTP_DEVICE_TYPE="kvm"
