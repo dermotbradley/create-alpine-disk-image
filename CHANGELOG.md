@@ -1,7 +1,9 @@
 # CHANGELOG for create-alpine-disk-image
 
-### Version 0.2.1-DEV (Unreleased)
+### Version 0.3-DEV (Unreleased)
 
+* Move lots of logic to use per physical/virtual/cloud variables in
+  definitions/ directory tree.
 * Fix ESP partition disk alignment (to 1MiB boundary suitable for both 512
   and 4K sector devices).
 * When formating LUKS filesystem set the sector size to that of the underlying
@@ -12,8 +14,6 @@
   static 'apk' binary, use the host's native apk. Closes #35.
 * Add creation of a user account for (hypervisor/normal/serial) console-only
   logins (SSH access is blocked).
-* Initial support for OVH Cloud machines and for physical ARM-based servers.
-* General code reworking.
 
 
 ### Version 0.2 (21/06/2022)
@@ -47,8 +47,8 @@
   which then needs to be run as user 'root' to actually generate the disk image.
 * Added lots of new options, use "./create-alpine-disk-image --help" to see the
   full list.
-* Reworked how partition sizing is determined (taking into account LVM overheads
-  etc).
+* Reworked how partition sizing is determined (taking into account LVM
+  overheads etc).
 * Don't install chrony for KVM-based Virtual Machines (i.e. libvirtd, lxd,
   ProxMox, QEMU) as they should use kvm-clock to sync with host name.
 * TRIM support for SSD-based physical machines.

@@ -24,6 +24,8 @@ check_bootloader_supports_fs() {
         check_grub_supports_lvm ;;
       limine )
         check_limine_supports_lvm ;;
+      rpi )
+        check_rpi_supports_lvm ;;
       syslinux )
         check_syslinux_supports_lvm ;;
       uki )
@@ -39,6 +41,8 @@ check_bootloader_supports_fs() {
         check_grub_supports_luks ;;
       limine )
         check_limine_supports_luks ;;
+      rpi )
+        check_rpi_supports_luks ;;
       syslinux )
         check_syslinux_supports_luks ;;
       uki )

@@ -31,11 +31,3 @@ readonly CADI_CHRONY_MAKESTEP_THRESHOLD=1
 readonly CADI_CHRONY_MAKESTEP_LIMIT=-1
 readonly CADI_PTP_DEVICE_NAME="/dev/ptp_kvm"
 readonly CADI_PTP_DEVICE_TYPE="kvm"
-
-
-
-readonly CONSTANT_OS_BOOT_STORAGE_DRIVERS="virtio-blk,virtio-scsi,nvme"
-
-
-###CONSTANT_OS_GRAPHICS_DRIVERS="bochs,virtio-gpu"
-readonly CONSTANT_OS_NETWORK_DRIVERS="virtio_net"

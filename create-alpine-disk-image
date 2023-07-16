@@ -77,7 +77,7 @@ printf '\n%s version %s\n' "$script_name" "$script_version"
 parse_cli_options "$@"
 validate_cli_options
 
-printf "\nUsing the following settings:\n\n"
+printf '\nUsing the following settings:\n\n'
 printf '  Image arch: %s\n' "$image_arch"
 printf '  Image class: %s' "$image_class"
 case $image_class in
@@ -93,7 +93,8 @@ printf '  Alpine release: %s\n\n' "$image_alpine_release"
 printf '  OS device type: %s, OS device media: %s\n' \
   "$image_os_device_type" "$image_os_device_media"
 printf '  OS device sector size: %s bytes\n' "$image_os_device_sector_size"
-printf '  Boot type: %s, Bootloader: %s\n' "$image_boot_type" "$image_bootloader"
+printf '  Boot type: %s, Bootloader: %s\n' \
+  "$image_boot_type" "$image_bootloader"
 printf '  Root filesystem type: %s\n' "$image_fs_type"
 case $image_boot_type in
   secure-uefi | uefi )

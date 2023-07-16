@@ -46,5 +46,6 @@ readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
 
 
 # Additional
-readonly CADI_ARCH_EXTRA_PACKAGES_LIST=""
-readonly CADI_ARCH_OPTIONAL_PACKAGES_LIST="nvme-cli"
+readonly CADI_PACKAGES_EXTRA="nvme-cli"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=1

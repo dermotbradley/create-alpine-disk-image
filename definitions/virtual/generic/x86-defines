@@ -46,4 +46,3 @@ readonly CADI_DEFAULT_OS_NETWORK_DRIVER="generic"
 
 
 # Additional
-readonly CADI_ADDITIONAL_NON_INITRAMFS_MODULES="hv_balloon,hv_utils,hv_vmbus"

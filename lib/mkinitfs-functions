@@ -1570,7 +1570,7 @@ configure_mkinitfs_image_type_feature() {
           if [ -n "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" ]; then
 
             if is_in_comma_list "amd" "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"; then
-              # Amd
+              # AMD
               case $image_alpine_release in
                 v3.13 | v3.14 )
                   initramfs_entry_add "kernel/drivers/video/fbdev/aty" ;;
@@ -1654,7 +1654,7 @@ configure_mkinitfs_image_type_feature() {
                 amd )
                   if [ -z "$image_graphics_vendor_driver" ]; then
                     if is_in_comma_list "amd" "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"; then
-                      # Amd
+                      # AMD
                       case $image_alpine_release in
                         v3.13 | v3.14 )
                           : ;;

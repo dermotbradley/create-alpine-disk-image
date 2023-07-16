@@ -27,9 +27,9 @@ readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,hyperv,nvme,virtio-blk,virtio-scsi"
 readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="generic,hyperv,virtio-net,vmxnet3"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyAMA"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
 
 
@@ -47,4 +47,3 @@ readonly CADI_DEFAULT_OS_NETWORK_DRIVER="generic"
 
 
 # Additional
-readonly CADI_ADDITIONAL_NON_INITRAMFS_MODULES="hv_balloon,hv_utils,hv_vmbus"

@@ -20,7 +20,7 @@ readonly CADI_SUPPORTED_BOOTLOADERS_SECURE_UEFI="none"
 readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
 readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,normal_and_serial,serial"
-readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,simpledrm,virtio-gpu"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="usb"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt"
@@ -57,5 +57,3 @@ readonly CADI_PACKAGES_ADDITIONAL_SIZE=5
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_EXTRA_SIZE=1
-
-

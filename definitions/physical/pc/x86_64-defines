@@ -45,5 +45,9 @@ readonly CADI_DEFAULT_OS_DEVICE_TYPE="sata"
 
 
 # Additional
-readonly CADI_PACKAGES_ADDITIONAL_LIST="cpufrequtils,ethtool,irqbalance"
-readonly CADI_PACKAGES_EXTRA_LIST="fstrim,hd-idle,hdparm,lm-sensors,smartmontools"
+readonly CADI_PACKAGES_ADDITIONAL="cpufrequtils,ethtool,irqbalance"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=6
+readonly CADI_PACKAGES_EXTRA="fstrim,hd-idle,hdparm,lm-sensors,smartmontools"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=7
