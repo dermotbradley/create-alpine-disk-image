@@ -44,12 +44,9 @@ readonly CADI_DEFAULT_OS_DEVICE_TYPE="hyperv"
 
 # Additional
 readonly CADI_ADDITIONAL_INITRAMFS_MODULES="hv_utils,hv_vmbus"
-#readonly CADI_ADDITIONAL_NON_INITRAMFS_MODULES="hv_netvsc,mlx4_en,mlx5_core"
-
 readonly CADI_PACKAGES_ADDITIONAL="hvtools"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_PACKAGES_ADDITIONAL_SIZE=1
-
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_EXTRA_SIZE=1

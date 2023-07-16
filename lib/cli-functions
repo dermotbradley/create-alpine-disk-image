@@ -1216,8 +1216,6 @@ usage() {
   option_help "--cpu-vendor < amd | intel >" "Used to decide if only AMD or Intel relevant microcode is installed and whether vendor-specific CPU kernel modules are included in the initramfs."
   option_help "--create-boot-partition" "Create a separate /boot partition, even if not required."
   option_help "--create-sbom" "Create a Software Bill Of Materials (SBOM) for the disk image."
-  option_help "--swap-file-size < MB >" "Create a swap file of the specified size."
-  option_help "--swap-partition-size < MB >" "Create a swap partition of the specified size."
   if [ -n "$image_experimental" ]; then
     option_help "--cron < busybox | ??? >" "Cron daemon software to use."
   fi
@@ -1234,6 +1232,7 @@ usage() {
   if [ -n "$image_experimental" ]; then
     option_help "--disk-resize-free-percent < percent >" "Only for physical machines. For Flash/SSDs/SDcard devices the percent of disk to leave unallocated when root is resized. '10' is a reasonable value."
   fi
+  option_help "--do-not-convert-image" "No not convert disk image from RAW format to another format."
   if [ -n "$image_experimental" ]; then
     option_help "--enable-graphics" "Enable graphics - on BIOS this will use graphics mode (and load FB/DRM KMS kernel modules) rather then VGA text mode. Does not apply for UEFI (as it has no VGA text mode)."
   fi
@@ -1352,6 +1351,8 @@ usage() {
   if [ -n "$image_experimental" ]; then
     option_help "--ssh-server < dropbear | openssh | tinyssh >" "Experimental. SSH server software to use."
   fi
+  option_help "--swap-file-size < MB >" "Create a swap file of the specified size."
+  option_help "--swap-partition-size < MB >" "Create a swap partition of the specified size."
   option_help "--syslogd < busybox | rsyslog >" "Syslog server software to use."
   if [ -z "$image_class" ] || [ "$image_class" = "physical" ]; then
     option_help "--timezone < zonename >" "Only for physical machines. Timezone to place in the generated cloud-init user-data YAML file. Example value: 'Europe/London'."

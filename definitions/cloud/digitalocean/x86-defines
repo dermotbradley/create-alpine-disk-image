@@ -40,16 +40,13 @@ readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
 # Additional
 readonly CADI_DISK_IMAGE_FORMAT="qcow2"
 readonly CADI_DISK_IMAGE_COMPRESSION="gzip"
-
 readonly CADI_PACKAGES_ADDITIONAL="irqbalance"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_PACKAGES_ADDITIONAL_SIZE=5
-
 readonly CADI_CLOUD_CLI_PACKAGES="doctl"
 readonly CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN="v3.13,v3.14,v3.15"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_CLOUD_CLI_PACKAGES_SIZE=23
-
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_EXTRA_SIZE=1

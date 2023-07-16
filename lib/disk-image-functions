@@ -1801,7 +1801,11 @@ default_ntp_related_settings() {
             image_ntp_servers_list="$CADI_NTP_IPV4_SERVERS"
           fi
           if [ -z "$image_disable_ipv6" ] && [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
-            image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
+             if [ -n "$image_ntp_servers_list" ]; then
+               image_ntp_servers_list="$image_ntp_servers_list $CADI_NTP_IPV6_SERVERS"
+             else
+               image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
+             fi
           fi
         fi
 	if [ -n "$CADI_NTP_SERVERS" ]; then
@@ -1899,8 +1903,7 @@ partition_sizing_related() {
           uki )
             image_esp_type="${image_esp_type:=$CADI_DEFAULT_UKI_ESP_TYPE}" ;;
           * )
-            image_esp_type="${image_esp_type:=$CADI_DEFAULT_ESP_TYPE}"
-            ;;
+            image_esp_type="${image_esp_type:=$CADI_DEFAULT_ESP_TYPE}" ;;
         esac
       fi
       ;;
@@ -2747,17 +2750,35 @@ install_alpine_base() {
         secure-uefi | uefi )
           case $image_arch in
             aarch64 )
-              _bootloader_packages="limine-aarch64" ;;
+              _bootloader_packages="limine-aarch64"
+              case $image_alpine_release in
+                3.17 )
+                  : ;;
+                * )
+                  _bootloader_packages="$_bootloader_packages limine-efi-updater" ;;
+              esac
+              ;;
             x86_64 )
-              _bootloader_packages="limine-x86_64" ;;
+              case $image_alpine_release in
+                3.17 )
+                  _bootloader_packages="limine-64" ;;
+                * )
+                  _bootloader_packages="limine-x86_64 limine-efi-updater" ;;
+              esac
+              ;;
           esac
-          _bootloader_packages="$_bootloader_packages limine-efi-updater"
           if [ "$image_boot_type" = "secure-uefi" ]; then
             _bootloader_packages="$_bootloader_packages limine-enroll-config"
           fi
           ;;
         * )
-          _bootloader_packages="limine-deploy limine-sys" ;;
+          case $image_alpine_release in
+            3.17 | 3.18 )
+              _bootloader_packages="limine-deploy limine-sys" ;;
+            * )
+              _bootloader_packages="limine-sys" ;;
+          esac
+          ;;
       esac
       ;;
     rpi )
@@ -2821,7 +2842,8 @@ install_alpine_base() {
 	{
 	  # shellcheck disable=SC2086
 	  \$_apk_binary --arch "${image_arch}" --initdb --allow-untrusted \\
-	    --root \$chroot_dir --update-cache add ${_base_packages} \\
+	    --root \$chroot_dir --update-cache \\
+	    add ${_base_packages} \\
 	    >> "\$logfile" 2>&1
 	  _rc=\$?
 	  if [ \$_rc != 0 ]; then
@@ -3044,9 +3066,6 @@ prep_runscript_main_section() {
 	##   Main Section
 	#############################################################################
 	
-	# Ensure if any errors occur that various cleanup operations happen
-	trap error_cleanup EXIT
-	
 	chroot_dir="${chroot_directory}"
 	images_dir="${images_directory}"
 	TMPDIR="/var/tmp"
@@ -3116,6 +3135,9 @@ prep_runscript_main_section() {
   fi
 
   cat <<-'EOF' >> "$run_script"
+	
+	# Ensure if any errors occur that various cleanup operations happen
+	trap error_cleanup EXIT
 	
 	mkdir -p $images_dir
 	EOF
@@ -3193,7 +3215,8 @@ source_additional_definitions_files(){
     . "$_source_script"
   fi
 
-  # source e.g. cloud/x86_64-defines, physical/x86_64-defines, virtual/x86_64-defines
+  # source e.g. cloud/x86_64-defines, physical/x86_64-defines,
+  # virtual/x86_64-defines
   _source_script="$script_dir/definitions/$image_class/$image_arch-defines"
   if [ ! -f "$_source_script" ]; then
     error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
@@ -3201,7 +3224,8 @@ source_additional_definitions_files(){
     . "$_source_script"
   fi
 
-  # source e.g. cloud/x86_64-normal-defines, physical/x86_64-normal-defines, virtual/x86_64-normal-defines
+  # source e.g. cloud/x86_64-normal-defines, physical/x86_64-normal-defines,
+  # virtual/x86_64-normal-defines
   _source_script="$script_dir/definitions/$image_class/$image_arch-$(if [ -n "$image_barebones" ]; then echo "barebones"; else echo "normal"; fi)-defines"
   if [ ! -f "$_source_script" ]; then
     error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"

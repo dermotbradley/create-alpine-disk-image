@@ -472,12 +472,10 @@ EOF
   cat <<-_SCRIPT_ >> /etc/modules-load.d/$image_env_ref.conf
 EOF
 
+
   # Network
   if [ -n "$image_ethernet_module" ]; then
     _network_module="$(basename "$image_ethernet_module")"
-    cat <<EOF >> "$run_script"
-	$_network_module
-EOF
   elif [ -n "$CADI_DEFAULT_OS_NETWORK_DRIVER" ] && \
        [ -n "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" ] && \
        is_in_comma_list "$CADI_DEFAULT_OS_NETWORK_DRIVER" "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" && \
@@ -485,30 +483,36 @@ EOF
     case $CADI_DEFAULT_OS_NETWORK_DRIVER in
       hyperv )
         _network_module="hv_netvsc" ;;
+      virtio-net )
+        _network_module="virtio_net" ;;
       * )
         _network_module="$CADI_DEFAULT_OS_NETWORK_DRIVER" ;;
     esac
-    if [ -n "$_network_module" ]; then
-      cat <<EOF >> "$run_script"
-	$CADI_DEFAULT_OS_NETWORK_DRIVER
-EOF
-    fi
   elif [ -n "$CADI_SUPPORTED_OS_NETWORK_DRIVERS" ] && \
-         [ "$CADI_DEFAULT_OS_NETWORK_DRIVER" != "generic" ]; then
+       [ "$CADI_DEFAULT_OS_NETWORK_DRIVER" != "generic" ]; then
     # Assume only a single network driver supported
     _list_item="$(first_entry_in_comma_list "$CADI_SUPPORTED_OS_NETWORK_DRIVERS")"
     case $_list_item in
       hyperv )
         _network_module="hv_netvsc" ;;
+      virtio-net )
+        _network_module="virtio_net" ;;
       * )
         _network_module="$_list_item" ;;
     esac
-    if [ -n "$_network_module" ]; then
-      cat <<EOF >> "$run_script"
-	$_list_item
-EOF
-    fi
+  elif [ "$image_class" = "cloud" ] || [ "$image_class" = "virtual" ]; then
+    # For VMs/Cloud machines assume virtio-net
+    _network_module="virtio_net"
   fi
+
+  if [ -n "$_network_module" ]; then
+    cat <<EOF >> "$run_script"
+	
+	# Network
+	$_network_module
+EOF
+  fi
+
 
   # PTP
   if [ -n "$CADI_DEFAULT_NTP_METHOD" ] && \
@@ -540,16 +544,20 @@ EOF
 
   if [ -n "$_ptp_module" ]; then
     cat <<EOF >> "$run_script"
+	
+	# PTP
 	$_ptp_module
 EOF
   fi
 
-    cat <<EOF >> "$run_script"
-	
-EOF
 
   # Extra modules specific to type of machine
   if [ -n "$CADI_ADDITIONAL_NON_INITRAMFS_MODULES" ]; then
+    cat <<EOF >> "$run_script"
+	
+	# Machine-specific
+EOF
+
     # Load every module listed
     _list="$CADI_ADDITIONAL_NON_INITRAMFS_MODULES"
     while true; do
@@ -565,6 +573,7 @@ EOF
       fi
     done
   fi
+
 
   if [ -n "$image_extra_modules" ]; then
     # Add any manually specified extra modules to the list

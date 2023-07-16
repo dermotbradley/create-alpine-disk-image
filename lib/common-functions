@@ -912,9 +912,6 @@ insert_runscript_function_check_binfmt_packages() {
 	          echo
 	          exit 1
 	        fi
-	EOF
-
-      cat <<-'EOF' >> "$run_script"
 	        ;;
 	EOF
       ;;
@@ -951,9 +948,6 @@ insert_runscript_function_check_binfmt_packages() {
 	          echo
 	          exit 1
 	        fi
-	EOF
-
-      cat <<-'EOF' >> "$run_script"
 	        ;;
 	
 	EOF
@@ -1178,9 +1172,6 @@ insert_runscript_function_check_for_required_packages() {
 	        echo
 	        exit 1
 	      fi
-	EOF
-
-      cat <<-'EOF' >> "$run_script"
 	      ;;
 	EOF
       ;;
@@ -1231,9 +1222,6 @@ insert_runscript_function_check_for_required_packages() {
 	        cp /etc/ssl/certs/ca-certificates.crt /etc/apk/ca.pem
 	        temp_ca_file_created=true
 	      fi
-	EOF
-
-      cat <<-'EOF' >> "$run_script"
 	      ;;
 	EOF
       ;;
@@ -1927,7 +1915,7 @@ setup_loop_device() {
 	write_log "Setting up loop device for disk image"
 	{
 	  write_log "Ensuring that loop driver is loaded (if necessary)" 2
-	  if [ ! -f /dev/loop-control ]; then
+	  if [ ! -c /dev/loop-control ]; then
 	    loop_module_filename=\$(modinfo -F filename loop 2>/dev/null)
 	    if [ "\$loop_module_filename" != "" ] && [ "\$loop_module_filename" != "(builtin)" ]; then
 	      modprobe loop 2>> \$logfile

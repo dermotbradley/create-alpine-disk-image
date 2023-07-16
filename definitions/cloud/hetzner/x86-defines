@@ -34,7 +34,6 @@ readonly CADI_DEFAULT_BOOTLOADER="grub"
 # Additional
 readonly CADI_DISK_IMAGE_COMPRESSION="gzip"
 readonly CADI_DISK_IMAGE_FORMAT="qcow2"
-
 readonly CADI_CLOUD_CLI_PACKAGES="hcloud"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_CLOUD_CLI_PACKAGES_SIZE=12

@@ -1086,7 +1086,6 @@ configure_gettys() {
 	      sed -i \\
 	        -e 's|^[#]*ttyS0::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
 	        /etc/inittab
-	    }
 	EOF
       fi
 
@@ -1311,7 +1310,6 @@ configure_opensshd() {
   fi
 
   cat <<-'EOF' >> "$run_script"
-	      # - enable ED25519 key use
 	      # - prevent challenge-response logins
 	      # - prevent keyboard-interactive logins
 	      # - prevent logins to accounts with empty passwords
@@ -1376,9 +1374,7 @@ configure_opensshd() {
 
   cat <<-'EOF' >> "$run_script"
 	
-	      #
 	      # - ensure only key-based authentication is enabled
-	      #
 	      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
 	      {
 	        printf '\n'

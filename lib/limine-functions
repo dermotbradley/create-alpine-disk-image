@@ -197,15 +197,30 @@ install_limine() {
 	EOF
       ;;
     bios )
-      if [ -z "$debug_enabled" ]; then
-        _deploy_options="-q"
-      fi
-      cat <<-EOF >> "$run_script"
+      case $image_alpine_release in
+        3.17 | 3.18 )
+          if [ -z "$debug_enabled" ]; then
+            _deploy_options="-q"
+          fi
+          cat <<-EOF >> "$run_script"
 	  write_log "Running limine-deploy" 4
 	  limine-deploy $_deploy_options \$loop_device >> /chroot.log 2>&1
 	  write_log "Copying limine.sys to /boot/" 4
 	  cp /usr/share/limine/limine.sys /boot/ >> /chroot.log 2>&1
 	EOF
+	  ;;
+        * )
+          if [ -z "$debug_enabled" ]; then
+            _deploy_options="-q"
+          fi
+          cat <<-EOF >> "$run_script"
+	  write_log "Copying limine-bios.sys to /boot/" 4
+	  cp /usr/share/limine/limine-bios.sys /boot/ >> /chroot.log 2>&1
+	  write_log "Running limine bios-install" 4
+	  limine bios-install \$loop_device >> /chroot.log 2>&1
+	EOF
+          ;;
+      esac
       ;;
   esac
 

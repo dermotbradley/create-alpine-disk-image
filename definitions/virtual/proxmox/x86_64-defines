@@ -25,9 +25,9 @@ readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="nvme,virtio-blk,virtio-scsi"
 readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
 
 
@@ -46,4 +46,8 @@ readonly CADI_DISK_IMAGE_FORMAT="qcow2"
 readonly CADI_HYPERVISOR_AGENT_PACKAGES="qemu-guest-agent"
 readonly CADI_HYPERVISOR_AGENT_PACKAGES_SIZE=1
 readonly CADI_PACKAGES_ADDITIONAL="irqbalance"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=5
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=1

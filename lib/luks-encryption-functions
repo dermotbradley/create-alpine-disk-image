@@ -25,13 +25,13 @@ calculate_luks_part_size() {
     # LVM inside LUKS
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_luks_part_size, determining LVM VG size" >> "$sizing_debug"
+      echo "[calculate_luks_part_size] determining LVM VG size" >> "$sizing_debug"
     fi
 
     _luks_total_size=$(calculate_lvm_vg_size)
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_luks_part_size, LVM VG size $_luks_total_size MiB" >> "$sizing_debug"
+      echo "[calculate_luks_part_size] LVM VG size $_luks_total_size MiB" >> "$sizing_debug"
     fi
 
     _size=$_luks_total_size
@@ -39,13 +39,13 @@ calculate_luks_part_size() {
     # Just rootfs inside LUKS
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_luks_part_size, determining root filesystem size" >> "$sizing_debug"
+      echo "[calculate_luks_part_size] determining root filesystem size" >> "$sizing_debug"
     fi
 
     _luks_total_size=$general_rootfs_size
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_luks_part_size, root filesystem size is $_luks_total_size MiB" >> "$sizing_debug"
+      echo "[calculate_luks_part_size] root filesystem size is $_luks_total_size MiB" >> "$sizing_debug"
     fi
 
     if [ "$image_create_boot_partition" != "true" ]; then
@@ -53,7 +53,7 @@ calculate_luks_part_size() {
       _luks_total_size=$(( _luks_total_size + general_bootfs_size ))
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "calculate_luks_part_size, no separate boot partition so adding $general_bootfs_size MiB boot files to root size, size is now $_luks_total_size MiB" >> "$sizing_debug"
+        echo "[calculate_luks_part_size] no separate boot partition so adding $general_bootfs_size MiB boot files to root size, size is now $_luks_total_size MiB" >> "$sizing_debug"
       fi
     fi
 
@@ -63,13 +63,13 @@ calculate_luks_part_size() {
       _size=$(( _luks_total_size + _reserved ))
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "calculate_luks_part_size, allowing for $image_fs_type $_reserved_percent% reserved space ($(( _reserved )) MiB), size is now $_size MiB" >> "$sizing_debug"
+        echo "[calculate_luks_part_size] allowing for $image_fs_type $_reserved_percent% reserved space ($(( _reserved )) MiB), size is now $_size MiB" >> "$sizing_debug"
       fi
     else
       _size=$_luks_total_size
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "calculate_luks_part_size, no fs overhead and so size is unchanged at $_size MiB" >> "$sizing_debug"
+        echo "[calculate_luks_part_size] no fs overhead and so size is unchanged at $_size MiB" >> "$sizing_debug"
       fi
     fi
   fi
@@ -87,7 +87,7 @@ calculate_luks_part_size() {
   esac
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "calculate_luks_part_size, allowing for LUKS overhead ($_luks_overhead MiB), final size is $_size MiB" >> "$sizing_debug"
+    echo "[calculate_luks_part_size] allowing for LUKS overhead ($_luks_overhead MiB), final size is $_size MiB" >> "$sizing_debug"
   fi
 
   echo "$_size"

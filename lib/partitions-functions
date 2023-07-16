@@ -23,14 +23,14 @@ calculate_boot_part_size() {
 
   if [ "$image_create_boot_partition" = "true" ]; then
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_boot_part_size, determining bootfs size" \
+      echo "[calculate_boot_part_size] determining bootfs size" \
         >> "$sizing_debug"
     fi
 
     _fs_total_size=$general_bootfs_size
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "calculate_boot_part_size, boot filesystem size is $_fs_total_size MiB" \
+      echo "[calculate_boot_part_size] boot filesystem size is $_fs_total_size MiB" \
         >> "$sizing_debug"
     fi
 
@@ -40,7 +40,7 @@ calculate_boot_part_size() {
       _part_total_size=$(( _fs_total_size + _reserved ))
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "calculate_boot_part_size, $image_fs_type overhead is $_reserved_percent% ($_reserved MiB), $_part_total_size MiB partition required" \
+        echo "[calculate_boot_part_size] $image_fs_type overhead is $_reserved_percent% ($_reserved MiB), $_part_total_size MiB partition required" \
           >> "$sizing_debug"
       fi
     else
@@ -49,7 +49,7 @@ calculate_boot_part_size() {
   fi
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "calculate_boot_part_size, boot partition size is $_part_total_size MiB" \
+    echo "[calculate_boot_part_size] boot partition size is $_part_total_size MiB" \
       >> "$sizing_debug"
   fi
 
