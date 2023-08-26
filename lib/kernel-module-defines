@@ -34,14 +34,17 @@ readonly CADI_USB_KEYBOARD_KERNEL_MODULES="${CADI_USB_KBD_KM_6}"
 readonly CADI_USB_CONTROLLER_KERNEL_MODULES="ehci-pci ohci-pci uhci-hcd xhci-pci"
 
 # DRM/KMS
-CADI_CMN_KMS_M_1="cfbcopyarea cfbfillrect cfbimgblt drm drm_kms_helper"
-CADI_CMN_KMS_M_2="${CADI_CMN_KMS_M_1} drm_panel_orientation_quirks"
-CADI_CMN_KMS_M_3="${CADI_CMN_KMS_M_2} drm_ttm_helper drm_vram_helper fb"
-CADI_CMN_KMS_M_4="${CADI_CMN_KMS_M_3} fb_sys_fops fbdev syscopyarea sysfillrect"
-CADI_CMN_KMS_M_5="${CADI_CMN_KMS_M_4} sysimgblt ttm"
-readonly CADI_COMMON_KMS_MODULES="${CADI_CMN_KMS_M_5}"
+CADI_CMN_KMS_M_1="cfbcopyarea cfbfillrect cfbimgblt drm drm_buddy"
+CADI_CMN_KMS_M_2="${CADI_CMN_KMS_M_1} drm_display_helper drm_dma_helper"
+CADI_CMN_KMS_M_3="${CADI_CMN_KMS_M_2} drm_kms_helper drm_mipi_dbi"
+CADI_CMN_KMS_M_4="${CADI_CMN_KMS_M_3} drm_panel_orientation_quirks"
+CADI_CMN_KMS_M_5="${CADI_CMN_KMS_M_4} drm_shmem_helper drm_suballoc_helper"
+CADI_CMN_KMS_M_6="${CADI_CMN_KMS_M_5} drm_ttm_helper drm_vram_helper fb"
+CADI_CMN_KMS_M_7="${CADI_CMN_KMS_M_6} fb_sys_fops fbdev syscopyarea sysfillrect"
+CADI_CMN_KMS_M_8="${CADI_CMN_KMS_M_7} sysimgblt ttm"
+readonly CADI_COMMON_KMS_MODULES="${CADI_CMN_KMS_M_8}"
 
-readonly CADI_GENERAL_KMS_MODULES="bochs cirrus qxl"
+readonly CADI_GENERAL_KMS_MODULES="bochs simpledrm"
 
 # FS
 readonly CADI_CLOUD_UNUSED_FS_KERNEL_MODULES="9p vboxsf virtiofs"
@@ -128,13 +131,16 @@ readonly CADI_UEFI_KERNEL_MODULES="efivarsfs efi-pstore"
 ###########################################################################
 
 # Modules shared between Azure Cloud & Hyper-V VMs
-readonly CADI_AZURE_HYPERV_COMMON_GRAPHICS_KERNEL_MODULES="hyperv_drm hyperv_fb"
+readonly CADI_AZURE_HYPERV_KMS_MODULES="hyperv_drm"
+readonly CADI_AZURE_HYPERV_FB_MODULES="hyperv_fb"
+readonly CADI_AZURE_HYPERV_COMMON_GRAPHICS_MODULES="${CADI_AZURE_HYPERV_KMS_MODULES} ${CADI_AZURE_HYPERV_FB_MODULES}"
 
 CADI_AZURE_HV_CMN_KM_1="hid-hyperv hv_netvsc hv_storvsc hv_utils hv_vmbus"
-CADI_AZURE_HV_CMN_KM_2="${CADI_AZURE_HV_CMN_KM_1} hyperv-keyboard"
-CADI_AZURE_HV_CMN_KM_3="${CADI_AZURE_HV_CMN_KM_2} pci-hyperv pci-hyperv-intf"
-CADI_AZURE_HV_CMN_KM_4="${CADI_AZURE_HV_CMN_KM_3} $CADI_AZURE_HYPERV_COMMON_GRAPHICS_KERNEL_MODULES"
-readonly CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES="${CADI_AZURE_HV_CMN_KM_4}"
+CADI_AZURE_HV_CMN_KM_2="${CADI_AZURE_HV_CMN_KM_1} pci-hyperv pci-hyperv-intf"
+readonly CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES="${CADI_AZURE_HV_CMN_KM_2}"
+
+# Azure/Hyper-V keyboard specific kernel modules
+readonly CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE="hyperv-keyboard"
 
 
 ###########################################################################
@@ -200,7 +206,7 @@ readonly CADI_PHYSICAL_X86_KMS_MODULES="${CADI_P_X86_KMS_M}"
 ###########################################################################
 
 # KMS
-readonly CADI_VIRTUAL_KMS_MODULES="drm_xen_xfront vboxvideo virtio-gpu vmwgfx"
+readonly CADI_VIRTUAL_KMS_MODULES="cirrus drm_xen_xfront ${CADI_AZURE_HYPERV_COMMON_GRAPHICS_MODULES} qxl vboxvideo virtio_dma_buf virtio-gpu vmwgfx"
 
 # Hyper-v-specific
 readonly CADI_VIRTUAL_HYPERV_KERNEL_MODULES="hv_balloon"
@@ -209,10 +215,10 @@ readonly CADI_VIRTUAL_HYPERV_KERNEL_MODULES="hv_balloon"
 readonly CADI_VIRTUAL_QEMU_KERNEL_MODULES="qemu_fw_cfg"
 
 # Virtualbox-specific
-readonly CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES=""
+readonly CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES="vboxguest"
 
 # VMWare-specific
-CADI_VRTL_VMWR_KM_1="ptp_vmw vmw_balloon vmw_vmci vmw_vsock_virtio_transport"
+CADI_VRTL_VMWR_KM_1="vmw_balloon vmw_vmci vmw_vsock_virtio_transport"
 CADI_VRTL_VMWR_KM_2="${CADI_VRTL_VMWR_KM_1} vmw_vsock_virtio_transport_common"
 CADI_VRTL_VMWR_KM_3="${CADI_VRTL_VMWR_KM_2} vmw_vsock_vmci_transport vmxnet3"
 CADI_VRTL_VMWR_KM_4="${CADI_VRTL_VMWR_KM_3} vsock vsock_diag vsock_loopback"

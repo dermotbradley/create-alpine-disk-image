@@ -13,20 +13,29 @@
 
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="none"
+readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
 readonly CADI_SUPPORTED_BOOT_TYPES="none"
-readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,bochs,simpledrm,virtio-gpu"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="none"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="text"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="virtio"
+readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
 readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="virtio-blk"
-readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
 readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="virtio-blk"
 
 
 # Defaults
 readonly CADI_DEFAULT_CLOCKSOURCE="kvm"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="simpledrm"
+readonly CADI_DEFAULT_DHCP_CLIENT="dhcpcd"
 
 
 # Additional

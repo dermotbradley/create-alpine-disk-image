@@ -24,7 +24,7 @@ configure_bootloader_uki() {
     v3.13 | v3.14 | v3.15 | v3.16 )
       # Ensure that USB keyboard work when in initramfs
       case $image_keyboard_type in
-        usb | both )
+        usb | generic )
           # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
           # warning will appear in 'dmesg' output:
           #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_pci, not after
@@ -67,7 +67,7 @@ configure_bootloader_uki() {
 	      /etc/kernel-hooks.d/secureboot.conf-orig
 	EOF
 
-    case $image_uki_bootstub in
+    case $image_efi_bootstub in
       stubby )
         cat <<-'EOF' >> "$run_script"
 	
@@ -113,7 +113,7 @@ configure_bootloader_uki() {
 	    /etc/kernel-hooks.d/secureboot.conf
 	EOF
 
-  case $image_uki_bootstub in
+  case $image_efi_bootstub in
     stubby )
       # Hack to modify secure-boot hook to use Stubby instead of Gummiboot
       case $image_arch in
@@ -155,7 +155,7 @@ configure_bootloader_uki() {
 	    rm /etc/kernel-hooks.d/secureboot.conf-orig
 	EOF
 
-    case $image_uki_bootstub in
+    case $image_efi_bootstub in
       stubby )
         cat <<-EOF >> "$run_script"
 	

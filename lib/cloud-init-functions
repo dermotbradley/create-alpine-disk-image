@@ -16,31 +16,22 @@
 # Create a network-config cloud-init seed-file for NoCloud
 #
 add_nocloud_network_config_seed_file() {
+  output_eof_block_blank_line
   cat <<'EOF' >> "$run_script"
-
   write_log "Creating seed network configuration file" 2
   mkdir -p /var/lib/cloud/seed/nocloud
   cat <<-_SCRIPT_ > /var/lib/cloud/seed/nocloud/network-config
-	version: 2
-	ethernets:
-	  eth0:
 EOF
-
+  output_script_block_text "version: 2"
+  output_script_block_text "ethernets:"
+  output_script_block_text "  eth0:"
   if [ -z "$image_disable_ipv4" ]; then
-    cat <<'EOF' >> "$run_script"
-	    dhcp4: True
-EOF
+    output_script_block_text "    dhcp4: True"
   fi
-
   if [ -z "$image_disable_ipv6" ]; then
-    cat <<'EOF' >> "$run_script"
-	    dhcp6: True
-EOF
+    output_script_block_text "    dhcp6: True"
   fi
-
-  cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-EOF
+  output_script_block_end_marker
 }
 
 
@@ -48,7 +39,12 @@ EOF
 # Add a specified seed-url to the cmdline (of bootloader)
 #
 add_nocloud_seed_url_to_cmdline() {
-  base_cmdline="$base_cmdline ds='nocloud-net;s=$image_cloud_init_seed_url'"
+  case $image_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      base_cmdline="$base_cmdline ds='nocloud-net;s=$image_cloud_init_seed_url'" ;;
+    * )
+      base_cmdline="$base_cmdline ds='nocloud;s=$image_cloud_init_seed_url'" ;;
+  esac
 }
 
 
@@ -64,11 +60,12 @@ add_nocloud_seed_url_to_config_file() {
 # Configure cloud-init
 #
 configure_cloud_init() {
-  local _debug_logging_status _ds _logging_level
+  local _datasource_list _debug_logging_status _ds _logging_level
   local _ptp_device _ptp_dpoll _ptp_poll _ptp_offset _ptp_stratum
+  local _quoted_datasource_list _required_filesystems
 
+  output_eof_block_blank_line
   cat <<-'EOF' >> "$run_script"
-	
 	write_log "Configuring cloud-init"
 	{
 	  write_log "Running setup-cloud-init" 2
@@ -77,8 +74,8 @@ configure_cloud_init() {
 
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 )
+      output_eof_block_blank_line
       cat <<-'EOF' >> "$run_script"
-	
 	  write_log "Precompiling cloud-init python files" 2
 	  _python_dir=\$(find /usr/lib/ -type d -name 'python?.*' -exec basename {} \;)
 	  python3 -OO -m compileall \
@@ -91,13 +88,13 @@ configure_cloud_init() {
     _list="$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES"
     while true; do
       _list_item="$(first_entry_in_comma_list "$_list")"
-      datasource_list="${datasource_list}'$_list_item'"
+      _datasource_list="${_datasource_list}${_list_item}"
       if [ "${_list%,*}" = "$_list" ]; then
         # No more entries
         break
       else
         _list="${_list#$_list_item,}"
-        datasource_list="${datasource_list}, "
+        _datasource_list="${_datasource_list},"
       fi
     done
   else
@@ -106,37 +103,38 @@ configure_cloud_init() {
 
   if [ -n "$image_cloud_init_datasources" ]; then
     # Override cloud-init enabled Data Sources list.
-
-    unset datasource_list
+    unset _datasource_list
     image_cloud_init_datasources="$(echo "$image_cloud_init_datasources" | sed -e 's/,/ /g')"
     for _ds in $image_cloud_init_datasources; do
-      if [ -n "$datasource_list" ]; then
-        datasource_list="${datasource_list}, "
+      if [ -n "$_datasource_list" ]; then
+        _datasource_list="${_datasource_list},"
       fi
-      datasource_list="${datasource_list}'${_ds}'"
+      _datasource_list="${_datasource_list}${_ds}"
     done
-    datasource_description="Setting DataSources list with: $datasource_list"
-  elif [ -z "$datasource_list" ]; then
-    datasource_list="'None'"
+    datasource_description="Setting DataSources list with: $_datasource_list"
+  elif [ -z "$_datasource_list" ]; then
+    _datasource_list="None"
     datasource_description="Setting empty DataSources list"
   else
     datasource_description="Setting up DataSources list"
   fi
 
-  if [ "$datasource_list" = "'NoCloud'" ]; then
+  if [ "$_datasource_list" = "NoCloud" ]; then
     # Only set up seed behaviour when NoCloud is the sole defined DataSource
     setup_nocloud_seed_config
   fi
 
+  _quoted_datasource_list="$(quote_datasource_comma_list "$_datasource_list")"
+
 
   # 01-datasources.cfg
+  output_eof_block_blank_line
   cat <<EOF >> "$run_script"
-
   write_log "${datasource_description}" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-datasources.cfg
 	# /etc/cloud/cloud.cfg.d/01-datasources.cfg
 	
-	datasource_list: [$datasource_list]
+	datasource_list: [$_quoted_datasource_list]
 EOF
 
   if [ -n "$datasource_settings" ]; then
@@ -148,8 +146,8 @@ EOF
 
   if [ -n "$CADI_CLOUD_INIT_DISABLE_VENDORDATA" ] && \
      [ "$CADI_CLOUD_INIT_DISABLE_VENDORDATA" = "true" ]; then
+    output_script_block_blank_line
     cat <<EOF >> "$run_script"
-	
 	# Disable vendor data to speed up cloud-init runtime
 	vendor_data:
 	  enabled: false
@@ -160,38 +158,38 @@ EOF
 
   if [ -n "$CADI_SUPPORTED_CLOUD_INIT_NETWORK_HOTPLUG" ]; then
     # Enable network interface hotplug for supported DataSources
+    output_script_block_blank_line
     cat <<'EOF' >> "$run_script"
-	
 	updates:
 	  network:
 	    when: ["boot","hotplug"]
 EOF
+
+    # Enable the init.d hotplug script
+    add_init_d_service "cloud-init-hotplugd" "default"
   fi
 
   if [ "$image_class" = "virtual" ] && \
      [ "$image_vm_type" = "vmware" ]; then
+    # https://kb.vmware.com/s/article/59557
+    output_script_block_blank_line
     cat <<'EOF' >> "$run_script"
-	
 	# Vsphere 7.0+ supports cloud-init natively
 	disable_vmware_customization: false
 EOF
   fi
-
-  cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-EOF
+  output_script_block_end_marker
 
 
   # 01-modules.cfg
+  output_eof_block_blank_line
   cat <<'EOF' >> "$run_script"
-
   write_log "Setting up modules info" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-modules.cfg
 	# /etc/cloud/cloud.cfg.d/01-modules.cfg
 	
 	# Modules that run in 'init' stage
 	cloud_init_modules:
-	  - migrator
 	  - bootcmd
 	  - write_files
 	  - growpart
@@ -277,8 +275,8 @@ EOF
 
 
   # 01-system-info.cfg
+  output_eof_block_blank_line
   cat <<'EOF' >> "$run_script"
-
   write_log "Setting up System info" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-system-info.cfg
 	# /etc/cloud/cloud.cfg.d/01-system-info.cfg
@@ -287,10 +285,10 @@ EOF
 	  distro: alpine
 	  default_user:
 EOF
+  output_script_block_end_marker
 
+  output_eof_block_blank_line
   cat <<EOF >> "$run_script"
-	_SCRIPT_
-
   write_log "Setting the default username to '$image_admin_username'" 4
   cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/01-system-info.cfg
 	    name: $image_admin_username
@@ -324,18 +322,13 @@ EOF
 
   cat <<'EOF' >> "$run_script"
 	    gecos: Default cloud-init user
+	    groups: [adm, wheel]
 EOF
 
   case $image_auth_control in
     sudo | both )
       cat <<'EOF' >> "$run_script"
-	    groups: [adm, sudo, wheel]
 	    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
-EOF
-      ;;
-    * )
-      cat <<'EOF' >> "$run_script"
-	    groups: [adm, wheel]
 EOF
       ;;
   esac
@@ -372,7 +365,6 @@ EOF
      { [ "$image_os_device_media" = "flash" ] || \
        [ "$image_os_device_media" = "sdcard" ] || \
        [ "$image_os_device_media" = "ssd" ]; }; then
-
     # Cannot use cloud-init's growpart and resize_rootfs for the following:
     #
     # As cloud-init cannot handle Alpine mdev presenting /dev/mapper/ devices
@@ -383,8 +375,8 @@ EOF
     #
     # Also flash-based device types were we want to use overprovisining
     # via user-data "runcmd".
+    output_eof_block_blank_line
     cat <<'EOF' >> "$run_script"
-
   write_log "Disabling growpart and resize_rootfs" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
 	# /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
@@ -401,8 +393,8 @@ EOF
 
 
   # 02-ssh.cfg
+  output_eof_block_blank_line
   cat <<'EOF' >> "$run_script"
-
   write_log "Setting up SSH info" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-ssh.cfg
 	# /etc/cloud/cloud.cfg.d/02-ssh.cfg
@@ -414,25 +406,25 @@ EOF
 	ssh_deletekeys: true
 EOF
 
+  output_eof_block_tab_blank_line
   case $image_ssh_keytypes in
     ed25519 )
       cat <<'EOF' >> "$run_script"
-	
 	# Only create ED25519 SSH host key
 	ssh_genkeytypes: ["ed25519"]
 EOF
       ;;
+
     * )
       cat <<'EOF' >> "$run_script"
-	
 	# Only create ED25519 and RSA SSH host keys
 	ssh_genkeytypes: ["ed25519", "rsa"]
 EOF
       ;;
   esac
 
+  output_eof_block_tab_blank_line
   cat <<'EOF' >> "$run_script"
-	
 	# Disable SSH password authentication
 	ssh_pwauth: false
 	
@@ -455,8 +447,8 @@ EOF
 
 
   # 02-users.cfg
+  output_eof_block_blank_line
   cat <<'EOF' >> "$run_script"
-  
   write_log "Setting up Users info" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/02-users.cfg
 	# /etc/cloud/cloud.cfg.d/02-users.cfg
@@ -466,9 +458,10 @@ EOF
 	_SCRIPT_
 EOF
 
+  output_eof_block_blank_line
+
   if [ -n "$debug_enabled" ]; then
     cat <<'EOF' >> "$run_script"
-
   write_log "Unlocking the root account" 4
   cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
 	  - name: root
@@ -476,7 +469,6 @@ EOF
 EOF
   else
     cat <<'EOF' >> "$run_script"
-
   write_log "Locking the root account" 4
   cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
 	  - name: root
@@ -485,9 +477,11 @@ EOF
   fi
 
   if [ -n "$image_default_user_password" ]; then
-    cat <<'EOF' >> "$run_script"
-	_SCRIPT_
+    output_script_block_end_marker
 
+    output_eof_block_blank_line
+
+    cat <<'EOF' >> "$run_script"
   write_log "Setting the default user's password" 4
   cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg.d/02-users.cfg
 	
@@ -495,16 +489,13 @@ EOF
 	password: $default_user_password
 EOF
   fi
-
-  cat <<'EOF' >> "$run_script"
-	_SCRIPT_
-EOF
-
+  output_script_block_end_marker
 
   # Adjust /etc/hosts template
   if [ -n "$debug_enabled" ]; then
+    output_eof_block_blank_line
+
     cat <<-'EOF' >> "$run_script"
-	
 	  # Debug
 	  {
 	    cp /etc/cloud/templates/hosts.alpine.tmpl \
@@ -513,9 +504,10 @@ EOF
 	EOF
   fi
 
+  # Remove IPv4 or IPv6 hostnames from hosts file template
   if [ -n "$image_disable_ipv4" ]; then
+    output_eof_block_blank_line
     cat <<-'EOF' >> "$run_script"
-	
 	  sed -i \
 	    -e '/^# The following lines are desirable for IPv4.*$/d' \
 	    -e '/^127\.0.*$/d' \
@@ -523,8 +515,8 @@ EOF
 	    /etc/cloud/templates/hosts.alpine.tmpl
 	EOF
   elif [ -n "$image_disable_ipv6" ]; then
+    output_eof_block_blank_line
     cat <<-'EOF' >> "$run_script"
-	
 	  sed -i \
 	    -e '/^# The following lines are desirable for IPv6.*$/d' \
 	    -e '/^::1.*$/d' \
@@ -538,19 +530,18 @@ EOF
     _debug_logging_status="Enabling"
     _logging_level="DEBUG"
 
+    output_eof_block_blank_line
     cat <<-'EOF' >> "$run_script"
-	
 	  # Debug
 	  {
-	EOF
-
-    cat <<-'EOF' >> "$run_script"
-	
-	    {
-	      cat /etc/cloud/cloud.cfg.d/01-datasources.cfg
-	      cat /etc/cloud/cloud.cfg.d/01-modules.cfg
-	      cat /etc/cloud/cloud.cfg.d/01-system-info.cfg
-	
+	    write_debug_log "cloud.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg >> /chroot.log
+	    write_debug_log "01-datasources.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/01-datasources.cfg >> /chroot.log
+	    write_debug_log "01-modules.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/01-modules.cfg >> /chroot.log
+	    write_debug_log "01-system-info.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/01-system-info.cfg >> /chroot.log
 	EOF
 
     if { [ "$image_encryption_type" = "both" ] || \
@@ -560,15 +551,17 @@ EOF
          [ "$image_os_device_media" = "sdcard" ] || \
          [ "$image_os_device_media" = "ssd" ]; }; then
       cat <<-'EOF' >> "$run_script"
-	      cat /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg
+	    write_debug_log "02-disable-grow-and-resize-fs.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/02-disable-grow-and-resize-fs.cfg >> /chroot.log
 	EOF
     fi
 
     cat <<-'EOF' >> "$run_script"
-	      cat /etc/cloud/cloud.cfg.d/02-ssh.cfg
-	      cat /etc/cloud/cloud.cfg.d/02-users.cfg
-	    } >> /chroot.log
-
+	    write_debug_log "02-ssh.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/02-ssh.cfg >> /chroot.log
+	    write_debug_log "02-users.cfg contents:" 4
+	    cat /etc/cloud/cloud.cfg.d/02-users.cfg >> /chroot.log
+	
 	    diff etc/cloud/templates/hosts.alpine.tmpl-orig \
 	      etc/cloud/templates/hosts.alpine.tmpl \
 	      >> /chroot.log || true
@@ -582,25 +575,22 @@ EOF
     _debug_logging_status="Disabling"
     _logging_level="INFO"
   fi
+
+  # Set cloud-init logging and syslogging levels appropriately
+  output_eof_block_blank_line
   cat <<-EOF >> "$run_script"
-	
 	  write_log "$_debug_logging_status cloud-init debugging" 2
 	  sed -i \\
 	    -E '\\\$!N; s/([handler_cloudLogHandler]\nclass=FileHandler\n[[:space:]]*)level=[A-Z]*/\1level=$_logging_level/g ;P;D' \\
 	    /etc/cloud/cloud.cfg.d/05_logging.cfg
-	EOF
-
-  # Set cloud-init syslog logging level appropriately
-  cat <<-EOF >> "$run_script"
-	
 	  sed -i \\
 	    -E '\\\$!N; s/([handler_cloudLogHandler]\nclass=handlers.SysLogHandler\n[[:space:]]*)level=[A-Z]*/\1level=INFO/g ;P;D' \\
 	    /etc/cloud/cloud.cfg.d/05_logging.cfg
 	EOF
 
   if [ -n "$debug_enabled" ]; then
+    output_eof_block_blank_line
     cat <<-'EOF' >> "$run_script"
-	
 	  # Debug
 	  {
 	    diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
@@ -611,23 +601,85 @@ EOF
 	EOF
   fi
 
-  case $image_class in
-    cloud )
-      case $image_cloud_type in
-        azure )
-          create_etc_filesystems "ISO" ;;
-      esac
-      ;;
-    physical )
-      create_etc_filesystems "VFAT" ;;
-    virtual )
-      create_etc_filesystems "ISO" ;;
-  esac
+  # Check which DataSources use VFAT or ISO filesystems and
+  # therefore may need Busybox mount workaround.
+  _required_filesystems=""
+  _list="$_datasource_list"
+  while true; do
+    _list_item="$(first_entry_in_comma_list "$_list")"
+    case $_list_item in
+      ConfigDrive )
+        if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
+          if [ -n "$_required_filesystems" ] && \
+             ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+            _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
+          elif [ -z "$_required_filesystems" ]; then
+            _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
+          fi
+        elif [ -n "$_required_filesystems" ]; then
+          if ! is_in_comma_list "$_required_filesystems" "ISO"; then
+            _required_filesystems="${_required_filesystems},ISO"
+          fi
+          if ! is_in_comma_list "$_required_filesystems" "VFAT"; then
+            _required_filesystems="${_required_filesystems},VFAT"
+          fi
+        else
+          _required_filesystems="ISO,VFAT"
+        fi
+        ;;
 
-  if [ "$image_class" = "physical" ] && \
-     [ "$image_physical_type" != "ovh-baremetal" ]; then
-    create_physical_machine_cloud_init_yaml_files
+      NoCloud )
+        case $image_cloud_init_seed_define in
+          cmdline | config | dhcp )
+            : ;;
+          * )
+            if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
+              if [ -n "$_required_filesystems" ] && \
+                 ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+                _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
+              elif [ -z "$_required_filesystems" ]; then
+                _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
+              fi
+            elif [ -n "$_required_filesystems" ]; then
+              if ! is_in_comma_list "$_required_filesystems" "ISO"; then
+                _required_filesystems="${_required_filesystems},ISO"
+              fi
+              if ! is_in_comma_list "$_required_filesystems" "VFAT"; then
+                _required_filesystems="${_required_filesystems},VFAT"
+              fi
+            else
+              _required_filesystems="ISO,VFAT"
+            fi
+            ;;
+        esac
+        ;;
+
+      * )
+        if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
+          if [ -n "$_required_filesystems" ] && \
+             ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+            _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
+          elif [ -z "$_required_filesystems" ]; then
+            _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
+          fi
+        fi
+        ;;
+    esac
+    if [ "${_list%,*}" = "$_list" ]; then
+      # No more entries
+      break
+    else
+      _list="${_list#$_list_item,}"
+    fi
+  done
+  if [ -n "$_required_filesystems" ]; then
+    create_etc_filesystems "$_required_filesystems"
   fi
+
+  case $image_class in
+    physical )
+      create_physical_machine_cloud_init_yaml_files ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	}
@@ -654,6 +706,35 @@ define_cloud_init_packages() {
   _ci_pkgs="cloud-init lsblk parted sfdisk sgdisk"
 
   echo "$_ci_pkgs"
+}
+
+
+#
+# Take a comma-separated ds list and output a list with each entry quoted
+#
+quote_datasource_comma_list() {
+  local _source_list="$1"
+
+  local _list _list_item _quoted_list
+
+  if is_single_entry_in_comma_list "$_source_list"; then
+    _quoted_list="'$_source_list'"
+  else
+    _list="$_source_list"
+    while true; do
+      _list_item="$(first_entry_in_comma_list "$_list")"
+      _quoted_list="${_quoted_list}'${_list_item}'"
+      if [ "${_list%,*}" = "$_list" ]; then
+        # No more entries
+        break
+      else
+        _list="${_list#$_list_item,}"
+        _quoted_list="$_quoted_list, "
+      fi
+    done
+  fi
+
+  echo "$_quoted_list"
 }
 
 

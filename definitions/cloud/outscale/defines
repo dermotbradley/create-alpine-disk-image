@@ -14,7 +14,7 @@
 # https://docs.outscale.com/en/userguide/On-Premises-to-Cloud-Migration-Guidelines.html
 
 # Supported
-readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
+readonly CADI_SUPPORTED_ARCHS="x86_64"
 readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Ec2"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
 readonly CADI_SUPPORTED_IPV4=true

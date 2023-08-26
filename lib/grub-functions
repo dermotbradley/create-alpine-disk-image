@@ -55,7 +55,7 @@ configure_bootloader_grub() {
     v3.13 | v3.14 | v3.15 | v3.16 )
       # Ensure that USB keyboard work when in initramfs
       case $image_keyboard_type in
-        usb | both )
+        usb | generic )
           # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
           # warning will appear in 'dmesg' output:
           #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_pci, not after
@@ -77,7 +77,7 @@ configure_bootloader_grub() {
 
   case $image_encryption_type in
     both | luks )
-      if { [ -z "$image_experimental" ] || [ -z "$remote_luks_unlock_enabled" ]; } && \
+      if { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
          [ -z "$image_no_grub_luks_fde_encryption" ] && [ "$image_create_boot_partition" != "true" ]; then
         # Enable Grub LUKS encryption support when:
         #  - disk image is LUKS encrypted, AND
@@ -111,7 +111,7 @@ configure_bootloader_grub() {
 	  # Debug
 	  {
 	EOF
-    case $image_boot_type in
+    case $image_os_partitioning_type in
       unpartitioned )
         cat <<-'EOF' >> "$run_script"
 	    write_debug_log "Root fs device is $root_device" 2
@@ -142,7 +142,7 @@ configure_bootloader_grub() {
   cat <<-EOF >> "$run_script"
 	
 	  # If relevant package is not already installed then install it
-	  if [ ! \\\$(apk info -e ${losetup_package}) ]; then
+	  if [ ! "\\\$(apk info -e ${losetup_package})" ]; then
 	    write_log "Installing ${losetup_package} package for losetup" 2
 	    apk add ${losetup_package} >> /chroot.log 2>&1
 	    losetup_package_installed=true
@@ -159,7 +159,7 @@ configure_bootloader_grub() {
 	EOF
   fi
 
-  case $image_console_type in
+  case $image_console_device_type in
     hypervisor | none )
       _disable_recovery='true'
       _menu_timeout=0
@@ -196,31 +196,61 @@ configure_bootloader_grub() {
 	      echo 'GRUB_GFXPAYLOAD_LINUX=text'
 	EOF
       case $image_boot_type in
-        bios | unpartitioned )
-          if [ "$image_console_type" != "hypervisor" ] && \
-             [ "$image_console_type" != "serial" ]; then
-            # Use VGA text mode
-            cat <<-'EOF' >> "$run_script"
+        bios )
+          case $image_console_device_type in
+            hypervisor | serial )
+              : ;;
+            * )
+              # Use VGA text mode
+              cat <<-'EOF' >> "$run_script"
 	      echo 'GRUB_VIDEO_BACKEND=vga_text'
 	EOF
-          fi
+              ;;
+          esac
           ;;
       esac
       ;;
+
     * )
-      # Want graphics display
-      case $image_boot_type in
-        bios | unpartitioned )
-          cat <<-'EOF' >> "$run_script"
+      if [ -z "$image_enable_graphics" ] || \
+         [ "$image_enable_graphics" != "true" ]; then
+        # Only want text display
+        cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_GFXPAYLOAD_LINUX=text'
+	EOF
+        case $image_boot_type in
+          bios )
+            case $image_console_device_type in
+              hypervisor | serial )
+                : ;;
+              * )
+                # Use VGA text mode
+                cat <<-'EOF' >> "$run_script"
+	      echo 'GRUB_VIDEO_BACKEND=vga_text'
+	EOF
+                ;;
+            esac
+            ;;
+        esac
+      else
+        # Want graphics display
+        case $image_boot_type in
+          bios )
+            cat <<-'EOF' >> "$run_script"
 	      echo 'GRUB_VIDEO_BACKEND=vga'
 	EOF
-          ;;
-        secure-uefi | uefi )
-          cat <<-'EOF' >> "$run_script"
+            ;;
+
+          hybrid )
+            : ;;
+
+          secure-uefi | uefi )
+            cat <<-'EOF' >> "$run_script"
 	      echo 'GRUB_VIDEO_BACKEND=efi_gop'
 	EOF
-          ;;
-      esac
+            ;;
+        esac
+      fi
       ;;
   esac
 
@@ -267,11 +297,11 @@ configure_bootloader_grub() {
 	    } >> /etc/default/grub
 	EOF
 
-  case $image_console_type in
+  case $image_console_device_type in
     hypervisor )
       # Grub does not support virtio console
       : ;;
-    serial | normal_and_serial )
+    serial | normal_and_serial | generic )
       enable_grub_serial_console ;;
   esac
 
@@ -335,7 +365,7 @@ EOF
   case $image_encryption_type in
     both | luks )
       if { [ -z "$image_experimental" ] || \
-           [ -z "$remote_luks_unlock_enabled" ]; } && \
+           [ -z "$luks_remote_unlock_enabled" ]; } && \
          [ -z "$image_no_grub_luks_fde_encryption" ] && \
          [ -z "$needs_boot_partition" ]; then
         # When using GRUB encryption along with a keyfile (to avoid 2nd prompt),
@@ -365,8 +395,8 @@ enable_grub_serial_console() {
 	        >> /etc/default/grub
 	EOF
 
-  case $image_console_type in
-    normal_and_serial )
+  case $image_console_device_type in
+    normal_and_serial | generic )
       _console_terminal_value="serial console" ;;
     serial )
       _console_terminal_value="serial" ;;
@@ -402,7 +432,7 @@ install_grub() {
     # Encryption
     case $image_encryption_type in
       both | luks )
-        if { [ -z "$image_experimental" ] || [ -z "$remote_luks_unlock_enabled" ]; } && \
+        if { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
            [ -z "$image_no_grub_luks_fde_encryption" ] && \
            [ "$image_create_boot_partition" != "true" ]; then
           # Grub LUKS encryption support only applies when:
@@ -431,21 +461,25 @@ install_grub() {
       _grub_modules_list="$_grub_modules_list password_pbkdf2"
     fi
 
-    # Handle console type via two separate 'case' statements rather than a
-    # single 'case' statement, this is because for console type "normal_and_serial" the
-    # "normal" and "serial" values are additive.
-    case $image_console_type in
-      normal | normal_and_serial )
+    # Handle console device type via two separate 'case' statements rather
+    # than a single 'case' statement, this is because for console device type
+    # "normal_and_serial" the "normal" and "serial" values are additive.
+    case $image_console_device_type in
+      normal | normal_and_serial | generic )
         case $image_arch in
           aarch64 )
-            : ;;
+            case $image_keyboard_type in
+              hyperv | usb | generic )
+                _grub_modules_list="$_grub_modules_list usb_keyboard ehci ohci" ;;
+            esac
+            ;;
           x86 | x86_64 )
             case $image_keyboard_type in
-              ps2 | both )
+              hyperv | ps2 | generic )
                 _grub_modules_list="$_grub_modules_list at_keyboard" ;;
             esac
             case $image_keyboard_type in
-              usb | both )
+              usb | generic )
                 _grub_modules_list="$_grub_modules_list usb_keyboard ehci"
                 if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
                   _grub_modules_list="$_grub_modules_list ohci"
@@ -459,8 +493,8 @@ install_grub() {
         esac
         ;;
     esac
-    case $image_console_type in
-      normal_and_serial | serial )
+    case $image_console_device_type in
+      normal_and_serial | serial | generic )
         _grub_modules_list="$_grub_modules_list serial" ;;
     esac
 
@@ -481,18 +515,19 @@ install_grub() {
 
 
   case $image_boot_type in
-    bios | unpartitioned )
+    bios )
       _grub_options="--target=i386-pc"
-      if [ "$image_boot_type" = "unpartitioned" ]; then
-        _grub_options="$_grub_options --no-bootsector"
-      fi
+      case $image_os_partitioning_type in
+        unpartitioned )
+          _grub_options="$_grub_options --no-bootsector" ;;
+      esac
       if [ -n "$image_optimise" ]; then
         _grub_modules_list="$_grub_modules_list nativedisk"
         case $image_boot_type in
           bios )
             _grub_modules_list="$_grub_modules_list part_msdos" ;;
         esac
-        case $image_console_type in
+        case $image_console_device_type in
           hypervisor | none | serial )
             # Virtio, serial and "none" consoles do not need VGA support
             : ;;
@@ -501,37 +536,15 @@ install_grub() {
             case $image_console_output_type in
               text )
                 case $image_boot_type in
-                  bios | unpartitioned )
-                    if { [ "$image_console_type" != "hypervisor" ] && \
-                         [ "$image_console_type" != "none" ] && \
-                         [ "$image_console_type" != "serial" ]; } || \
-                       is_in_comma_list "generic" "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
-                      # Use VGA text mode
-                      _grub_modules_list="$_grub_modules_list vga_text"
-                    fi
-                    ;;
+                  bios )
+                    # Use VGA text mode
+                    _grub_modules_list="$_grub_modules_list vga_text" ;;
                 esac
                 ;;
               * )
                 # Want graphics display
-                case $image_boot_type in
-                  bios | unpartitioned )
-                    _grub_modules_list="$_grub_modules_list vga" ;;
-                  * )
-                    if is_in_comma_list "generic" "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
-                      _grub_modules_list="$_grub_modules_list vga"
-                    fi
-                    ;;
-                esac
-                ;;
+                _grub_modules_list="$_grub_modules_list vga" ;;
             esac
-
-            # Add other graphics modules
-            if is_in_comma_list "bochs" "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" || \
-               { is_in_comma_list "generic" "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" && \
-                 is_in_comma_list "bochs" "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"; }; then
-              _grub_modules_list="$_grub_modules_list video_bochs"
-            fi
             ;;
         esac
       fi
@@ -558,7 +571,7 @@ install_grub() {
             fi
             ;;
         esac
-        case $image_console_type in
+        case $image_console_device_type in
           hypervisor | serial )
             : ;;
           * )
@@ -627,7 +640,7 @@ install_grub() {
   fi
 
   case $image_boot_type in
-    bios | unpartitioned )
+    bios )
       # Do not need to specify device for UEFI setup
       cat <<-EOF >> "$run_script"
 	    \$loop_device \\
@@ -659,7 +672,7 @@ install_grub() {
   fi
 
   case $image_boot_type in
-    bios | unpartitioned )
+    bios )
       # Do not need to specify device for UEFI setup
       cat <<-'EOF' >> "$run_script"
 	    echo "  /dev/\\\$(readlink /dev/root)"

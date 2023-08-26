@@ -227,7 +227,7 @@ EOF
       _resize_luks_device="$CADI_LUKS_DEVICE_NAME"
       _resize_root_fs_part="/dev/mapper/$CADI_LUKS_DEVICE_NAME"
 
-      if [ $_disk_leave_free_percent != 0 ]; then
+      if [ $_disk_leave_free_percent -ne 0 ]; then
         # Overprovisioning required
 
         case $image_alpine_release in
@@ -299,7 +299,7 @@ EOF
           _resize_pv_part="/dev/${_grow_device_short}${lvm_part_num}" ;;
       esac
 
-      if [ $_disk_leave_free_percent != 0 ]; then
+      if [ $_disk_leave_free_percent -ne 0 ]; then
         # Overprovisioning required
 
         case $image_alpine_release in
@@ -357,7 +357,7 @@ EOF
           _resize_root_fs_part="/dev/${_grow_device_short}${root_part_num}" ;;
       esac
 
-      if [ $_disk_leave_free_percent != 0 ]; then
+      if [ $_disk_leave_free_percent -ne 0 ]; then
         # Overprovisioning required
         case $image_alpine_release in
           v3.13 | v3.14 | v3.15 )
@@ -460,7 +460,7 @@ EOF
 	    ssh_authorized_keys:
 EOF
     # shellcheck disable=SC2028
-    echo "\t      - '$ssh_public_key'" >> "$run_script"
+    printf '\t      - %s\n' "$ssh_public_key" >> "$run_script"
   fi
 
   cat <<'EOF' >> "$run_script"
@@ -577,21 +577,12 @@ define_physical_machine_packages() {
 disable_kernel_drivers_modules_on_physical() {
   local _disable_list=""
 
+  # Disable all cloud provider and virtual modules
+  _disable_list="$CADI_CLOUD_KERNEL_MODULES"
+  _disable_list="$_disable_list $CADI_VIRTUAL_KERNEL_MODULES"
+  _disable_list="$_disable_list $CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES"
+
   case $image_physical_type in
-    arm-server )
-      # Disable all cloud provider and virtual modules
-      _disable_list="$_disable_list $CADI_CLOUD_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_VIRTUAL_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES"
-      ;;
-
-    ovh-baremetal )
-      # Disable all cloud provider and virtual modules
-      _disable_list="$_disable_list $CADI_CLOUD_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_VIRTUAL_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES"
-      ;;
-
     rpi* )
       # RPI as server does not need HDMI-related modules
       _disable_list="$_disable_list backlight cec drm drm_kms_helper"
@@ -615,18 +606,11 @@ disable_kernel_drivers_modules_on_physical() {
 
     pc )
       if [ -z "$image_enable_graphics" ] || \
-         [ "$image_console_type" = "hypervisor" ] || \
-         [ "$image_console_type" = "serial" ]; then
+         [ "$image_console_device_type" = "serial" ]; then
         # Disable all KMS/DRM modules
         _disable_list="$_disable_list $CADI_PHYSICAL_GENERAL_KMS_MODULES"
         _disable_list="$_disable_list $CADI_PHYSICAL_X86_KMS_MODULES"
       fi
-      _disable_list="$_disable_list $CADI_VIRTUAL_KMS_MODULES"
-
-      # Disable all cloud provider and virtual modules
-      _disable_list="$_disable_list $CADI_CLOUD_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_VIRTUAL_KERNEL_MODULES"
-      _disable_list="$_disable_list $CADI_AZURE_HYPERV_COMMON_KERNEL_MODULES"
       ;;
   esac
 
@@ -640,80 +624,78 @@ disable_kernel_drivers_modules_on_physical() {
 firmware_list_for_physical() {
   local _firmware_list=""
 
-  case $image_physical_type in
-    arm-server )
-      _firmware_list="linux-firmware-mellanox"
-      ;;
-
-    ovh-baremetal )
-      _firmware_list=""
-      ;;
-
-    pc )
-      if [ -n "$image_graphics_vendor" ]; then
-        case $image_graphics_vendor in
-          amd )
-            cat <<-'EOF' >> "$run_script"
-	  write_log "Selecting AMD graphics firmware" 2
-	EOF
-            if [ -n "$image_graphics_vendor_driver" ]; then
-              case $image_graphics_vendor_driver in
-                amdgpu )
-                  _firmware_list="linux-firmware-amdgpu" ;;
-                radeon )
-                  _firmware_list="linux-firmware-radeon" ;;
-              esac
-            else
-              _firmware_list="linux-firmware-amdgpu linux-firmware-radeon"
-            fi
-            ;;
-          intel )
-            cat <<-'EOF' >> "$run_script"
-	  write_log "Selecting Intel graphics firmware" 2
-	EOF
-            _firmware_list="linux-firmware-i915"
-            ;;
-        esac
-      else
+  # Graphics
+  if [ "$image_enable_graphics" = "true" ]; then
+    case $image_graphics_driver in
+      amd )
         cat <<-'EOF' >> "$run_script"
-	  write_log "Selecting AMD and Intel graphics firmware" 2
+	  write_log "Selecting AMD graphics driver firmware" 2
 	EOF
-        _firmware_list="linux-firmware-amdgpu linux-firmware-radeon linux-firmware-i915"
-      fi
+        _firmware_list="linux-firmware-amdgpu"
+        ;;
 
+      generic )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting AMD, Intel & Nvidia graphics driver firmware" 2
+	EOF
+        _firmware_list="linux-firmware-amdgpu linux-firmware-nouveau linux-firmware-radeon linux-firmware-i915"
+        ;;
 
-      case $image_ethernet_vendor in
-          broadcom )
-            cat <<-'EOF' >> "$run_script"
+      i915 )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting Intel i915 graphics driver firmware" 2
+	EOF
+        _firmware_list="linux-firmware-i915"
+        ;;
+
+      nouveau )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting Nvidia Nouveau graphics driver firmware" 2
+	EOF
+        _firmware_list="linux-firmware-nvidia"
+        ;;
+
+      radeon )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting AMD Radeon graphics driver firmware" 2
+	EOF
+        _firmware_list="linux-firmware-radeon"
+        ;;
+    esac
+  fi
+
+  # Network
+  if [ -n "$image_ethernet_vendor" ]; then
+    case $image_ethernet_vendor in
+      broadcom )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting Broadcom NIC firmware" 2
 	EOF
-            _firmware_list="${_firmware_list} linux-firmware-tigon"
-            ;;
-          mellanox )
-            cat <<-'EOF' >> "$run_script"
+        _firmware_list="${_firmware_list} linux-firmware-tigon"
+        ;;
+
+      mellanox )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting Mellanox NIC firmware" 2
 	EOF
-            _firmware_list="${_firmware_list} linux-firmware-mellanox"
-            ;;
-          realtek )
-            cat <<-'EOF' >> "$run_script"
+        _firmware_list="${_firmware_list} linux-firmware-mellanox"
+        ;;
+
+      realtek )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting Realtek NIC firmware" 2
 	EOF
-            _firmware_list="${_firmware_list} linux-firmware-rtl_nic"
-            ;;
-          * )
-            cat <<-'EOF' >> "$run_script"
+        _firmware_list="${_firmware_list} linux-firmware-rtl_nic"
+        ;;
+
+      * )
+        cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting all NIC firmware" 2
 	EOF
-            _firmware_list="${_firmware_list} linux-firmware-rtl_nic linux-firmware-tigon"
-            ;;
-        esac
-      ;;
-
-    rpi* )
-      # No RPI firmware used currently
-      : ;;
-  esac
+        _firmware_list="${_firmware_list} linux-firmware-rtl_nic linux-firmware-tigon"
+        ;;
+    esac
+  fi
 
   echo "$_firmware_list"
 }

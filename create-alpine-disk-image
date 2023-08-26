@@ -29,7 +29,6 @@ readonly script_dir="$(dirname "$0")"
 
 
 # Source read-only variables
-. "${script_dir}"/lib/cloud-init-defines
 . "${script_dir}"/lib/common-defines
 . "${script_dir}"/lib/disk-image-defines
 . "${script_dir}"/lib/kernel-module-defines
@@ -90,20 +89,20 @@ case $image_class in
 esac
 printf '  Config software type: %s\n\n' "$image_cloud_software"
 printf '  Alpine release: %s\n\n' "$image_alpine_release"
-printf '  OS device type: %s, OS device media: %s\n' \
+printf '  OS device type: %s\t\tOS device media: %s\n' \
   "$image_os_device_type" "$image_os_device_media"
-printf '  OS device sector size: %s bytes\n' "$image_os_device_sector_size"
-printf '  Boot type: %s, Bootloader: %s\n' \
-  "$image_boot_type" "$image_bootloader"
-printf '  Root filesystem type: %s\n' "$image_fs_type"
+printf '  OS device sector size: %s bytes\n\n' "$image_os_device_sector_size"
 case $image_boot_type in
   secure-uefi | uefi )
-    printf '  ESP fs type: %s, ESP partition size: %s MiB\n' \
+    printf '  ESP fs type: %s\t\t\tESP partition size: %s MiB\n' \
       "$image_esp_type" "$image_uefi_part_size"
     ;;
   * )
     : ;;
 esac
+printf '  Boot type: %s\t\t\tBootloader: %s\n' \
+  "$image_boot_type" "$image_bootloader"
+printf '  Root filesystem type: %s\n' "$image_fs_type"
 if [ "$image_swap_file_size" != "0" ]; then
   printf '  Swapfile size: %s\n' "$image_swap_file_size"
 fi
@@ -121,11 +120,14 @@ elif [ -n "$image_lvm_rootfs" ]; then
 elif [ -n "$image_root_part_size" ]; then
   printf '  Image root filesystem size: %s MiB\n' "$image_root_part_size"
 fi
-printf '\n  Console type: %s, Console output type: %s\n' \
-  "$image_console_type" "$image_console_output_type"
+printf '\n  Console device type: %s\tConsole output type: %s\n' \
+  "$image_console_device_type" "$image_console_output_type"
 printf '  Keyboard type: %s\n' "$image_keyboard_type"
-if [ -n "$image_enable_graphics" ]; then
-  printf '  Enable graphics: %s\n' "$image_enable_graphics"
+printf '  Enable graphics: %s' "$image_enable_graphics"
+if [ "$image_enable_graphics" = "true" ]; then
+  printf '\t\tGraphics driver: %s\n' "$image_graphics_driver"
+else
+  printf '\n'
 fi
 printf '\n  Cron daemon: %s\t\tDHCP client: %s\n' \
   "$image_cron_daemon" "$image_dhcp_client"
@@ -155,17 +157,18 @@ cat <<-EOF >> "$run_script"
 	truncate -s ${disk_image_size}M \$image_full_filename >> \$logfile
 	EOF
 
-case $image_boot_type in
-  bios )
-    partition_bios ;;
-  rpi )
-    partition_rpi ;;
-  secure-uefi | uefi )
-    partition_uefi ;;
-esac
+if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
+  case $image_boot_type in
+    bios )
+      partition_bios ;;
+    rpi )
+      partition_rpi ;;
+    secure-uefi | uefi )
+      partition_uefi ;;
+  esac
 
-if [ -n "$debug_enabled" ] && [ "$image_boot_type" != "unpartitioned" ]; then
-  cat <<-'EOF' >> "$run_script"
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
 	
 	# Debug
 	{
@@ -176,6 +179,7 @@ if [ -n "$debug_enabled" ] && [ "$image_boot_type" != "unpartitioned" ]; then
 	    unit MiB print >> $logfile
 	}
 	EOF
+  fi
 fi
 
 setup_loop_device
@@ -224,14 +228,22 @@ if [ -n "$extra_files_directory" ]; then
   install_extra_files
 fi
 
-# shellcheck disable=SC2129
-cat <<-'EOF' >> "$run_script"
+
+_chroot_cmd="cat <<EOT"
+if [ "$image_output_chroot_script" = "true" ]; then
+  _chroot_script_filename="debug-chroot-$(change_filename_extension "$filename_for_image" "sh")"
+  _chroot_cmd="$_chroot_cmd | tee ${_chroot_script_filename}"
+fi
+_chroot_cmd="$_chroot_cmd | chroot \$chroot_dir /bin/sh -eu"
+
+cat <<-EOF >> "$run_script"
 	
 	#############################################################################
 	##		Start of Chroot section
 	#############################################################################
 	
-	chroot "$chroot_dir" /bin/sh -eu <<EOT
+	${_chroot_cmd}
+	#!/bin/sh -eu
 	
 	EOF
 
@@ -249,6 +261,7 @@ fi
 cat <<-EOF >> "$run_script"
 	keymap="${image_keymap}"
 	locale="${image_locale}"
+	umask="077"
 	EOF
 
 case $image_class in
@@ -279,15 +292,12 @@ install_additional_packages
 additional_os_configuration
 configure_autoconfiguration_software
 
-if [ -z "$image_barebones" ]; then
-  if [ -n "$image_optimise" ]; then
-    disable_kernel_modules
-  fi
-
-  if [ -n "$image_harden" ]; then
-    create_module_blocking_initd
-    delete_users_groups
-  fi
+if [ -n "$image_optimise" ]; then
+  disable_kernel_modules
+fi
+if [ -n "$image_harden" ]; then
+  create_module_blocking_initd
+  delete_users_groups
 fi
 
 if [ -n "$remote_unlock_enabled" ] && [ -n "$ssh_public_key" ]; then
@@ -371,7 +381,7 @@ cat <<-'EOF' >> "$run_script"
 	write_log "Clearing APK cache"
 	rm /var/cache/apk/*
 	
-	write_log "Final disk space usage:"
+	write_debug_log "Final disk space usage:"
 	busybox df -k >> /chroot.log
 	EOF
 
@@ -493,9 +503,11 @@ if [ -n "$debug_enabled" ]; then
   cat <<-EOF >> "$run_script"
 	
 	# Debug
-	mv "\$chroot_dir"/base-packages.list ./"\$(basename -s .log \$logfile)".base-packages
+	mv "\$chroot_dir"/base-packages.list \\
+	  ./"\$(basename -s .log \$logfile)".base-packages
 	_kernel_config_file="\$(basename "\$(ls \$chroot_dir/kernel-config_*)")"
-	mv "\$chroot_dir"/"\$_kernel_config_file" ./"\$(basename -s .log \$logfile)"."\$_kernel_config_file"
+	mv "\$chroot_dir"/"\$_kernel_config_file" \\
+	  ./"\$(basename -s .log \$logfile)"."\$_kernel_config_file"
 	EOF
 fi
 
@@ -510,6 +522,9 @@ if [ -n "$use_ramdisk" ]; then
 	
 	write_log "Copying image from ramdisk to final location"
 	cp "$image_full_filename" "$images_dir/"
+	sync "$images_dir"/"$image_filename"
+	rm "$image_full_filename"
+	sync -f "$ramdisk_dir"
 	unmount_ramdisk
 	EOF
 fi
@@ -528,7 +543,7 @@ if [ -n "$debug_enabled" ] && \
   shellcheck -s ash -e SC1117 "$run_script"
   # shellcheck disable=SC2034
   _rc=$?
-  #if [ $_rc != 0 ]; then
+  #if [ $_rc -ne 0 ]; then
   #  exit 2
   #fi
 fi

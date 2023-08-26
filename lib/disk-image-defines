@@ -14,11 +14,11 @@
 readonly CADI_DEFAULT_ADMIN_USERNAME="alpine"
 readonly CADI_DEFAULT_BOOT_REFERENCE="uuid"
 readonly CADI_DEFAULT_DISK_RESIZE_FREE_PERCENT=10
+readonly CADI_DEFAULT_EFI_BOOTSTUB="gummiboot"
 readonly CADI_DEFAULT_FS_TYPE="ext4"
 readonly CADI_DEFAULT_LUKS_CIPHER="aes-xts-plain64"
 readonly CADI_DEFAULT_LUKS_PASSPHRASE="InsecureDefault"
 readonly CADI_DEFAULT_SSH_KEYTYPES="ed25519"
-readonly CADI_DEFAULT_UKI_BOOTSTUB="gummiboot"
 
 
 # Filesystem labels and LVM device names

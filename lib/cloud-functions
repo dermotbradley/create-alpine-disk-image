@@ -98,8 +98,8 @@ disable_kernel_drivers_modules_on_cloud() {
   fi
 
   if [ -z "$image_enable_graphics" ] || \
-     [ "$image_console_type" = "hypervisor" ] || \
-     [ "$image_console_type" = "serial" ]; then
+     [ "$image_console_device_type" = "hypervisor" ] || \
+     [ "$image_console_device_type" = "serial" ]; then
     # Disable all KMS/DRM modules
     _disable_list="$_disable_list $CADI_PHYSICAL_GENERAL_KMS_MODULES"
     case $image_arch in

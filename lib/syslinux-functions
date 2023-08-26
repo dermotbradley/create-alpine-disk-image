@@ -59,7 +59,7 @@ configure_bootloader_syslinux() {
     v3.13 | v3.14 | v3.15 | v3.16 )
       # Ensure that USB keyboard works when in initramfs
       case $image_keyboard_type in
-        usb | both )
+        usb | generic )
           # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
           # warning will appear in 'dmesg' output:
           #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_hcd, not after
@@ -138,7 +138,7 @@ configure_bootloader_syslinux() {
 	EOF
 
 
-  case $image_console_type in
+  case $image_console_device_type in
     serial | normal_and_serial )
       enable_syslinux_serial_console ;;
   esac
@@ -182,7 +182,7 @@ enable_syslinux_serial_console() {
 	      /etc/update-extlinux.conf
 	EOF
 
-  case $image_console_type in
+  case $image_console_device_type in
     serial )
       cat <<-'EOF' >> "$run_script"
 	
