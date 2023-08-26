@@ -12,26 +12,40 @@
 
 
 # Supported
-readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device"
 readonly CADI_SUPPORTED_BOOT_TYPES="bios"
 readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,syslinux,limine"
-readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="none"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="none"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="text"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="virtio"
+readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr,unpartitioned"
-readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,nvme,virtio-blk"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
-readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+readonly CADI_SUPPORTED_RNGS="virtio"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,virtio-blk"
 
 
 # Defaults
-readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
 readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_DHCP_CLIENT="dhclient"
 readonly CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE="unpartitioned"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-blk"
+readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional
-readonly CADI_BAREBONES=true
 readonly CADI_DISK_IMAGE_FORMAT="qcow2"
+readonly CADI_PACKAGES_EXTRA="nvme-cli"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_EXTRA_SIZE=1

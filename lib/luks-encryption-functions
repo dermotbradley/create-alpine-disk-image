@@ -153,11 +153,11 @@ insert_chroot_function_define_cmdline_for_luks_encryption() {
       _cmdline_list="$_cmdline_list cryptdiscards=yes" ;;
   esac
 
-  if [ -n "$remote_luks_unlock_enabled" ]; then
-    if [ -n "$remote_luks_unlock_static_ip" ]; then
+  if [ -n "$luks_remote_unlock_enabled" ]; then
+    if [ -n "$luks_remote_unlock_static_ip" ]; then
       # Indicate the IP address to use by initramfs for configuring
       # the ethernet interface for Dropbear to listen on.
-      _cmdline_list="$_cmdline_list ip=${remote_luks_unlock_static_ip}::${remote_luks_unlock_static_gateway:-}:${remote_luks_unlock_static_netmask:-}::${remote_luks_unlock_static_interface:-}:none:"
+      _cmdline_list="$_cmdline_list ip=${luks_remote_unlock_static_ip}::${luks_remote_unlock_static_gateway:-}:${luks_remote_unlock_static_netmask:-}::${luks_remote_unlock_static_interface:-}:none:"
     else
       # Indicate that DHCP should be used by initramfs' init.
       _cmdline_list="$_cmdline_list ip=dhcp"
@@ -168,7 +168,7 @@ insert_chroot_function_define_cmdline_for_luks_encryption() {
 
     if [ -n "$luks_remote_unlock_ssh_port" ]; then
       # Indicate the port that Dropbear should listen on
-      _cmdline_list="$_cmdline_list remote_luks_unlock_ssh_port=$remote_luks_unlock_ssh_port"
+      _cmdline_list="$_cmdline_list remote_luks_unlock_ssh_port=$luks_remote_unlock_ssh_port"
     fi
   fi
 
@@ -257,7 +257,7 @@ setup_luks_device() {
 	EOF
 
   if [ "$image_bootloader" = "grub" ] && \
-     { [ -z "$image_experimental" ] || [ -z "$remote_luks_unlock_enabled" ]; } && \
+     { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
      [ -z "$image_no_grub_luks_fde_encryption" ] && \
      [ "$image_create_boot_partition" != "true" ]; then
     # When:

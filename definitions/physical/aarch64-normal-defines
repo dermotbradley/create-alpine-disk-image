@@ -27,5 +27,9 @@ readonly CADI_BOOTLOADER_RPI_BOOT_FILES_SIZE=1
 # Size of files in rootfs except for kernel package
 readonly CADI_ROOTFS_SIZE=$((CADI_ARBITRARY_ROOTFS_SIZE - CADI_KERNEL_PACKAGE_SIZE))
 
-# Size of an ESP partition/FAT fs containing a UKI file made up of EFI stub, kernel, and initramfs
-readonly CADI_DEFAULT_UKI_ESP_PART_SIZE=$((CADI_EFI_STUB_SIZE + CADI_KERNEL_FILE_SIZE + CADI_INITRAMFS_SIZE))
+# Size of an ESP partition/FAT fs for barebones containing either:
+#   - EFI stub, kernel, and initramfs files
+# or
+#   - a single UKI file made up of EFI stub, kernel, and initramfs
+readonly CADI_DEFAULT_EFISTUB_ESP_PART_SIZE=$((CADI_EFISTUB_SIZE + CADI_KERNEL_FILE_SIZE + CADI_INITRAMFS_SIZE))
+readonly CADI_DEFAULT_EDGE_EFISTUB_ESP_PART_SIZE=$((CADI_EFISTUB_SIZE + CADI_KERNEL_EDGE_FILE_SIZE + CADI_INITRAMFS_SIZE))

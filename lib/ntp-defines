@@ -11,11 +11,5 @@
 #############################################################################
 
 
-###readonly CONSTANT_DEFAULT_PHC_PTP_DPOLL=0
-###readonly CONSTANT_DEFAULT_PHC_PTP_OFFSET="0.0"
-###readonly CONSTANT_DEFAULT_PHC_PTP_POLL=4
-###readonly CONSTANT_DEFAULT_PHC_PTP_STRATUM=0
-
 readonly CADI_GENERAL_NTP_POOLS="pool.ntp.org"
-
 readonly CADI_GENERAL_NTP_SERVERS_OPTIONS="iburst"

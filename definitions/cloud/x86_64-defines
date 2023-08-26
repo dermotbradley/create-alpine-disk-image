@@ -12,7 +12,7 @@
 
 
 # Size of Gummiboot/Stubby EFI stub file
-readonly CADI_EFI_STUB_SIZE=1
+readonly CADI_EFISTUB_SIZE=1
 
 
 # linux-edge

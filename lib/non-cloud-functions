@@ -153,32 +153,11 @@ create_default_user() {
 	EOF
   fi
 
-  case $image_auth_control in
-    doas )
-      cat <<-EOF >> "$run_script"
+  cat <<-EOF >> "$run_script"
 	
 	    write_log "Adding user to group 'wheel'" 4
 	    addgroup ${image_admin_username} wheel >> /chroot.log
 	EOF
-      ;;
-    sudo )
-      cat <<-EOF >> "$run_script"
-	
-	    write_log "Adding user to group 'sudo'" 4
-	    addgroup ${image_admin_username} sudo >> /chroot.log
-	EOF
-      ;;
-    both )
-      cat <<-EOF >> "$run_script"
-	
-	    write_log "Adding user to group 'wheel'" 4
-	    addgroup ${image_admin_username} wheel >> /chroot.log
-	
-	    write_log "Adding user to group 'sudo'" 4
-	    addgroup ${image_admin_username} sudo >> /chroot.log
-	EOF
-      ;;
-  esac
 
   if [ -n "$ssh_public_key" ]; then
     cat <<-EOF >> "$run_script"

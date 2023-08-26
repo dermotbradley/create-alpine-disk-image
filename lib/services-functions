@@ -33,7 +33,7 @@ add_fstrim_cronjob() {
 
     write_log "Setting up logrotate for fstrim logfile" 4
     {
-cat <<-'_SCRIPT_' >> /etc/logrotate.d/fstrim
+      cat <<-'_SCRIPT_' >> /etc/logrotate.d/fstrim
 	/var/log/trim.log {
 		compress
 		delaycompress
@@ -87,9 +87,7 @@ configure_acpid() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
-	      }
+	      cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
 	
 	EOF
   fi
@@ -164,9 +162,7 @@ configure_busybox_cron() {
       if [ -n "$debug_enabled" ]; then
         cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/crond /etc/conf.d/crond-orig
-	      }
+	      cp /etc/conf.d/crond /etc/conf.d/crond-orig
 	
 	EOF
       fi
@@ -227,9 +223,7 @@ configure_busybox_syslogd() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
-	      }
+	      cp /etc/conf.d/syslog /etc/conf.d/syslog-orig
 	
 	EOF
       fi
@@ -292,9 +286,7 @@ configure_busybox_udhcpc() {
       if [ -n "$debug_enabled" ]; then
         cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
-	      }
+	      cp /usr/share/udhcpc/default.script /usr/share/udhcpc/default.script-orig
 	
 	EOF
       fi
@@ -338,6 +330,7 @@ configure_busybox_udhcpc() {
 # Create a user for local console access
 #
 configure_console_user() {
+  local _doas_file
 
   cat <<-EOF >> "$run_script"
 	
@@ -377,12 +370,16 @@ configure_console_user() {
 	      write_log "Creating '$image_console_user' user for console-only access" 6
 	      adduser -g "User for console-only access" -D $image_console_user >> /chroot.log
 	
+	      write_log "Fix-up permissions for $image_console_user home directory" 6
+	      chmod g-rx,o-rx /home/$image_console_user
+	
 	EOF
 
   if [ -n "$image_console_user_password" ]; then
     cat <<-EOF >> "$run_script"
 	      write_log "Setting password for '$image_console_user' user" 6
-	      echo "${image_console_user}:\$console_user_password" | chpasswd >> /chroot.log
+	      printf '%s:%s\n' "$image_console_user" "\$console_user_password" \\
+	        | chpasswd >> /chroot.log
 	EOF
   else
     cat <<-EOF >> "$run_script"
@@ -408,12 +405,17 @@ configure_console_user() {
 	      {
 	EOF
 
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      _doas_file="/etc/doas.d/doas.conf" ;;
+    * )
+      _doas_file="/etc/doas.conf" ;;
+  esac
+
   if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
+    cat <<-EOF >> "$run_script"
 	        # Debug
-	        {
-	          cp /etc/doas.conf /etc/doas.conf-orig
-	        }
+	        cp ${_doas_file} ${_doas_file}-orig
 	
 	EOF
   fi  
@@ -421,10 +423,9 @@ configure_console_user() {
   cat <<-EOF >> "$run_script"
 	        write_log "Setting up password-less doas access for '$image_console_only_group' group" 8
 	        {
-	          echo
-	          echo "# Enable password-less access for members of group '$image_console_only_group'"
-	          echo "permit nopass :$image_console_only_group"
-	        } >> /etc/doas.conf
+	          printf '\n# Enable password-less access for members of group '\''%s'\''\n' "$image_console_only_group"
+	          printf 'permit nopass :%s\n' "$image_console_only_group"
+	        } >> ${_doas_file}
 	
 	        write_log "Adding '$image_console_user' user to '$image_console_only_group' group" 8
 	        addgroup $image_console_user $image_console_only_group >> /chroot.log
@@ -432,12 +433,12 @@ configure_console_user() {
 	EOF
 
   if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
+    cat <<-EOF >> "$run_script"
 	    
 	      # Debug
 	      {
-	        diff /etc/doas.conf-orig /etc/doas.conf >> /chroot.log || true
-	        rm /etc/doas.conf-orig
+	        diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
+	        rm ${_doas_file}-orig
 	      }
 	EOF
   fi
@@ -452,9 +453,8 @@ configure_console_user() {
 	
 	    write_log "Disabling SSH-access for users in '$image_console_only_group' group" 4
 	    {
-	      echo
-	      echo "# Deny SSH access for users in '$image_console_only_group' group"
-	      echo "DenyGroups $image_console_only_group"
+	      printf '\n# Deny SSH access for users in '\''%s'\'' group\n' "$image_console_only_group"
+	      printf 'DenyGroups %s\n' "$image_console_only_group"
 	    } >> /etc/ssh/sshd_config
 	EOF
       ;;
@@ -505,13 +505,10 @@ configure_console_user() {
 #
 #
 configure_cpu_governor() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Configuring CPU governor" 2
-	  {
-	EOF
-
   cat <<EOF >> "$run_script"
+
+  write_log "Configuring CPU governor" 2
+  {
     write_log "Creating init.d script to configure CPU governor" 4
     {
       cat <<-'_SCRIPT_' > /etc/init.d/cpu-governor
@@ -555,7 +552,6 @@ EOF
 #
 configure_cron() {
   cat <<-'EOF' >> "$run_script"
-	
 	  write_log "Configuring Cron daemon" 2
 	  {
 	EOF
@@ -586,13 +582,9 @@ configure_dhclient() {
 
 
 
-
-
   cat <<-'EOF' >> "$run_script"
 	      :
 	EOF
-
-
 
 
 
@@ -613,7 +605,7 @@ configure_dhcp_client() {
 EOF
 
   case $image_dhcp_client in
-    dhclient )
+    dhclient | generic )
       configure_dhclient ;;
     dhcpcd )
       configure_dhcpcd ;;
@@ -659,9 +651,7 @@ configure_dropbear() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/dropbear /etc/conf.d/dropbear-orig
-	      }
+	      cp /etc/conf.d/dropbear /etc/conf.d/dropbear-orig
 	
 	EOF
   fi
@@ -990,6 +980,8 @@ EOF
 # Configure getty daemons
 #
 configure_gettys() {
+  local _log_msg
+
   cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Configuring getty daemons" 2
@@ -999,108 +991,84 @@ configure_gettys() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/inittab /etc/inittab-orig
-	    }
+	    cp /etc/inittab /etc/inittab-orig
 	
 	EOF
   fi
 
-  case $image_console_type in
+  case $image_console_device_type in
+    generic )
+      _log_msg="Enable generic (hypervisor / normal / serial) consoles" ;;
+
     none )
-      cat <<-EOF >> "$run_script"
-	    write_log "Disable all normal consoles" 4
-	    {
-	EOF
-      ;;
+      _log_msg="Disable all normal consoles" ;;
+
     normal_and_serial )
-      cat <<-EOF >> "$run_script"
-	    write_log "Enable normal and serial consoles" 4
-	    {
-	EOF
-      ;;
+      _log_msg="Enable normal and serial consoles" ;;
+
     * )
-      cat <<-EOF >> "$run_script"
-	    write_log "Enable ${image_console_type} console" 4
+      _log_msg="Enable ${image_console_device_type} console" ;;
+  esac
+  cat <<-EOF >> "$run_script"
+	    write_log "${_log_msg}" 4
 	    {
 	EOF
-      ;;
-  esac
-  case $image_console_type in
-    normal_and_serial )
-      _getty_port_name="tty1"
-      _getty_options=" 38400 ${_getty_port_name}"
 
-      cat <<-EOF >> "$run_script"
-	      write_log "Enabling getty on normal console" 6
-	      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
-	EOF
-      
-      _getty_port_name="${image_serial_console_name}"
-      _getty_options=" -L ${image_serial_console_port_speed} ${image_serial_console_name} vt100"
+  case $image_console_device_type in
+    generic )
+      enable_getty "tty1" "38400 tty1" "normal"
 
-      cat <<-EOF >> "$run_script"
-	
-	      write_log "Enabling getty on ${_getty_port_name} for serial console" 6
-	      sed -i \\
-	        -e 's|^[#]*${_getty_port_name}::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
-	        /etc/inittab
-	    }
-	EOF
+      output_eof_block_tab_blank_line
+
+      enable_getty "$image_serial_console_name" \
+        "-L ${image_serial_console_port_speed} ${image_serial_console_name} vt100" \
+        "serial"
+
+      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "hypervisor"; then
+        output_eof_block_tab_blank_line
+
+        enable_getty "hvc0" "38400 hvc0" "hypervisor"
+      fi
       ;;
+
+    none )
+      disable_getty "tty1" "normal" ;;
 
     normal )
-      _getty_port_name="tty1"
-      _getty_options=" 38400 ${_getty_port_name}"
+      enable_getty "tty1" "38400 tty1" "normal" ;;
 
-      cat <<-EOF >> "$run_script"
-	      write_log "Enabling getty on normal console" 6
-	      sed -i -E -e 's|^${_getty_port_name}:.*|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' /etc/inittab
-	    }
-	EOF
+    normal_and_serial )
+      enable_getty "tty1" "38400 tty1" "normal"
+
+      output_eof_block_tab_blank_line
+
+      enable_getty "$image_serial_console_name" \
+        "-L ${image_serial_console_port_speed} ${image_serial_console_name} vt100" \
+        "serial"
       ;;
 
     * )
-      _getty_port_name="tty1"
+      disable_getty "tty1" "normal"
 
-      cat <<-EOF >> "$run_script"
-	      write_log "Disabling getty on normal console ${_getty_port_name}" 6
-	      sed -i -E -e 's|^${_getty_port_name}:|#${_getty_port_name}:|g' /etc/inittab
-	EOF
-
-      case $image_console_type in
+      case $image_console_device_type in
         hypervisor )
-          _getty_port_name="hvc0"
-          _getty_options=" 38400 ${_getty_port_name}"
-          ;;
+          enable_getty "hvc0" "38400 hvc0" "hypervisor" ;;
         serial )
-          _getty_port_name="${image_serial_console_name}"
-          _getty_options=" -L ${image_serial_console_port_speed} ${image_serial_console_name} vt100"
+          enable_getty "$image_serial_console_name" \
+            "-L ${image_serial_console_port_speed} ${image_serial_console_name} vt100" \
+            "serial"
           ;;
       esac
-
-      if [ "$image_console_type" != "none" ]; then
-        cat <<-EOF >> "$run_script"
-	
-	      write_log "Enabling getty on ${_getty_port_name} for ${image_console_type} console" 6
-	      sed -i \\
-	        -e 's|^[#]*ttyS0::.*$|${_getty_port_name}::respawn:/sbin/getty${_getty_options}|g' \\
-	        /etc/inittab
-	EOF
-      fi
-
-      cat <<-EOF >> "$run_script"
-	    }
-	EOF
       ;;
   esac
 
   cat <<-'EOF' >> "$run_script"
+	    }
 	
 	    write_log "Disabling unused gettys" 4
 	EOF
 
-  if [ "$image_console_type" = "none" ]; then
+  if [ "$image_console_device_type" = "none" ]; then
     # Have no console gettys
     _first_getty_to_disable="2"
   else
@@ -1314,6 +1282,7 @@ configure_opensshd() {
 	      # - prevent keyboard-interactive logins
 	      # - prevent logins to accounts with empty passwords
 	      # - prevent root logins
+	      # - disable Agent forwarding
 	      # - use built-in SFTP server
 	      write_log "Prevent root logins" 6
 	      sed -i \
@@ -1322,12 +1291,14 @@ configure_opensshd() {
 	        -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
 	        -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
 	        -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
+	        -e 's|^[#]*AllowAgentForwarding .*$|AllowAgentForwarding no|' \
 	        -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
 	        /etc/ssh/sshd_config
 	EOF
 
   if [ -n "$image_insecure" ]; then
     cat <<-'EOF' >> "$run_script"
+	
 	      # - permit password-based logins
 	      write_log "Permit password-based SSH logins" 6
 	      sed -i \
@@ -1377,9 +1348,7 @@ configure_opensshd() {
 	      # - ensure only key-based authentication is enabled
 	      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
 	      {
-	        printf '\n'
-	        printf 'AuthenticationMethods "publickey"\n'
-	        printf '\n'
+	        printf '\nAuthenticationMethods "publickey"\n\n'
 	      } >> /etc/ssh/sshd_config
 	EOF
 
@@ -1523,9 +1492,7 @@ configure_rsyslog() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/rsyslog.conf /etc/rsyslog.conf-orig
-	      }
+	      cp /etc/rsyslog.conf /etc/rsyslog.conf-orig
 	
 	EOF
   fi
@@ -1541,10 +1508,8 @@ configure_rsyslog() {
       cat <<-'EOF' >> "$run_script"
 	
 	      write_log "Disable routine 'mark' message on SSD/flash-based servers" 6
-	      {
-	        sed -i -e "s/^[#]module(load=\"immark\")/module(load=\"immark\")/g" \
+	      sed -i -e "s/^[#]module(load=\"immark\")/module(load=\"immark\")/g" \
 	        /etc/rsyslog.conf
-	      }
 	EOF
       ;;
   esac
@@ -1590,7 +1555,7 @@ configure_services() {
 	{
 	EOF
 
-  if [ -n "$image_harden" ]; then
+  if [ -z "$image_barebones" ] && [ -n "$image_harden" ]; then
     configure_sysctl
     configure_firewall
   fi
@@ -1599,6 +1564,8 @@ configure_services() {
   case $image_acpi_power_method in
     button )
       configure_acpid ;;
+    gpio )
+      : ;;
     tiny-power-button )
       modprobe_enable_tiny_power_button ;;
   esac
@@ -1606,7 +1573,7 @@ configure_services() {
   configure_cron
   configure_dhcp_client
   configure_gettys
-  case $image_console_type in
+  case $image_console_device_type in
     none)
       : ;;
     * )
@@ -1684,7 +1651,10 @@ configure_services() {
       cloud )
         configure_cloud_integration ;;
       virtual )
-        configure_hypervisor_integration ;;
+        if [ -z "$image_disable_hypervisor_agent" ]; then
+          configure_hypervisor_integration
+        fi
+        ;;
     esac
   fi
 
@@ -1762,9 +1732,7 @@ configure_sysctl() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/sysctl.conf /etc/sysctl.conf-orig
-	    }
+	    cp /etc/sysctl.conf /etc/sysctl.conf-orig
 	
 	EOF
   fi
@@ -2070,9 +2038,7 @@ configure_tinysshd() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
-	      }
+	      cp /etc/conf.d/tinysshd /etc/conf.d/tinysshd-orig
 	
 	EOF
   fi
@@ -2154,9 +2120,7 @@ configure_watchdog() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/conf.d/watchdog /etc/conf.d/watchdog-orig
-	    }
+	    cp /etc/conf.d/watchdog /etc/conf.d/watchdog-orig
 	
 	EOF
   fi
@@ -2200,6 +2164,43 @@ configure_watchdog() {
 
 
 #
+# Disable a getty for device in /etc/inittab
+#
+disable_getty() {
+  _getty_name="$1"
+  _getty_desc="$2"
+
+  cat <<-EOF >> "$run_script"
+	      write_log "Disabling getty on ${_getty_desc} console ${_getty_name}" 6
+	      sed -i -E -e 's|^${_getty_name}:|#${_getty_name}:|g' /etc/inittab
+	EOF
+}
+
+
+#
+# Enable a getty for device by updating an existing getty line
+# in /etc/inittab or appending a new one
+#
+enable_getty() {
+  _getty_name="$1"
+  _getty_options="$2"
+  _getty_desc="$3"
+
+  cat <<-EOF >> "$run_script"
+	      write_log "Enabling getty on ${_getty_desc} console ${_getty_name}" 6
+	      if grep -E "^#?${_getty_name}:" /etc/inittab >/dev/null; then
+	        sed -i -E -e \\
+	          's|^[#]${_getty_name}:.*|${_getty_name}::respawn:/sbin/getty ${_getty_options}|g' \\
+	          /etc/inittab
+	      else
+	        printf '\n#Additional getty for ${_getty_name}\n${_getty_name}::respawn:/sbin/getty ${_getty_options}\n' \\
+	          >> /etc/inittab
+	      fi
+	EOF
+}
+
+
+#
 # Ensure tiny-power-button is removed from modprobe blacklist and that
 # acpi button is blacklisted instead
 #
@@ -2213,9 +2214,7 @@ modprobe_enable_tiny_power_button() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
-	    }
+	    cp /etc/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf-orig
 	
 	EOF
   fi

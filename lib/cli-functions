@@ -43,7 +43,8 @@ cloud-configuration-type:,\
 cloud-init-datasources:,\
 cloud-init-seed-define:,\
 cloud-init-seed-url:,\
-console-type:,\
+console-device-type:,\
+console-graphics-driver:,\
 console-user:,\
 console-user-password:,\
 cpu-governor:,\
@@ -56,6 +57,7 @@ debug-sizing,\
 device-management:,\
 dhcp-client:,\
 disable-cloud-provider-cli,\
+disable-hypervisor-agent,\
 disk-resize-free-percent:,\
 do-not-convert-image,\
 enable-graphics,\
@@ -73,8 +75,6 @@ extra-modules:,\
 firewall:,\
 fs-type:,\
 full-hostname:,\
-graphics-vendor:,\
-graphics-vendor-driver:,\
 harden,\
 hwrng,\
 ifupdown-package:,\
@@ -113,6 +113,7 @@ optimise,\
 os-device-media:,\
 os-device-sector-size:,\
 os-device-type:,\
+output-chroot-script,\
 pam,\
 partitioning:,\
 password:,\
@@ -134,7 +135,6 @@ swap-file-size:,\
 swap-partition-size:,\
 syslogd:,\
 timezone:,\
-uki-bootstub:,\
 use-ramdisk,\
 user-management:,\
 username:,\
@@ -258,10 +258,10 @@ help\
       --boottype )
         if [ "$script_type" = "creator" ]; then
           case $2 in
-            bios | hybrid | rpi | uefi )
+            bios | rpi | uefi )
               image_boot_type=$2 ;;
             * )
-              cli_option_unknown_value "boot type '$2', valid values are 'bios', 'hybrid', 'rpi', and 'uefi'" ;;
+              cli_option_unknown_value "boot type '$2', valid values are 'bios', 'rpi', and 'uefi'" ;;
           esac
         else
           cli_option_not_handled
@@ -329,14 +329,22 @@ help\
         fi
         shift 2
         ;;
-      --console-type )
+      --console-device-type )
         if [ "$script_type" = "creator" ]; then
           case $2 in
             hypervisor | normal | normal_and_serial | serial )
-              image_console_type="$2" ;;
+              image_console_device_type="$2" ;;
             * )
-              cli_option_unknown_value "console type '$2'" ;;
+              cli_option_unknown_value "console device type '$2'" ;;
           esac
+        else
+          cli_option_not_handled
+        fi
+        shift 2
+        ;;
+      --console-graphics-driver )
+        if [ "$script_type" = "creator" ]; then
+          image_graphics_driver="$2"
         else
           cli_option_not_handled
         fi
@@ -433,6 +441,14 @@ help\
       --disable-cloud-provider-cli )
         if [ "$script_type" = "creator" ]; then
           image_disable_cloud_provider_cli=true
+        else
+          cli_option_not_handled
+        fi
+        shift
+        ;;
+      --disable-hypervisor-agent )
+        if [ "$script_type" = "creator" ]; then
+          image_disable_hypervisor_agent=true
         else
           cli_option_not_handled
         fi
@@ -592,27 +608,6 @@ help\
         fi
         shift 2
         ;;
-      --graphics-vendor )
-        if [ "$script_type" = "creator" ]; then
-          case $2 in
-            amd | intel | none | nvidia )
-              image_graphics_vendor="$2" ;;
-            * )
-              cli_option_unknown_value "or unknown graphics vendor '$2'" ;;
-          esac
-        else
-          cli_option_not_handled
-        fi
-        shift 2
-        ;;
-      --graphics-vendor-driver )
-        if [ "$script_type" = "creator" ]; then
-          image_graphics_vendor_driver="$2"
-        else
-          cli_option_not_handled
-        fi
-        shift 2
-        ;;
       -h | --help )
         _help_requested=true
         shift
@@ -708,10 +703,10 @@ help\
         ;;
       --keyboard-type )
         case $2 in
-          both | ps2 | usb )
+          generic | hyperv | ps2 | usb )
             image_keyboard_type="$2" ;;
           * )
-            cli_option_unknown_value "keyboard type '$2', can only be 'both', 'ps2', or 'usb'" ;;
+            cli_option_unknown_value "keyboard type '$2', can only be 'generic', 'hyperv', 'ps2', or 'usb'" ;;
         esac
         shift 2
         ;;
@@ -778,7 +773,7 @@ help\
         ;;
       --luks-remote-unlock-network-module )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_network_module="$2"
+          luks_remote_unlock_network_module="$2"
         else
           cli_option_not_handled
         fi
@@ -786,7 +781,7 @@ help\
         ;;
       --luks-remote-unlock-ssh-port )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_ssh_port="$2"
+          luks_remote_unlock_ssh_port="$2"
         else
           cli_option_not_handled
         fi
@@ -794,7 +789,7 @@ help\
         ;;
       --luks-remote-unlock-static-gateway )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_static_gateway="$2"
+          luks_remote_unlock_static_gateway="$2"
         else
           cli_option_not_handled
         fi
@@ -802,7 +797,7 @@ help\
         ;;
       --luks-remote-unlock-static-interface )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_static_interface="$2"
+          luks_remote_unlock_static_interface="$2"
         else
           cli_option_not_handled
         fi
@@ -810,7 +805,7 @@ help\
         ;;
       --luks-remote-unlock-static-ip )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_static_ip="$2"
+          luks_remote_unlock_static_ip="$2"
         else
           cli_option_not_handled
         fi
@@ -818,7 +813,7 @@ help\
         ;;
       --luks-remote-unlock-static-netmask )
         if [ "$script_type" = "creator" ]; then
-          remote_luks_unlock_static_netmask="$2"
+          luks_remote_unlock_static_netmask="$2"
         else
           cli_option_not_handled
         fi
@@ -897,12 +892,16 @@ help\
         ;;
       --os-device-type )
         case $2 in
-          nvme | sata | scsi | sd | usb | virtio-blk | virtio-scsi )
+          generic | nvme | sata | scsi | sd | usb | virtio-blk | virtio-scsi )
             image_os_device_type=$2 ;;
           * )
             cli_option_unknown_value "os device type '$2'" ;;
         esac
         shift 2
+        ;;
+      --output-chroot-script )
+        image_output_chroot_script=true
+        shift
         ;;
       --pam )
         image_enable_pam=true
@@ -1158,19 +1157,14 @@ help\
 # Help text
 #
 usage() {
-  echo
-  echo "Usage: $0 [ options ]"
-  echo
-  echo "When called with no options is equivalent to:"
-  echo
-  echo "  $0 \\"
-  echo "    --arch x86_64 \\"
-  echo "    --release edge \\"
-  echo "    --bootloader syslinux \\"
-  echo "    --virtual qemu"
-  echo
-  echo "Options:"
-  echo
+  printf '\nUsage: %s [ options ]\n' "$0"
+  printf '\nWhen called with no options is equivalent to:\n'
+  printf '\n  %s \\\n' "$0"
+  printf '    --arch x86_64 \\\n'
+  printf '    --release edge \\\n'
+  printf '    --bootloader syslinux \\\n'
+  printf '    --virtual qemu\n'
+  printf '\nOptions:\n\n'
   option_help "--acpi-power-method < button | tiny-power-button >" "Whether to use the typical 'button' kernel module together with acpid or 'tiny-power-button' kernel module only for powering off machines."
   if [ -n "$image_experimental" ]; then
     option_help "--add-directory-contents < directory-path >" "Experimental. Directory from which to recursively copy all files from into the generated disk image."
@@ -1209,7 +1203,8 @@ usage() {
     option_help "--cloud-init-seed-define < cmdline | config | dhcp >" "Whether to add a reference to a seed Url to the kernel cmdline, add a reference to a seed Url to the cloud-init config.cfg file, or create a cloud-init NoCloud 'seed' file specifying DHCP networking."
     option_help "--cloud-init-seed-url < url >" "Base url for cloud-init NoCloud DataSource to download meta-data/user-data YAML configuration from."
   fi
-  option_help "--console-type < hypervisor | normal | normal_and_serial | serial >" "The type of device used for the console."
+  option_help "--console-device-type < hypervisor | normal | normal_and_serial | serial >" "The type of device used for the console."
+  option_help "--console-graphics-driver < name of driver >" "For a graphics-based console the driver to use. Defaults to 'simpledrm'."
   option_help "--console-user < username >" "Username for the console-only (non-SSH) user account created unless '--no-console-user' is specified. Defaults to '$CADI_DEFAULT_CONSOLE_USER_ACCOUNT'"
   option_help "--console-user-password < password >" "Password for console-only (non-SSH) user account. If this option is not specified then the account password is locked."
   option_help "--cpu-governor < ondemand | powersave | schedutil >" "Select which CPU governor to use."
@@ -1220,22 +1215,19 @@ usage() {
     option_help "--cron < busybox | ??? >" "Cron daemon software to use."
   fi
   option_help "--debug" "Enable debug-specific logging."
-  if [ -n "$image_experimental" ]; then
-    option_help "--device-management < mdev | mdevd | udev >" "Experimental. Select whether to use mdev, mdevd, or udev. If option not specified then default to '$CADI_DEFAULT_DEVICE_MANAGEMENT_TYPE'"
-  fi
-  if [ -n "$image_experimental" ]; then
-    option_help "--dhcp-client < dhclient | dhcpcd | udhcpc >" "Experimental. Specify the DHCP Client software to use."
-  fi
-  if [ -n "$image_experimental" ]; then
+  option_help "--device-management < mdev | mdevd | udev >" "Select whether to use mdev, mdevd, or udev. If option not specified then default to '$CADI_DEFAULT_DEVICE_MANAGEMENT_TYPE'"
+  option_help "--dhcp-client < dhclient | dhcpcd | udhcpc >" "Specify the DHCP Client software to use."
+  if [ -z "$image_class" ] || [ "$image_class" = "cloud" ]; then
     option_help "--disable-cloud-provider-cli" "When creating cloud images do not install Cloud Provider specific CLI package(s) such as aws-cli."
+  fi
+  if [ -z "$image_class" ] || [ "$image_class" = "virtual" ]; then
+    option_help "--disable-hypervisor-agent" "When creating virtual machine images for which agent software is available (i.e. Qemu, VirtualBox, and VMware) do not install and enable the agent."
   fi
   if [ -n "$image_experimental" ]; then
     option_help "--disk-resize-free-percent < percent >" "Only for physical machines. For Flash/SSDs/SDcard devices the percent of disk to leave unallocated when root is resized. '10' is a reasonable value."
   fi
   option_help "--do-not-convert-image" "No not convert disk image from RAW format to another format."
-  if [ -n "$image_experimental" ]; then
-    option_help "--enable-graphics" "Enable graphics - on BIOS this will use graphics mode (and load FB/DRM KMS kernel modules) rather then VGA text mode. Does not apply for UEFI (as it has no VGA text mode)."
-  fi
+  option_help "--enable-graphics" "Enable graphics - on BIOS this will use graphics mode (and load FB/DRM KMS kernel modules) rather then VGA text mode. Does not apply for UEFI (as it has no VGA text mode)."
   if [ -z "$image_class" ] || [ "$image_class" = "physical" ]; then
     option_help "--enable-watchdog" "Enable hardware watchdog support."
   fi
@@ -1259,11 +1251,6 @@ usage() {
   if [ -z "$image_class" ] || [ "$image_class" = "physical" ]; then
     option_help "--full-hostname < hostname >" "Only for physical machines. The hostname, including domain, to place in the generated cloud-init user-data YAML file."
   fi
-  if [ -z "$image_class" ] || \
-     { [ "$image_class" = "physical" ] && [ "$image_physical_type" = "pc" ]; }; then
-    option_help "--graphics-vendor < amd | intel | none | nvidia >" "Only for physical machines. Indicates the vendor of server's graphics card so that the initramfs can be generated containing only that vendor's drivers and firmware."
-    option_help "--graphics-vendor-driver < amdgpu | gma500 | i915 | radeon >" "Only for physical machines. Indicates the vendor-specific driver of server's graphics card so that the initramfs can be generated containing only that specific vendor model's driver and firmware."
-  fi
   option_help "--harden" "Disables kernel module loading, delete unnecessary users & groups, disables unnecessary kernel modules, sets up basic firewall rules."
   option_help "--hwrng" "Machine has a hardware RNG."
   option_help "--ifupdown-package < busybox | ifupdown | ifupdown-ng" "Which Alpine package used to provide ifup and ipdown utilities."
@@ -1286,7 +1273,7 @@ usage() {
   fi
   if [ -z "$image_class" ] || [ "$image_class" != "physical" ] || \
      [ "$image_physical_type" = "pc" ]; then
-    option_help "--keyboard-type '< both | ps2 | usb >'" "Indicate the type of physical console keyboard. Defaults to 'both' for x86/x86_64 machines in many cases, however for aarch64 machines defaults to 'usb'."
+    option_help "--keyboard-type '< generic | hyperv | ps2 | usb >'" "Indicate the type of physical console keyboard. Defaults to 'generic' for x86/x86_64 machines in many cases, however for aarch64 machines defaults to 'usb'."
   fi
   option_help "--keymap '< keymap >'" "Defaults to '$CADI_DEFAULT_KEYMAP'."
   option_help "--local-repo < url >" "Local Alpine repository for unofficial Alpine packages."
@@ -1404,6 +1391,8 @@ validate_cli_options() {
   : "${image_script_host_arch:=all}"
   : "${image_script_host_os:=$(detect_host_os)}"
 
+  : "${image_output_chroot_script:=false}"
+
   run_script="$generated_script_filename"
   # Create the directory for script if it doesn't already exist
   _script_directory="$(dirname "$generated_script_filename")"
@@ -1442,21 +1431,21 @@ validate_cli_options() {
   # Console
   #---------
 
-  case $image_console_type in
+  case $image_console_device_type in
     normal | normal_and_serial )
       case $image_arch in
         aarch64 )
           # aarch64 machines have USB keyboard
           : "${image_keyboard_type:=usb}" ;;
         * )
-          : "${image_keyboard_type:=both}" ;;
+          : "${image_keyboard_type:=generic}" ;;
       esac
       ;;
   esac
 
   # Set default serial console speed
-  case $image_console_type in
-    serial | normal_and_serial )
+  case $image_console_device_type in
+    serial | normal_and_serial | generic )
       : "${image_serial_console_port_speed:=$CADI_DEFAULT_SERIAL_CONSOLE_PORT_SPEED}" ;;
   esac
 
@@ -1481,15 +1470,21 @@ validate_cli_options() {
 
   # DHCP client
   if [ -z "$image_dhcp_client" ]; then
-    if { [ "$image_class" = "cloud" ] && [ "$image_class_subtype" = "generic" ]; } || \
-       { [ "$image_class" = "virtual" ] && [ "$image_class_subtype" = "generic" ]; }; then
-      image_dhcp_client="dhclient"
-    elif [ -n "$CADI_DEFAULT_DHCP_CLIENT" ]; then
+    if [ -n "$CADI_DEFAULT_DHCP_CLIENT" ] && \
+       [ -n "$CADI_SUPPORTED_DHCP_CLIENTS" ] && \
+       is_in_comma_list "$CADI_SUPPORTED_DHCP_CLIENTS" "$CADI_DEFAULT_DHCP_CLIENT"; then
       image_dhcp_client="$CADI_DEFAULT_DHCP_CLIENT"
-    elif [ -n "$CADI_SUPPORTED_DHCP_CLIENTS" ] && \
-         is_in_comma_list "dhclient" "$CADI_SUPPORTED_DHCP_CLIENTS"; then
-      image_dhcp_client="dhclient"
+    elif [ -n "$CADI_SUPPORTED_DHCP_CLIENTS" ]; then
+      if is_in_comma_list "$CADI_SUPPORTED_DHCP_CLIENTS" "$CADI_DEFAULT_DHCP_SOFTWARE"; then
+        image_dhcp_client="$CADI_DEFAULT_DHCP_SOFTWARE"
+      else
+        image_dhcp_client="$(first_entry_in_comma_list "$CADI_SUPPORTED_DHCP_CLIENTS")"
+      fi
+    else
+      error_message "Unable to decide which DHCP client to use!"
     fi
+  elif ! is_in_comma_list "$CADI_SUPPORTED_DHCP_CLIENTS" "$image_dhcp_client"; then
+    error_message "DHCP client is not supported by $image_class!"
   fi
 
   # Doas

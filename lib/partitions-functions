@@ -177,8 +177,13 @@ general_uefi_part_sizing() {
 
   case $image_bootloader in
     uki )
-      eval _size='$'"CADI_DEFAULT_UKI_ESP_PART_SIZE" ;;
-
+      case $image_kernel_type in
+        edge )
+          eval _size='$'"CADI_DEFAULT_EDGE_EFISTUB_ESP_PART_SIZE" ;;
+        *)
+          eval _size='$'"CADI_DEFAULT_EFISTUB_ESP_PART_SIZE" ;;
+      esac
+      ;;
     * )
       # Size the ESP partition correctly if using a FAT32 filesystem
       # based on sector size.

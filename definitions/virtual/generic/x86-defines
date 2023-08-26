@@ -12,37 +12,41 @@
 
 
 # Supported
-readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
 readonly CADI_SUPPORTED_BOOT_TYPES="bios"
-readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,syslinux,limine"
+readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,limine,syslinux"
 readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,hyperv,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="generic,hypervisor,normal,normal_and_serial,serial"
-readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,bochs,hyperv,simpledrm,virtio-gpu,vmwgfx"
-readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="both,ps2,usb"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,hyperv,simpledrm,virtio-gpu,vmwgfx"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="generic,hyperv,none,ps2,usb"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="virtio"
+readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="generic,hyperv,virtio-net,vmxnet3"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
 readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
-readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,hyperv,nvme,virtio-blk,virtio-scsi"
-readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="generic,hyperv,virtio-net,vmxnet3"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,hyperv,nvme,pvscsi,virtio-blk,virtio-scsi"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CADI_SUPPORTED_RNGS="virtio"
-readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,hyperv,nvme,pvscsi,virtio-blk,virtio-scsi"
 
 
 # Defaults
-readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
 readonly CADI_DEFAULT_BOOT_TYPE="bios"
 readonly CADI_DEFAULT_BOOTLOADER="grub"
 readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="generic"
 readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="generic"
-readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="both"
+readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="generic"
 readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="generic"
+readonly CADI_DEFAULT_DHCP_CLIENT="generic"
+readonly CADI_DEFAULT_NETWORK_DRIVER="generic"
 readonly CADI_DEFAULT_OS_DEVICE_MEDIA="generic"
 readonly CADI_DEFAULT_OS_DEVICE_TYPE="generic"
-readonly CADI_DEFAULT_OS_NETWORK_DRIVER="generic"
+readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional

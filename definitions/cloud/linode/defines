@@ -13,7 +13,8 @@
 
 # Supported
 readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
-# Linode/Akamai have submitted a DS upstream but it is not yet merged
+# Linode/Akamai have submitted a DS upstream but it is
+# not yet present in any cloud-init release.
 #readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Akamai"
 #readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="none"

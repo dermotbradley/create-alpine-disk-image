@@ -17,37 +17,41 @@
 # Tencent recommend not partitioning system disk and only MBR is supported.
 
 # Supported
-readonly CADI_SUPPORTED_ACPI_BUTTON="tiny-power-button,button"
+readonly CADI_SUPPORTED_ACPI_BUTTON="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
 readonly CADI_SUPPORTED_BOOT_TYPES="bios"
 readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub"
-readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,kvm,tsc"
-readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal,serial"
-readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="bochs,simpledrm"
-readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="ps2,usb"
-readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
+readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,kvm,tsc"
+readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="generic,normal,serial"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,bochs,simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="generic,ps2,usb"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
+readonly CADI_SUPPORTED_DHCP_CLIENTS="dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr,unpartitioned"
-readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
-readonly CADI_SUPPORTED_OS_DEVICE_TYPES="nvme,virtio-blk,virtio-scsi"
-readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,nvme,virtio-blk,virtio-scsi"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=false
+readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED="38400"
-readonly CADI_SUPPORTED_RNGS="virtio"
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,virtio-blk,virtio-scsi"
 
 
 # Defaults
-readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
 readonly CADI_DEFAULT_BOOT_TYPE="bios"
 readonly CADI_DEFAULT_BOOTLOADER="grub"
 readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="generic"
+readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="generic"
 readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
-readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="ps2"
-readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
+readonly CADI_DEFAULT_DHCP_CLIENT="dhcpcd"
+readonly CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE="unpartitioned"
 readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
 readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-blk"
-readonly CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE="unpartitioned"
+readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional

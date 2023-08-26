@@ -162,6 +162,67 @@ add_init_d_service() {
 
 
 #
+# Returns all entries from a comma-separated string except specified entry.
+#
+all_entries_in_comma_list_except() {
+  _comma_list="$1"
+  _except="$2"
+
+  all_entries_in_list_except "$_comma_list" "$_except" ","
+}
+
+
+#
+# Returns all entries from a string (which uses the specified
+# separator) except the specified entry.
+#
+all_entries_in_list_except() {
+  _list="$1"
+  _keep_item="$2"
+  _separator="$3"
+
+  local _check _check_item _resulting_list=""
+
+  _check="$_list"
+  while true; do
+    _check_item="$(first_entry_in_list "$_check" "$_separator")"
+    case $_check_item in
+      generic )
+        : ;;
+      * )
+        if [ "$_check_item" != "$_keep_item" ]; then
+          if [ -n "$_resulting_list" ]; then
+            _resulting_list="${_resulting_list}${_separator}${_check_item}"
+          else
+            _resulting_list="${_check_item}"
+          fi
+        fi
+        ;;
+    esac
+    if [ "${_check%$_separator*}" = "$_check" ]; then
+      # No more entries
+      break
+    else
+      _check="${_check#$_check_item$_separator}"
+    fi
+  done
+
+  echo "$_resulting_list"
+}
+
+
+#
+# Returns all entries from a space-separated string except specified entry.
+#
+all_entries_in_space_list_except() {
+  _space_list="$1"
+  _except="$2"
+
+  all_entries_in_list_except "$_space_list" "$_except" " "
+}
+
+
+#
 # Change the extension of a filename
 #
 change_filename_extension() {
@@ -341,6 +402,29 @@ detect_host_os() {
 
 
 #
+# Output one line per entry in list using specified line formatting
+#
+echo_lines_from_comma_list() {
+  _output_formatting="$1"
+  _input_list="$2"
+
+  local _list _list_item
+
+  _list="$_input_list"
+  while true; do
+    _list_item="$(first_entry_in_comma_list "$_list")"
+    printf "$_output_formatting\n" "$_list_item"
+    if [ "${_list%,*}" = "$_list" ]; then
+      # No more entries
+      break
+    else
+      _list="${_list#$_list_item,}"
+    fi
+  done
+}
+
+
+#
 # Name a GPT disk partition
 #
 label_gpt_disk_partition() {
@@ -493,13 +577,30 @@ error_message() {
 # Returns first entry from a comma-separated string
 #
 first_entry_in_comma_list() {
-  _check=$1
+  _comma_list="$1"
 
-  local _val
+  first_entry_in_list "$_comma_list" ","
+}
 
-  _val="${_check%%,*}"
 
-  echo "$_val"
+#
+# Returns first entry from a string which uses specified separator
+#
+first_entry_in_list() {
+  _list="$1"
+  _separator="$2"
+
+  echo "${_list%%$_separator*}"
+}
+
+
+#
+# Returns first entry from a space-separated string
+#
+first_entry_in_space_list() {
+  _space_list="$1"
+
+  first_entry_in_list "$_space_list" " "
 }
 
 
@@ -721,10 +822,10 @@ insert_chroot_function_add_fstab_entry() {
   cat <<-'EOF' >> "$run_script"
 	
 	add_fstab_entry() {
-	  local _entry_type=\$1
-	  local _entry_value=\$2
-	  local _mount_point=\$3
-	  local _fs_type=\$4
+	  local _entry_type="\$1"
+	  local _entry_value="\$2"
+	  local _mount_point="\$3"
+	  local _fs_type="\$4"
 	  local _fs_options="\${5:-}"
 	  local _entry_log="\${6:-}"
 	
@@ -879,20 +980,13 @@ insert_runscript_function_check_binfmt_packages() {
 	  local _arch="$image_arch"
 	  local _binfmt_file="$_binfmt_file"
 	
-	  local _host_os
-	EOF
-
-  cat <<-'EOF' >> "$run_script"
-	  local _binfmt_arch_enabled _host_arch _required_packages
+	  local _binfmt_arch_enabled _host_arch _host_os _required_packages
 	
-	  _host_arch=$(detect_host_arch)
+	  _host_arch=\$(detect_host_arch)
 	
-	  if [ "$_host_arch" != "$_arch" ]; then
-	EOF
-
-  cat <<-'EOF' >> "$run_script"
-	    _host_os=$(detect_host_os)
-	    case $_host_os in
+	  if [ "\$_host_arch" != "\$_arch" ]; then
+	    _host_os=\$(detect_host_os)
+	    case \$_host_os in
 	EOF
 
   case $image_script_host_os in
@@ -932,6 +1026,7 @@ insert_runscript_function_check_binfmt_packages() {
           ;;
         all )
           cat <<-'EOF' >> "$run_script"
+	
 	      debian | ubuntu )
 	EOF
           ;;
@@ -949,13 +1044,13 @@ insert_runscript_function_check_binfmt_packages() {
 	          exit 1
 	        fi
 	        ;;
-	
 	EOF
       ;;
   esac
 
   if [ "$image_script_host_os" = "all" ]; then
     cat <<-'EOF' >> "$run_script"
+	
 	      * )
 	        echo
 	        echo "Unsupported host OS!"
@@ -1054,7 +1149,7 @@ insert_runscript_function_check_for_required_packages() {
     _alpine_package_list="${_alpine_package_list} dosfstools"
   fi
 
-  case $image_boot_type in
+  case $image_os_partitioning_type in
     unpartitioned )
       : ;;
     * )
@@ -1133,11 +1228,8 @@ insert_runscript_function_check_for_required_packages() {
 
   case $image_script_host_os in
     alpine | all )
-      cat <<-'EOF' >> "$run_script"
-	    alpine )
-	EOF
-
       cat <<-EOF >> "$run_script"
+	    alpine )
 	      _host_os_major_version="\$(grep VERSION_ID /etc/os-release | sed -E -e 's/^VERSION_ID=([0-9]+\.[0-9]+).*/\1/g')"
 	      _required_packages="${_alpine_package_list}"
 	
@@ -1190,6 +1282,7 @@ insert_runscript_function_check_for_required_packages() {
       ;;
     all )
       cat <<-'EOF' >> "$run_script"
+	
 	    debian | ubuntu )
 	EOF
       ;;
@@ -1217,10 +1310,14 @@ insert_runscript_function_check_for_required_packages() {
 	      if [ ! -d /etc/apk ]; then
 	        mkdir -p /etc/apk
 	        temp_ca_dir_created=true
+	      else
+	        temp_ca_dir_created=false
 	      fi
 	      if [ ! -f /etc/apk/ca.pem ]; then
 	        cp /etc/ssl/certs/ca-certificates.crt /etc/apk/ca.pem
 	        temp_ca_file_created=true
+	      else
+	        temp_ca_file_created=false
 	      fi
 	      ;;
 	EOF
@@ -1229,6 +1326,7 @@ insert_runscript_function_check_for_required_packages() {
 
   if [ "$image_script_host_os" = "all" ]; then
     cat <<-EOF >> "$run_script"
+	
 	    * )
 	      echo
 	      echo "Unsupported host OS!"
@@ -1326,7 +1424,7 @@ insert_runscript_function_error_cleanup() {
       case $image_encryption_type in
         both | luks )
           if { [ -z "$image_experimental" ] || \
-               [ -z "$remote_luks_unlock_enabled" ]; } && \
+               [ -z "$luks_remote_unlock_enabled" ]; } && \
              [ -z "$image_no_grub_luks_fde_encryption" ] && \
              [ -z "$needs_boot_partition" ]; then
             cat <<-'EOF' >> "$run_script"
@@ -1342,6 +1440,8 @@ insert_runscript_function_error_cleanup() {
   if [ -n "$use_ramdisk" ]; then
     cat <<-'EOF' >> "$run_script"
 	
+	  rm "$image_full_filename"
+	  sync -f "$ramdisk_dir"
 	  unmount_ramdisk
 	EOF
   fi
@@ -1669,6 +1769,7 @@ install_additional_packages() {
   cat <<-'EOF' >> "$run_script"
 	write_log "Install additional packages: \$_add_packages"
 	{
+	  # shellcheck disable=SC2086
 	  apk add \$_add_packages >> /chroot.log 2>&1
 	EOF
 
@@ -1694,6 +1795,7 @@ install_additional_packages() {
   cat <<-'EOF' >> "$run_script"
 	write_log "Install OS configuration software packages: \$_add_os_config_software_packages"
 	{
+	  # shellcheck disable=SC2086
 	  apk add \$_add_os_config_software_packages >> /chroot.log 2>&1
 	EOF
 
@@ -1742,6 +1844,7 @@ install_additional_packages() {
     cat <<-'EOF' >> "$run_script"
 	write_log "Install additional machine type specific packages: \$machine_specific_packages"
 	{
+	  # shellcheck disable=SC2086
 	  apk add \$machine_specific_packages >> /chroot.log 2>&1
 	EOF
 
@@ -1806,13 +1909,64 @@ install_extra_packages() {
 
 
 #
-# Indicate is a string is present in a comma-separated string
+# Indicate if a string is present in a comma-separated string
 #
 is_in_comma_list() {
-  _to_match=$1
-  _check=$2
+  _comma_list="$1"
+  _check="$2"
 
-  if [ "${_check#*$_to_match}" != "$_check" ]; then
+  if is_in_list "$_comma_list" "$_check" ","; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+#
+# Indicate if a string is present in a string with the specified separator
+#
+is_in_list() {
+  _list="$1"
+  _check="$2"
+  _separator="$3"
+
+  if [ "$_list" = "$_check" ]; then
+    # Present as list only has that single entry
+    return 0
+  elif [ "${_list#*"$_separator""$_check"}" != "$_list" ] || \
+     [ "${_list#*"$_check""$_separator"}" != "$_list" ]; then
+    # Present
+    return 0
+  else
+    # Not present
+    return 1
+  fi
+}
+
+
+#
+# Indicate if a string is present in a space-separated string
+#
+is_in_space_list() {
+  _space_list="$1"
+  _check="$2"
+
+  if is_in_list "$_space_list" "$_check" " "; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+#
+# Indicate if there is only a single entry present in a comma-separated string
+#
+is_single_entry_in_comma_list() {
+  _comma_list="$1"
+
+  if [ "${_comma_list%%,*}" = "$_comma_list" ]; then
     return 0
   else
     return 1
@@ -1843,6 +1997,13 @@ mount_host_special_fs_in_chroot() {
 	write_log "Mounting tmp, /proc, /sys, and /dev special filesystems in chroot"
 	{
 	  working_dir=$(mktemp -d -p /tmp create-alpine.XXXXXX)
+	  _rc=$?
+	  if [ $_rc -ne 0 ]; then
+	    echo
+	    echo "There was a problem creating a temporary working directory!"
+	    echo
+	    exit 1
+	  fi
 	  mount -v -t none -o rbind "$working_dir" $chroot_dir/tmp
 	  mount -v --make-rprivate $chroot_dir/tmp
 	  mount -v -t proc none $chroot_dir/proc
@@ -1887,6 +2048,62 @@ option_help() {
     done
   fi
   echo
+}
+
+
+#
+# Outputs a blank line
+#
+output_eof_block_blank_line() {
+  output_eof_block_text ""
+}
+
+
+#
+# Outputs a tab-indented blank line
+#
+output_eof_block_tab_blank_line() {
+  output_eof_block_text "\t"
+}
+
+
+#
+# Outputs text
+#
+output_eof_block_text(){
+  _line="$1"
+
+  cat <<EOF >> "$run_script"
+$(printf "$_line\n")
+EOF
+}
+
+
+#
+# Outputs tab-indented empty line
+#
+output_script_block_blank_line() {
+  output_script_block_text ""
+}
+
+
+#
+# Outputs tab-indented end of script block marker
+#
+output_script_block_end_marker() {
+  output_script_block_text "_SCRIPT_"
+}
+
+
+#
+# Outputs tab-indented text
+#
+output_script_block_text(){
+  _output_line="$1"
+
+  cat <<-EOF >> "$run_script"
+$(printf '\t%s\n' "$_output_line")
+EOF
 }
 
 

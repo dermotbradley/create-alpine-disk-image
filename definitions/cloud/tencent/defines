@@ -14,7 +14,7 @@
 # https://www.tencentcloud.com/document/product/213/9929
 
 # Supported
-readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
+readonly CADI_SUPPORTED_ARCHS="x86_64"
 # ConfigDrive instead?
 readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="OpenStack"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"

@@ -12,10 +12,9 @@
 
 
 # Supported
-readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
+readonly CADI_SUPPORTED_ARCHS="x86_64"
 readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Scaleway"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
-readonly CADI_SUPPORTED_DHCP_CLIENT="dhclient"
 readonly CADI_SUPPORTED_IPV4=true
 readonly CADI_SUPPORTED_IPV6=true
 readonly CADI_SUPPORTED_IPV4_IPV6=true

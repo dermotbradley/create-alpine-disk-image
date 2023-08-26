@@ -12,31 +12,33 @@
 
 
 # Supported
-readonly CADI_SUPPORTED_ACPI_BUTTONS="button,tiny-power-button"
+readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
 readonly CADI_SUPPORTED_BOOT_TYPES="uefi"
 readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
-readonly CADI_SUPPORTED_CLOCKSOURCES="acpi_pm,tsc"
+readonly CADI_SUPPORTED_CLOCKSOURCES="arch_sys_counter"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
-readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="simpledrm,virtio-gpu"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="virtio-gpu"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="usb"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="virtio"
+readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt"
-readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,ssd"
-readonly CADI_SUPPORTED_OS_DEVICE_TYPES="sata,scsi,virtio-scsi"
-readonly CADI_SUPPORTED_OS_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="virtio-net"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,sata,scsi,virtio-scsi"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
 readonly CADI_SUPPORTED_RNGS="virtio"
-readonly CADI_SUPPORTED_VIRTIO_CRYPTO=true
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,sata,scsi,virtio-scsi"
 
 
 # Defaults
-readonly CADI_DEFAULT_ACPI_BUTTON="tiny-power-button"
 readonly CADI_DEFAULT_BOOTLOADER="grub"
-readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="simpledrm"
-readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="graphics"
+readonly CADI_DEFAULT_DHCP_CLIENT="dhcpcd"
 readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
 readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-scsi"
+readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional

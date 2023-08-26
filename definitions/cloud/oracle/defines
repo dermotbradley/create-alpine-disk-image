@@ -14,10 +14,9 @@
 # https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/configuringntpservice.htm
 
 # Supported
-readonly CADI_SUPPORTED_ARCHS="aarch64,x86,x86_64"
+readonly CADI_SUPPORTED_ARCHS="aarch64,x86_64"
 readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Oracle"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none,tiny-cloud"
-readonly CADI_SUPPORTED_DHCP_CLIENT="dhclient"
 readonly CADI_SUPPORTED_NTP_METHODS="pools,servers"
 readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
 

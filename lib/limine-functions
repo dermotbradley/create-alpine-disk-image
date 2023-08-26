@@ -99,6 +99,18 @@ configure_bootloader_limine() {
       ;;
   esac
 
+  # Microcode
+  if [ "$image_class" = "physical" ]; then
+    case $image_cpu_vendor in
+      amd )
+        _ucode_list="amd-ucode.img" ;;
+      intel )
+        _ucode_list="intel-ucode.img" ;;
+      * )
+        _ucode_list="amd-ucode.img,intel-ucode.img" ;;
+    esac
+  fi
+
   cat <<EOF >> "$run_script"
   cmdline="${_cmdline} root=\\\$rootfs_reference"
 
@@ -110,7 +122,7 @@ configure_bootloader_limine() {
 	TIMEOUT=5
 EOF
 
-  case $image_console_type in
+  case $image_console_device_type in
     serial | normal_and_serial )
       cat <<'EOF' >> "$run_script"
 	SERIAL=yes
@@ -118,24 +130,57 @@ EOF
       ;;
   esac
 
+  if [ "$image_boot_type" = "bios" ] && \
+     [ "$image_console_output_type" = "text" ]; then
+    case $image_console_device_type in
+      normal | normal_and_serial )
+        # Set Textmode as disk image is using BIOS VGA Text output
+        cat <<'EOF' >> "$run_script"
+	TEXTMODE=yes
+EOF
+        ;;
+    esac
+  fi
+
   if [ -n "$debug_enabled" ]; then
     cat <<'EOF' >> "$run_script"
 	VERBOSE=yes
 EOF
   fi
 
+  output_eof_block_tab_blank_line
+
   cat <<EOF >> "$run_script"
-	
 	:Alpine Linux
 	    PROTOCOL=linux
 	    CMDLINE=\\\$cmdline
 	    KERNEL_PATH=boot:///boot/vmlinuz-${_kernel_type}
+EOF
+
+  if [ "$image_class" = "physical" ]; then
+    # Microcode
+    cat <<EOF >> "$run_script"
+$(echo_lines_from_comma_list "\t    MODULE_PATH=boot:///boot/%s" "$_ucode_list")
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
 	    MODULE_PATH=boot:///boot/initramfs-${_kernel_type}
 	
 	:Alpine Linux (recovery)
 	    PROTOCOL=linux
 	    CMDLINE=\\\$cmdline single
 	    KERNEL_PATH=boot:///boot/vmlinuz-${_kernel_type}
+EOF
+
+  if [ "$image_class" = "physical" ]; then
+    # Microcode
+    cat <<EOF >> "$run_script"
+$(echo_lines_from_comma_list "\t    MODULE_PATH=boot:///boot/%s" "$_ucode_list")
+EOF
+  fi
+
+  cat <<EOF >> "$run_script"
 	    MODULE_PATH=boot:///boot/initramfs-${_kernel_type}
 EOF
 

@@ -243,37 +243,56 @@ configure_fstab() {
 # Create /etc/filesystems for Busybox mount
 #
 create_etc_filesystems() {
-  local _config_fs_type=$1
+  local _config_fs_types="$1"
 
-  local _fs_type
+  local _fs_list _fs_list_item _fs_type
 
   # Busybox mount command requires the following config
-
   cat <<-EOF >> "$run_script"
 	
-	  write_log "Setting up /etc/filesystems for $_config_fs_type mount" 2
+	  write_log "Setting up /etc/filesystems for $_config_fs_types mounts" 2
 	  {
 	EOF
 
-  cat <<EOF >> "$run_script"
+  if [ -n "$_config_fs_types" ]; then
+    cat <<EOF >> "$run_script"
     cat <<-_SCRIPT_ > /etc/filesystems
 	#
 	# /etc/filesystems
 	#
 	
-	# Needed for cloud-init cidata $_config_fs_type
+	# Needed for cloud-init $_config_fs_types configuration mounts
 EOF
 
-  case $_config_fs_type in
-    ISO )
-      _fs_type="iso9660" ;;
-    * )
-      _fs_type="vfat" ;;
-  esac
-  cat <<EOF >> "$run_script"
+    # for each specified filesystem type do
+    _fs_list="$_config_fs_types"
+    while true; do
+      _fs_list_item="$(first_entry_in_comma_list "$_fs_list")"
+
+      case $_fs_list_item in
+        ISO )
+          _fs_type="iso9660" ;;
+        VFAT )
+          _fs_type="vfat" ;;
+        * )
+          error_message "Unknown filesystem type '$_fs_type'" ;;
+      esac
+      cat <<EOF >> "$run_script"
 	$_fs_type
+EOF
+
+      if [ "${_fs_list%,*}" = "$_fs_list" ]; then
+        # No more entries
+        break
+      else
+        _fs_list="${_fs_list#$_fs_list_item,}"
+      fi
+    done
+
+    cat <<EOF >> "$run_script"
 	_SCRIPT_
 EOF
+  fi
 
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
@@ -306,89 +325,91 @@ format_and_mount_fs() {
 	{
 	EOF
 
-  # Format UEFI ESP filesystem if needed
-  case $image_boot_type in
-    secure-uefi | uefi )
-      cat <<-EOF >> "$run_script"
+  if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
+    # Format UEFI ESP filesystem if needed
+    case $image_boot_type in
+      secure-uefi | uefi )
+        cat <<-EOF >> "$run_script"
 	  uefi_part_device="\${loop_device}p${uefi_part_num}"
 	EOF
-      format_esp_fs
-      if [ "$image_boot_reference" = "uuid" ]; then
-        cat <<-'EOF' >> "$run_script"
+        format_esp_fs
+        if [ "$image_boot_reference" = "uuid" ]; then
+          cat <<-'EOF' >> "$run_script"
 	  esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
 	EOF
-      fi
-      cat <<-EOF >> "$run_script"
+        fi
+        cat <<-EOF >> "$run_script"
 	
 	EOF
-      ;;
-  esac
+        ;;
+    esac
 
-  # Format boot filesystem if needed
-  if [ "$image_create_boot_partition" = "true" ]; then
-    cat <<-EOF >> "$run_script"
+    # Format boot filesystem if needed
+    if [ "$image_create_boot_partition" = "true" ]; then
+      cat <<-EOF >> "$run_script"
 	  boot_part_device="\${loop_device}p${boot_part_num}"
 	EOF
 
-    if [ "$image_class" = "physical" ] && \
-       [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-      # Ensure that RPI boot filesystem label is *not* called "boot" due to
-      # https://github.com/raspberrypi/firmware/issues/1529
-      _boot_label="$CADI_RPIBOOT_LABEL"
-      _boot_fs_type="fat"
-      _boot_fat_type="fat32"
-      _boot_fs_use="RPI boot"
-    else
-      _boot_label="$CADI_BOOTFS_LABEL"
-      _boot_fs_type="$image_fs_type"
-      _boot_fs_use="boot"
-    fi
-    format_fs "$_boot_fs_type" "\$boot_part_device" "$_boot_fs_use" \
-      "$_boot_label" "partition" "$_boot_fat_type"
+      if [ "$image_class" = "physical" ] && \
+         [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
+        # Ensure that RPI boot filesystem label is *not* called "boot" due to
+        # https://github.com/raspberrypi/firmware/issues/1529
+        _boot_label="$CADI_RPIBOOT_LABEL"
+        _boot_fs_type="fat"
+        _boot_fat_type="fat32"
+        _boot_fs_use="RPI boot"
+      else
+        _boot_label="$CADI_BOOTFS_LABEL"
+        _boot_fs_type="$image_fs_type"
+        _boot_fs_use="boot"
+      fi
+      format_fs "$_boot_fs_type" "\$boot_part_device" "$_boot_fs_use" \
+        "$_boot_label" "partition" "$_boot_fat_type"
 
-    if [ "$image_boot_reference" = "uuid" ] && \
-       { [ "$image_class" != "physical" ] || \
-         [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; }; then
-      # For RPI always uses LABEL rather than UUID
-      cat <<-'EOF' >> "$run_script"
+      if [ "$image_boot_reference" = "uuid" ] && \
+         { [ "$image_class" != "physical" ] || \
+           [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; }; then
+        # For RPI always uses LABEL rather than UUID
+        cat <<-'EOF' >> "$run_script"
 	  boot_fs_uuid="$(get_uuid_from_device "$boot_part_device")"
 	EOF
-    fi
+      fi
 
-    cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
 	EOF
-  fi
+    fi
 
-  # Format CIDATA filesystem if needed
-  if [ "$image_class" = "physical" ] && \
-     [ "$image_cloud_software" = "cloud-init" ]; then
-    cat <<-EOF >> "$run_script"
+    # Format CIDATA filesystem if needed
+    if [ "$image_class" = "physical" ] && \
+       [ "$image_cloud_software" = "cloud-init" ]; then
+      cat <<-EOF >> "$run_script"
 	  cidata_part_device="\${loop_device}p${cidata_part_num}"
 	EOF
 
-    format_fs "fat" "\$cidata_part_device" "CIDATA" "$CADI_CIDATA_LABEL" \
-      "partition" "fat12"
+      format_fs "fat" "\$cidata_part_device" "CIDATA" "$CADI_CIDATA_LABEL" \
+        "partition" "fat12"
 
-    cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	
 	EOF
-  fi
+    fi
 
-  # Setup swap partition
-  if [ "$image_swap_partition_size" != "0" ]; then
-    cat <<-EOF >> "$run_script"
+    # Setup swap partition
+    if [ "$image_swap_partition_size" != "0" ]; then
+      cat <<-EOF >> "$run_script"
 	  swap_part_device="\${loop_device}p${swap_part_num}"
 	
 	  write_log "Creating swap partition" 2
 	  mkswap -L "$CADI_SWAP_PART_LABEL" "\$swap_part_device" >> "\$logfile" 2>&1
 	EOF
 
-    if [ "$image_boot_reference" = "uuid" ]; then
-      cat <<-'EOF' >> "$run_script"
+      if [ "$image_boot_reference" = "uuid" ]; then
+        cat <<-'EOF' >> "$run_script"
 	  swap_part_uuid="$(get_uuid_from_device "$swap_part_device")"
 	
 	EOF
+      fi
     fi
   fi
 
@@ -436,7 +457,7 @@ format_and_mount_fs() {
 	EOF
   else
     # neither LUKS nor LVM
-    case $image_boot_type in
+    case $image_os_partitioning_type in
       unpartitioned )
         _root_on="unpartitioned device"
         cat <<-EOF >> "$run_script"
@@ -453,7 +474,7 @@ format_and_mount_fs() {
   fi
 
   # Format root filesystem
-  case $image_boot_type in
+  case $image_os_partitioning_type in
     unpartitioned )
       format_fs "$image_fs_type" "\$root_device" "root" \
         "$CADI_ROOTFS_LABEL" "$_root_on" ;;
@@ -483,7 +504,7 @@ format_and_mount_fs() {
      { [ -z "$image_encryption_type" ] || \
        { [ "$image_encryption_type" != "both" ] && [ "$image_encryption_type" != "luks" ]; } } && \
      { [ -z "$image_lvm_rootfs" ] || [ "$image_bootloader" = "syslinux" ]; }; then
-    case $image_boot_type in
+    case $image_os_partitioning_type in
       unpartitioned )
         cat <<-'EOF' >> "$run_script"
 	  root_fs_uuid="$(get_uuid_from_device "$root_device")"
@@ -503,7 +524,7 @@ format_and_mount_fs() {
 	  write_log "Mounting root filesystem onto $chroot_dir" 2
 	  mkdir -p "$chroot_dir"
 	EOF
-  case $image_boot_type in
+  case $image_os_partitioning_type in
     unpartitioned )
       cat <<-'EOF' >> "$run_script"
 	  mount -o private "$root_device" "$chroot_dir" >> "$logfile" 2>&1
