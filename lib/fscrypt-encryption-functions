@@ -27,10 +27,8 @@ setup_fscrypt_device() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_log "Show fscrypt rootfs details" 2
-	    fscrypt status / >> "$logfile"
-	  }
+	  write_log "Show fscrypt rootfs details" 2
+	  fscrypt status / >> "$logfile"
 	EOF
   fi
 

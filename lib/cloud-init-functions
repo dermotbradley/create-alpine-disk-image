@@ -127,6 +127,31 @@ configure_cloud_init() {
   _quoted_datasource_list="$(quote_datasource_comma_list "$_datasource_list")"
 
 
+  # cloud.cfg
+  if [ "$image_class" = "virtual" ] && \
+     [ "$image_vm_type" = "vmware" ]; then
+    # https://kb.vmware.com/s/article/59557
+    #
+    # This configuration *must* be in /etc/cloud/cloud.cfg as
+    # open-vm-tools only looks there.
+    cat <<'EOF' >> "$run_script"
+
+  if grep "disable_vmware_customization:" /etc/cloud/cloud.cfg; then
+    sed -i -e \
+      's/^disable_vmware_customization: true$/disable_vmware_customization: false/g' \
+      /etc/cloud/cloud.cfg
+  else
+    write_log "Disabling VMware customisation" 2
+    cat <<-_SCRIPT_ >> /etc/cloud/cloud.cfg
+	
+	# Vsphere 7.0+ supports cloud-init natively
+	disable_vmware_customization: false
+	_SCRIPT_
+  fi
+EOF
+  fi
+
+
   # 01-datasources.cfg
   output_eof_block_blank_line
   cat <<EOF >> "$run_script"
@@ -165,20 +190,21 @@ EOF
 	    when: ["boot","hotplug"]
 EOF
 
-    # Enable the init.d hotplug script
-    add_init_d_service "cloud-init-hotplugd" "default"
-  fi
+    output_script_block_end_marker
 
-  if [ "$image_class" = "virtual" ] && \
-     [ "$image_vm_type" = "vmware" ]; then
-    # https://kb.vmware.com/s/article/59557
-    output_script_block_blank_line
+    # Enable the init.d hotplug script
     cat <<'EOF' >> "$run_script"
-	# Vsphere 7.0+ supports cloud-init natively
-	disable_vmware_customization: false
+
+  write_log "Enable cloud-init hotplug init.d service" 2
+  {
 EOF
+    add_init_d_service "cloud-init-hotplugd" "default" 4
+    cat <<'EOF' >> "$run_script"
+  } >> /chroot.log 2>&1
+EOF
+  else
+    output_script_block_end_marker
   fi
-  output_script_block_end_marker
 
 
   # 01-modules.cfg
@@ -212,9 +238,9 @@ EOF
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
       : ;;
-    edge-special )
+    * )
       cat <<'EOF' >> "$run_script"
-	  - ssh-import-id
+	  - ssh_import_id
 	  - keyboard
 EOF
       ;;
@@ -297,7 +323,8 @@ EOF
   case $image_auth_control in
     doas | both )
       cat <<EOF >> "$run_script"
-	    doas: ["permit nopass $image_admin_username"]
+	    doas:
+	      - permit nopass $image_admin_username
 EOF
       ;;
   esac
@@ -497,10 +524,8 @@ EOF
 
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    cp /etc/cloud/templates/hosts.alpine.tmpl \
-	      /etc/cloud/templates/hosts.alpine.tmpl-orig
-	  }
+	  cp /etc/cloud/templates/hosts.alpine.tmpl \
+	    /etc/cloud/templates/hosts.alpine.tmpl-orig
 	EOF
   fi
 
@@ -527,15 +552,22 @@ EOF
 
   # Set cloud-init.log logging level appropriately
   if [ -n "$debug_enabled" ]; then
-    _debug_logging_status="Enabling"
-    _logging_level="DEBUG"
-
     output_eof_block_blank_line
+
     cat <<-'EOF' >> "$run_script"
 	  # Debug
 	  {
+	EOF
+
+    if [ "$image_class" = "virtual" ] && \
+       [ "$image_vm_type" = "vmware" ]; then
+      cat <<-'EOF' >> "$run_script"
 	    write_debug_log "cloud.cfg contents:" 4
 	    cat /etc/cloud/cloud.cfg >> /chroot.log
+	EOF
+    fi
+
+    cat <<-'EOF' >> "$run_script"
 	    write_debug_log "01-datasources.cfg contents:" 4
 	    cat /etc/cloud/cloud.cfg.d/01-datasources.cfg >> /chroot.log
 	    write_debug_log "01-modules.cfg contents:" 4
@@ -571,6 +603,9 @@ EOF
 	      /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
 	  }
 	EOF
+
+    _debug_logging_status="Enabling"
+    _logging_level="DEBUG"
   else
     _debug_logging_status="Disabling"
     _logging_level="INFO"
@@ -592,12 +627,10 @@ EOF
     output_eof_block_blank_line
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
-	      /etc/cloud/cloud.cfg.d/05_logging.cfg \
-	      >> /chroot.log || true
-	    rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
-	  }
+	  diff /etc/cloud/cloud.cfg.d/05_logging.cfg-orig \
+	    /etc/cloud/cloud.cfg.d/05_logging.cfg \
+	    >> /chroot.log || true
+	  rm /etc/cloud/cloud.cfg.d/05_logging.cfg-orig
 	EOF
   fi
 
@@ -704,6 +737,13 @@ define_cloud_init_packages() {
   local _ci_pkgs
 
   _ci_pkgs="cloud-init lsblk parted sfdisk sgdisk"
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      : ;;
+    * )
+    _ci_pkgs="$_ci_pkgs ssh-import-id" ;;
+  esac
 
   echo "$_ci_pkgs"
 }
@@ -911,10 +951,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        write_debug_log "Contents of 02-ntp.cfg:" 6
-	        cat /etc/cloud/cloud.cfg.d/02-ntp.cfg >> /chroot.log
-	      }
+	      write_debug_log "Contents of 02-ntp.cfg:" 6
+	      cat /etc/cloud/cloud.cfg.d/02-ntp.cfg >> /chroot.log
 	EOF
   fi
 }

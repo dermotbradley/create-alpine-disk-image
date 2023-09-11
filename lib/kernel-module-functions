@@ -45,10 +45,8 @@ EOF
     cat <<-EOF >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "Contents of blacklist-${_modules_section}-modules.conf:" 4
-	      cat /etc/modprobe.d/blacklist-${_modules_section}-modules.conf >> /chroot.log
-	    }
+	    write_debug_log "Contents of blacklist-${_modules_section}-modules.conf:" 4
+	    cat /etc/modprobe.d/blacklist-${_modules_section}-modules.conf >> /chroot.log
 	EOF
   fi
 
@@ -236,6 +234,7 @@ write_log "Creating init.d script for disabling kernel module loading" 2
 	_SCRIPT_
   chmod a+x /etc/init.d/block-modules-loading
 
+  write_log "Enabling init.d script" 4
   {
 EOF
 
@@ -254,10 +253,8 @@ EOF
               cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    cp /etc/init.d/virtualbox-guest-additions \
-	      /etc/init.d/virtualbox-guest-additions-orig
-	  }
+	  cp /etc/init.d/virtualbox-guest-additions \
+	    /etc/init.d/virtualbox-guest-additions-orig
 	EOF
             fi
 
@@ -272,12 +269,10 @@ EOF
               cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/etc/init.d/virtualbox-guest-additions differences:" 2
-	    diff /etc/init.d/virtualbox-guest-additions-orig \
-	      /etc/init.d/virtualbox-guest-additions >> /chroot.log || true
-	    rm /etc/init.d/virtualbox-guest-additions-orig
-	  }
+	  write_debug_log "/etc/init.d/virtualbox-guest-additions differences:" 2
+	  diff /etc/init.d/virtualbox-guest-additions-orig \
+	    /etc/init.d/virtualbox-guest-additions >> /chroot.log || true
+	  rm /etc/init.d/virtualbox-guest-additions-orig
 	EOF
             fi
           fi
@@ -458,25 +453,50 @@ disable_kernel_modules() {
   # USB
   case $image_console_device_type in
     normal | normal_and_serial | generic )
+      # Disable Azure/Hyper-V keyboard-related module
       case $image_keyboard_type in
-        ps2 | hyperv )
-          # Disable USB keyboard-related modules
+        hyperv )
+          : ;;
+        generic )
+          if ! is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                "hyperv"; then
+            _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE"
+          fi
+          ;;
+        * )
+          _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE" ;;
+      esac
+
+      # Disable USB keyboard-related modules
+      case $image_keyboard_type in
+        usb )
+          : ;;
+        generic )
+          if ! is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                "usb"; then
+            _disable_modules="$_disable_modules $CADI_USB_KEYBOARD_KERNEL_MODULES"
+            case $image_os_device_type in
+              usb )
+                : ;;
+              * )
+                # Disable USB controller modules
+                _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+            esac
+          fi
+          ;;
+        * )
           _disable_modules="$_disable_modules $CADI_USB_KEYBOARD_KERNEL_MODULES"
           case $image_os_device_type in
             usb )
               : ;;
             * )
-            # Disable USB controller modules
-            _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+              # Disable USB controller modules
+              _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
           esac
           ;;
       esac
-      case $image_keyboard_type in
-        ps2 | usb )
-          # Disable Azure/Hyper-V keyboard-related module
-          _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE" ;;
-      esac
       ;;
+
     * )
       # Disable USB keyboard-related modules
       _disable_modules="$_disable_modules $CADI_USB_KEYBOARD_KERNEL_MODULES"
@@ -484,8 +504,8 @@ disable_kernel_modules() {
         usb )
           : ;;
         * )
-        # Disable USB controller modules
-        _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+          # Disable USB controller modules
+          _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
       esac
       # Disable Azure/Hyper-V keyboard-related module
       _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE"
@@ -661,10 +681,8 @@ EOF
     cat <<-EOF >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "Contents of disable-${_modules_section}-modules.conf:" 4
-	      cat /etc/modprobe.d/disable-${_modules_section}-modules.conf >> /chroot.log
-	    }
+	    write_debug_log "Contents of disable-${_modules_section}-modules.conf:" 4
+	    cat /etc/modprobe.d/disable-${_modules_section}-modules.conf >> /chroot.log
 	EOF
   fi
 
@@ -733,13 +751,16 @@ EOF
     _network_module="$(convert_network_names_to_modules "$(basename "$image_ethernet_module")")"
   elif [ -n "$CADI_DEFAULT_NETWORK_DRIVER" ]; then
     if [ -n "$CADI_SUPPORTED_NETWORK_DRIVERS" ]; then
-      if is_in_comma_list "$CADI_SUPPORTED_NETWORK_DRIVERS" "$CADI_DEFAULT_NETWORK_DRIVER"; then
+      if is_in_comma_list "$CADI_SUPPORTED_NETWORK_DRIVERS" \
+                          "$CADI_DEFAULT_NETWORK_DRIVER"; then
         _network_module="$(convert_network_names_to_modules "$CADI_DEFAULT_NETWORK_DRIVER")"
       else
-        error_message "'$CADI_DEFAULT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_NETWORK_DRIVERS for '$class_type_description'!"
+        error_message \
+          "'$CADI_DEFAULT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_NETWORK_DRIVERS for '$class_type_description'!"
       fi
     else
-      error_message "CADI_SUPPORTED_NETWORK_DRIVERS is not defined for '$class_type_description'!"
+      error_message \
+        "CADI_SUPPORTED_NETWORK_DRIVERS is not defined for '$class_type_description'!"
     fi
   elif [ -n "$CADI_SUPPORTED_NETWORK_DRIVERS" ]; then
     if is_single_entry_in_comma_list "$CADI_SUPPORTED_NETWORK_DRIVERS"; then
@@ -748,16 +769,17 @@ EOF
       # Add all the supported drivers
       _network_module="$(convert_network_names_to_modules "generic")"
     else
-      error_message "Unable to decide which network driver to use for '$class_type_description'!"
+      error_message \
+        "Unable to decide which network driver to use for '$class_type_description'!"
     fi
   elif [ "$image_class" = "cloud" ] || [ "$image_class" = "virtual" ]; then
     # For VMs/Cloud machines assume virtio-net
     _network_module="$(convert_network_name_to_module "virtio-net")"
   else
-    error_message "CADI_DEFAULT_NETWORK_DRIVER is not defined for '$class_type_description'!"
+    error_message \
+      "CADI_DEFAULT_NETWORK_DRIVER is not defined for '$class_type_description'!"
   fi
-  if [ -n "$_network_module" ] && \
-     [ "$_network_module" != "none" ]; then
+  if [ -n "$_network_module" ] && [ "$_network_module" != "none" ]; then
     cat <<EOF >> "$run_script"
 	
 	# Network
@@ -787,10 +809,12 @@ EOF
   # Storage
   if [ -n "$CADI_DEFAULT_STORAGE_DRIVER" ]; then
     if [ -n "$CADI_SUPPORTED_STORAGE_DRIVERS" ]; then
-      if is_in_comma_list "$CADI_SUPPORTED_STORAGE_DRIVERS" "$CADI_DEFAULT_STORAGE_DRIVER"; then
+      if is_in_comma_list "$CADI_SUPPORTED_STORAGE_DRIVERS" \
+                          "$CADI_DEFAULT_STORAGE_DRIVER"; then
         _storage_module="$(convert_storage_names_to_modules "$CADI_DEFAULT_STORAGE_DRIVER")"
       else
-        error_message "'$CADI_DEFAULT_STORAGE_DRIVER' is not defined in CADI_SUPPORTED_STORAGE_DRIVERS for '$class_type_description'!"
+        error_message \
+          "'$CADI_DEFAULT_STORAGE_DRIVER' is not defined in CADI_SUPPORTED_STORAGE_DRIVERS for '$class_type_description'!"
       fi
     else
       error_message "CADI_SUPPORTED_STORAGE_DRIVERS is not defined for '$class_type_description'!"
@@ -802,10 +826,12 @@ EOF
       # Add all the supported drivers
       _storage_module="$(convert_storage_names_to_modules "generic")"
     else
-      error_message "Unable to decide which storage driver to use for '$class_type_description'!"
+      error_message \
+        "Unable to decide which storage driver to use for '$class_type_description'!"
     fi
   else
-    error_message "CADI_DEFAULT_STORAGE_DRIVER is not defined for '$class_type_description'!"
+    error_message \
+      "CADI_DEFAULT_STORAGE_DRIVER is not defined for '$class_type_description'!"
   fi
   if [ -n "$_storage_module" ]; then
     cat <<EOF >> "$run_script"
@@ -844,14 +870,12 @@ EOF
     cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    diff /etc/modules-orig /etc/modules >> /chroot.log | true
-	    rm /etc/modules-orig
-	    write_debug_log "Contents of /etc/modules:" 2
-	    cat /etc/modules >> /chroot.log
-	    write_debug_log "Contents of /etc/modules-load.d/$image_env_ref.conf:" 2
-	    cat /etc/modules-load.d/$image_env_ref.conf >> /chroot.log
-	  }
+	  diff /etc/modules-orig /etc/modules >> /chroot.log | true
+	  rm /etc/modules-orig
+	  write_debug_log "Contents of /etc/modules:" 2
+	  cat /etc/modules >> /chroot.log
+	  write_debug_log "Contents of /etc/modules-load.d/$image_env_ref.conf:" 2
+	  cat /etc/modules-load.d/$image_env_ref.conf >> /chroot.log
 	EOF
   fi
 

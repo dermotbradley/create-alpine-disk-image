@@ -77,7 +77,6 @@ configure_acct() {
 #
 configure_acpid() {
   cat <<-'EOF' >> "$run_script"
-	
 	  write_log "Configuring ACPI" 2
 	  {
 	    write_log "Adjusting modprobe blacklist for button" 4
@@ -192,10 +191,8 @@ configure_busybox_cron() {
         cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
-	        rm /etc/conf.d/crond-orig
-	      }
+	      diff /etc/conf.d/crond-orig /etc/conf.d/crond >> /chroot.log || true
+	      rm /etc/conf.d/crond-orig
 	EOF
       fi
       ;;
@@ -341,22 +338,20 @@ configure_console_user() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/group /etc/group-orig
-	      cp /etc/passwd /etc/passwd-orig
-	      cp /etc/shadow /etc/shadow-orig
+	    cp /etc/group /etc/group-orig
+	    cp /etc/passwd /etc/passwd-orig
+	    cp /etc/shadow /etc/shadow-orig
 	EOF
 
     case $image_ssh_server in
       openssh )
         cat <<-'EOF' >> "$run_script"
-	      cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	    cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
 	EOF
         ;;
     esac
 
     cat <<-'EOF' >> "$run_script"
-	    }
 	
 	EOF
   fi
@@ -436,10 +431,8 @@ configure_console_user() {
     cat <<-EOF >> "$run_script"
 	    
 	      # Debug
-	      {
-	        diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
-	        rm ${_doas_file}-orig
-	      }
+	      diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
+	      rm ${_doas_file}-orig
 	EOF
   fi
 
@@ -552,6 +545,7 @@ EOF
 #
 configure_cron() {
   cat <<-'EOF' >> "$run_script"
+	
 	  write_log "Configuring Cron daemon" 2
 	  {
 	EOF
@@ -1090,10 +1084,8 @@ configure_gettys() {
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
-	      rm /etc/inittab-orig
-	    }
+	    diff /etc/inittab-orig /etc/inittab >> /chroot.log || true
+	    rm /etc/inittab-orig
 	EOF
   fi
 
@@ -1223,10 +1215,8 @@ configure_opensshd() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
-	        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
-	      }
+	      cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
+	      cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
 	
 	EOF
   fi
@@ -1462,14 +1452,11 @@ configure_opensshd() {
     cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
-	        rm /etc/conf.d/sshd-orig
-	
-	        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
-	          || true
-	        rm /etc/ssh/sshd_config-orig
-	      }
+	      diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+	      rm /etc/conf.d/sshd-orig
+	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
+	        || true
+	      rm /etc/ssh/sshd_config-orig
 	EOF
   fi
 
@@ -1532,10 +1519,8 @@ configure_rsyslog() {
     cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        diff /etc/rsyslog.conf-orig /etc/rsyslog.conf >> /chroot.log || true
-	        rm /etc/rsyslog.conf-orig
-	      }
+	      diff /etc/rsyslog.conf-orig /etc/rsyslog.conf >> /chroot.log || true
+	      rm /etc/rsyslog.conf-orig
 	EOF
   fi
 
@@ -1558,6 +1543,10 @@ configure_services() {
   if [ -z "$image_barebones" ] && [ -n "$image_harden" ]; then
     configure_sysctl
     configure_firewall
+
+    cat <<-'EOF' >> "$run_script"
+	
+	EOF
   fi
 
   # ACPI - either button/acpid or tiny-button
@@ -1724,21 +1713,9 @@ configure_sshd() {
 # Configure sysctl file
 #
 configure_sysctl() {
-  cat <<-'EOF' >> "$run_script"
-	  write_log "Configuring sysctl" 2
-	  {
-	EOF
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	    # Debug
-	    cp /etc/sysctl.conf /etc/sysctl.conf-orig
-	
-	EOF
-  fi
-
-
   cat <<'EOF' >> "$run_script"
+  write_log "Configuring sysctl" 2
+  {
     write_log "Create /etc/sysctl.d/01-general.conf file" 4
     {
       cat <<-_SCRIPT_ > /etc/sysctl.d/01-general.conf
@@ -1760,6 +1737,7 @@ configure_sysctl() {
     }
 EOF
 
+  # IPv4/IPv6 general settings
   cat <<'EOF' >> "$run_script"
 
     write_log "Create /etc/sysctl.d/01-ip-general.conf file" 4
@@ -1774,7 +1752,7 @@ EOF
     }
 EOF
 
-
+  # IPv4-specific
   if [ -z "$image_disable_ipv4" ]; then
     cat <<'EOF' >> "$run_script"
 
@@ -1813,7 +1791,7 @@ EOF
 EOF
   fi
 
-
+  # IPv6-specific
   if [ -z "$image_disable_ipv6" ]; then
     cat <<'EOF' >> "$run_script"
 
@@ -1845,7 +1823,6 @@ EOF
 EOF
   fi
 
-
   cat <<-'EOF' >> "$run_script"
 	
 	    write_log "Enable sysctl init.d service" 4
@@ -1856,23 +1833,6 @@ EOF
 
   cat <<-'EOF' >> "$run_script"
 	    } >> /chroot.log 2>&1
-	EOF
-
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      diff /etc/sysctl.conf-orig /etc/sysctl.conf >> /chroot.log || true
-	      rm /etc/sysctl.conf-orig
-	    }
-	EOF
-
-  fi
-
-
-  cat <<-'EOF' >> "$run_script"
 	  }
 	EOF
 }
@@ -2206,7 +2166,6 @@ enable_getty() {
 #
 modprobe_enable_tiny_power_button() {
   cat <<-'EOF' >> "$run_script"
-	
 	  write_log "Adjusting modprobe blacklist for tiny-power-button" 4
 	  {
 	EOF
@@ -2233,11 +2192,9 @@ modprobe_enable_tiny_power_button() {
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
-	        >> /chroot.log || true
-	      rm /etc/modprobe.d/blacklist.conf-orig
-	    }
+	    diff /etc/modprobe.d/blacklist.conf-orig /etc/modprobe.d/blacklist.conf \
+	      >> /chroot.log || true
+	    rm /etc/modprobe.d/blacklist.conf-orig
 	EOF
   fi
 

@@ -665,7 +665,23 @@ firmware_list_for_physical() {
   fi
 
   # Network
-  if [ -n "$image_ethernet_vendor" ]; then
+  if [ -n "$image_ethernet_module" ]; then
+    case $image_ethernet_module in
+      r8169 )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting Realtek NIC firmware" 2
+	EOF
+        _firmware_list="${_firmware_list} linux-firmware-rtl_nic"
+        ;;
+
+      tg3 )
+        cat <<-'EOF' >> "$run_script"
+	  write_log "Selecting Broadcom NIC firmware" 2
+	EOF
+        _firmware_list="${_firmware_list} linux-firmware-tigon"
+        ;;
+    esac
+  elif [ -n "$image_ethernet_vendor" ]; then
     case $image_ethernet_vendor in
       broadcom )
         cat <<-'EOF' >> "$run_script"
@@ -692,7 +708,7 @@ firmware_list_for_physical() {
         cat <<-'EOF' >> "$run_script"
 	  write_log "Selecting all NIC firmware" 2
 	EOF
-        _firmware_list="${_firmware_list} linux-firmware-rtl_nic linux-firmware-tigon"
+        _firmware_list="${_firmware_list} linux-firmware-mellanox linux-firmware-rtl_nic linux-firmware-tigon"
         ;;
     esac
   fi

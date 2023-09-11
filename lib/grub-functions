@@ -56,17 +56,22 @@ configure_bootloader_grub() {
       # Ensure that USB keyboard work when in initramfs
       case $image_keyboard_type in
         usb | generic )
-          # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
-          # warning will appear in 'dmesg' output:
-          #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_pci, not after
-          _cmdline="$_cmdline modules=xhci-pci,ehci-pci"
-          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
-            _cmdline="${_cmdline},ohci-pci"
+          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                              "usb"; then
+            # It is important to load EHCI before OHCI/UHCI as otherwise a
+            # kernel warning will appear in 'dmesg' output:
+            #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_pci, not after
+            _cmdline="$_cmdline modules=xhci-pci,ehci-pci"
+            if [ -z "$image_cpu_vendor" ] || \
+               [ "$image_cpu_vendor" = "amd" ]; then
+              _cmdline="${_cmdline},ohci-pci"
+            fi
+            if [ -z "$image_cpu_vendor" ] || \
+               [ "$image_cpu_vendor" = "intel" ]; then
+              _cmdline="${_cmdline},uhci-hcd"
+            fi
+            _cmdline="${_cmdline},usbhid,hid-generic"
           fi
-          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
-            _cmdline="${_cmdline},uhci-hcd"
-          fi
-          _cmdline="${_cmdline},usbhid,hid-generic"
           ;;
       esac
       ;;
@@ -77,8 +82,10 @@ configure_bootloader_grub() {
 
   case $image_encryption_type in
     both | luks )
-      if { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
-         [ -z "$image_no_grub_luks_fde_encryption" ] && [ "$image_create_boot_partition" != "true" ]; then
+      if { [ -z "$image_experimental" ] || \
+           [ -z "$luks_remote_unlock_enabled" ]; } && \
+         [ -z "$image_no_grub_luks_fde_encryption" ] && \
+         [ "$image_create_boot_partition" != "true" ]; then
         # Enable Grub LUKS encryption support when:
         #  - disk image is LUKS encrypted, AND
         #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
@@ -109,23 +116,21 @@ configure_bootloader_grub() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
 	EOF
     case $image_os_partitioning_type in
       unpartitioned )
         cat <<-'EOF' >> "$run_script"
-	    write_debug_log "Root fs device is $root_device" 2
+	  write_debug_log "Root fs device is $root_device" 2
 	EOF
         ;;
       * )
         cat <<-'EOF' >> "$run_script"
-	    write_debug_log "Root fs partition device is $root_part_device" 2
+	  write_debug_log "Root fs partition device is $root_part_device" 2
 	EOF
         ;;
     esac
     cat <<-'EOF' >> "$run_script"
-	    write_debug_log "Loopback device is $loop_device" 2
-	  }
+	  write_debug_log "Loopback device is $loop_device" 2
 	EOF
   fi
 
@@ -153,9 +158,7 @@ configure_bootloader_grub() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    cp /etc/default/grub /etc/default/grub-orig
-	  }
+	  cp /etc/default/grub /etc/default/grub-orig
 	EOF
   fi
 
@@ -287,7 +290,8 @@ configure_bootloader_grub() {
 	      echo 'GRUB_ENABLE_CRYPTODISK=$_enable_luks_cryptodisk'
 	EOF
 
-  if [ "$_enable_luks_cryptodisk" = "y" ] && [ "$image_luks_version" = "2" ]; then
+  if [ "$_enable_luks_cryptodisk" = "y" ] && \
+     [ "$image_luks_version" = "2" ]; then
     cat <<-EOF >> "$run_script"
 	      echo 'GRUB_PRELOAD_MODULES="cryptodisk luks2 grcy_rijndael grcy_sha256"'
 	EOF
@@ -325,14 +329,13 @@ configure_bootloader_grub() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
-	    rm /etc/default/grub-orig
-	  }
+	  diff /etc/default/grub-orig /etc/default/grub >> /chroot.log || true
+	  rm /etc/default/grub-orig
 	EOF
   fi
 
-  if [ -n "$image_bootloader_username" ] && [ -n "$image_bootloader_password" ]; then
+  if [ -n "$image_bootloader_username" ] && \
+     [ -n "$image_bootloader_password" ]; then
     cat <<'EOF' >> "$run_script"
 
   write_log "Adding config file /etc/grub.d/01_users for securing GRUB menu" 2
@@ -386,12 +389,30 @@ EOF
 # Enable serial console for Grub
 #
 enable_grub_serial_console() {
-  local _console_terminal_value
- 
+  local _console_terminal_value _grub_command_options
+
+  _grub_command_options="--unit=${image_serial_console_port_number} --speed=${image_serial_console_port_speed}"
+  if [ -n "$image_serial_console_data_bits" ]; then
+    _grub_command_options="$_grub_command_options --word=${image_serial_console_data_bits}"
+  fi
+  if [ -n "$image_serial_console_parity" ]; then
+    case $image_serial_console_parity in
+      e )
+        _parity="even" ;;
+      n )
+        _parity="none" ;;
+      o )
+        _parity="odd" ;;
+    esac
+    _grub_command_options="$_grub_command_options --parity=${_parity}"
+  fi
+  if [ -n "$image_serial_console_stop_bits" ]; then
+    _grub_command_options="$_grub_command_options --stop=${image_serial_console_stop_bits}"
+  fi
   cat <<-EOF >> "$run_script"
 	    {
 	      write_log "Configure GRUB serial command" 4
-	      echo 'GRUB_SERIAL_COMMAND="serial --unit=${image_serial_console_port_number} --speed=${image_serial_console_port_speed}"' \\
+	      printf 'GRUB_SERIAL_COMMAND="serial %s"\n' "$_grub_command_options" \\
 	        >> /etc/default/grub
 	EOF
 
@@ -418,7 +439,7 @@ install_grub() {
 
   _grub_efi_options="--removable --efi-directory=/boot/efi --no-nvram"
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     _grub_modules_list="acpi disk echo elf gzio linux loadenv minicmd normal search test"
 
     # Filesystem
@@ -432,7 +453,8 @@ install_grub() {
     # Encryption
     case $image_encryption_type in
       both | luks )
-        if { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
+        if { [ -z "$image_experimental" ] || \
+             [ -z "$luks_remote_unlock_enabled" ]; } && \
            [ -z "$image_no_grub_luks_fde_encryption" ] && \
            [ "$image_create_boot_partition" != "true" ]; then
           # Grub LUKS encryption support only applies when:
@@ -457,7 +479,8 @@ install_grub() {
     fi
 
     # Bootloader Password
-    if [ -n "$image_bootloader_username" ] && [ -n "$image_bootloader_password" ]; then
+    if [ -n "$image_bootloader_username" ] && \
+       [ -n "$image_bootloader_password" ]; then
       _grub_modules_list="$_grub_modules_list password_pbkdf2"
     fi
 
@@ -470,7 +493,11 @@ install_grub() {
           aarch64 )
             case $image_keyboard_type in
               hyperv | usb | generic )
-                _grub_modules_list="$_grub_modules_list usb_keyboard ehci ohci" ;;
+                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                    "usb"; then
+                  _grub_modules_list="$_grub_modules_list usb_keyboard ehci ohci"
+                fi
+                ;;
             esac
             ;;
           x86 | x86_64 )
@@ -480,12 +507,17 @@ install_grub() {
             esac
             case $image_keyboard_type in
               usb | generic )
-                _grub_modules_list="$_grub_modules_list usb_keyboard ehci"
-                if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
-                  _grub_modules_list="$_grub_modules_list ohci"
-                fi
-                if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
-                  _grub_modules_list="$_grub_modules_list uhci"
+                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                    "usb"; then
+                  _grub_modules_list="$_grub_modules_list usb_keyboard ehci"
+                  if [ -z "$image_cpu_vendor" ] || \
+                     [ "$image_cpu_vendor" = "amd" ]; then
+                    _grub_modules_list="$_grub_modules_list ohci"
+                  fi
+                  if [ -z "$image_cpu_vendor" ] || \
+                     [ "$image_cpu_vendor" = "intel" ]; then
+                    _grub_modules_list="$_grub_modules_list uhci"
+                  fi
                 fi
                 ;;
             esac
@@ -521,7 +553,7 @@ install_grub() {
         unpartitioned )
           _grub_options="$_grub_options --no-bootsector" ;;
       esac
-      if [ -n "$image_optimise" ]; then
+      if [ -z "$image_disable_optimisation" ]; then
         _grub_modules_list="$_grub_modules_list nativedisk"
         case $image_boot_type in
           bios )
@@ -557,7 +589,7 @@ install_grub() {
         x86_64 )
           _grub_options="--target=x86_64-efi $_grub_efi_options" ;;
       esac
-      if [ -n "$image_optimise" ]; then
+      if [ -z "$image_disable_optimisation" ]; then
         _grub_modules_list="$_grub_modules_list part_gpt"
         case $image_class in
           cloud )
@@ -605,10 +637,8 @@ install_grub() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    write_debug_log "grub.cfg contents:"
-	    cat /boot/grub/grub.cfg >> /chroot.log || true
-	  }
+	  write_debug_log "grub.cfg contents:"
+	  cat /boot/grub/grub.cfg >> /chroot.log || true
 	
 	EOF
   fi
@@ -633,7 +663,7 @@ install_grub() {
 	    ${_grub_options} \\
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     cat <<-EOF >> "$run_script"
 	    --install-modules="$_grub_modules_list" \\
 	EOF
@@ -657,6 +687,30 @@ install_grub() {
 	    exit 1
 	  fi
 	
+	  write_log "Storing grub-install option for later use" 2
+	  {
+	    printf "# /etc/grub-install-options.conf\n\n"
+	    printf 'GRUB_INSTALL_OPTIONS="%s' \\
+	      "${_grub_options}"
+	EOF
+  if [ -z "$image_disable_optimisation" ]; then
+    cat <<-EOF >> "$run_script"
+	    printf ' --install-modules=\"%s\"' \\
+	      "$_grub_modules_list"
+	EOF
+  fi
+  cat <<-EOF >> "$run_script"
+	    printf '"\n\n'
+	    printf '# Change this setting to "yes" if you want grub-install to be\n'
+	    printf '# automatically run whenever the Alpine Grub package is updated.\n'
+	    printf 'GRUB_AUTO_UPDATE="no"\n\n'
+	    printf '# The device name used for Grub booting (only needs to be\n'
+	    printf '# specified if booting MBR - not needed for UEFI booting\n'
+	    printf '#GRUB_BOOT_DEVICE="/dev/sda"\n\n'
+	  } > /etc/grub-install-options.conf
+	  chown root:root /etc/grub-install-options.conf
+	  chmod u=rwx,g=r,o=r /etc/grub-install-options.conf
+	
 	  write_log "Creating script for later use to re-install GRUB" 2
 	  {
 	    echo "#!/bin/sh"
@@ -664,13 +718,11 @@ install_grub() {
 	    echo "grub-install \\\\\"
 	    echo "  ${_grub_options} \\\\\"
 	EOF
-
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     cat <<-EOF >> "$run_script"
 	    echo "  --install-modules=\"$_grub_modules_list\" \\\\\"
 	EOF
   fi
-
   case $image_boot_type in
     bios )
       # Do not need to specify device for UEFI setup
@@ -679,7 +731,6 @@ install_grub() {
 	EOF
       ;;
   esac
-
   cat <<-'EOF' >> "$run_script"
 	    echo
 	    echo "exit"
@@ -699,10 +750,10 @@ install_grub() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/usr/local/bin/reinstall-grub contents:" 2
-	    cat /usr/local/bin/reinstall-grub >> /chroot.log
-	  }
+	  write_debug_log "/etc/grub-install-options.conf contents:" 2
+	  cat /etc/grub-install-options.conf >> /chroot.log
+	  write_debug_log "/usr/local/bin/reinstall-grub contents:" 2
+	  cat /usr/local/bin/reinstall-grub >> /chroot.log
 	EOF
   fi
 

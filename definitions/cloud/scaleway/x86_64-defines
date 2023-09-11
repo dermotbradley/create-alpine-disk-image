@@ -11,16 +11,20 @@
 #############################################################################
 
 
+# https://www.scaleway.com/en/blog/how-instance-images-are-made/
+# https://www.scaleway.com/en/docs/compute/instances/troubleshooting/reboot-from-faulty-kernel/
+# https://www.scaleway.com/en/docs/tutorials/create-openwrt-image-for-scaleway/
+
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
-readonly CADI_SUPPORTED_BOOT_TYPES="bios"
-readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,limine,syslinux"
+readonly CADI_SUPPORTED_BOOT_TYPES="uefi"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
 readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
 readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="none"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="none"
-readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="none"
+readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
 readonly CADI_SUPPORTED_CRYPTO_DEVICES="virtio"
 readonly CADI_SUPPORTED_DHCP_CLIENTS="dhclient"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
@@ -32,11 +36,13 @@ readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
 readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED="115200"
 readonly CADI_SUPPORTED_STORAGE_DRIVERS="virtio-blk"
 
 
 # Defaults
 readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="generic"
 
 
 # Additional

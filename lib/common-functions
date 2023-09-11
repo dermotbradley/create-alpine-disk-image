@@ -80,9 +80,6 @@ add_base_init_d() {
       add_init_d_service "osclock" "boot" 2 ;;
     physical )
       case $image_physical_type in
-        arm-server )
-          # Has RTC but loaded as module so can't rely on osclock service
-          add_init_d_service "hwclock" "boot" 2 ;;
         rpi* )
           if [ -n "$rpi_use_rtc" ]; then
             # With hardware RTC
@@ -162,7 +159,8 @@ add_init_d_service() {
 
 
 #
-# Returns all entries from a comma-separated string except specified entry.
+# Returns all entries from a comma-separated string
+# except the specified entry.
 #
 all_entries_in_comma_list_except() {
   _comma_list="$1"
@@ -212,7 +210,8 @@ all_entries_in_list_except() {
 
 
 #
-# Returns all entries from a space-separated string except specified entry.
+# Returns all entries from a space-separated string
+# except the specified entry.
 #
 all_entries_in_space_list_except() {
   _space_list="$1"
@@ -277,10 +276,8 @@ copy_host_resolv_conf_to_chroot() {
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Copying system's /etc/resolv.conf into chroot filesystem"
-	{
-	  mkdir -p "$chroot_dir"/etc
-	  cp /etc/resolv.conf "$chroot_dir"/etc/
-	}
+	mkdir -p "$chroot_dir"/etc
+	cp /etc/resolv.conf "$chroot_dir"/etc/
 	EOF
 }
 
@@ -353,33 +350,33 @@ create_repositories_file_inside_chroot() {
 
   if [ "$image_alpine_release" = "edge-special" ]; then
     cat <<-EOF >> "$run_script"
-	  echo "${alpine_mirror_site}/edge/main"
-	  echo "${alpine_mirror_site}/edge/community"
-	  echo "${alpine_mirror_site}/edge/testing"
+	  printf '%s/edge/main\n' "$alpine_mirror_site"
+	  printf '%s/edge/community\n' "$alpine_mirror_site"
+	  printf '%s/edge/testing\n' "$alpine_mirror_site"
 	EOF
 
     if [ -n "$local_alpine_repository" ]; then
       cat <<-EOF >> "$run_script"
-	  echo "$local_alpine_repository/edge"
+	  printf '%s/edge\n' "$local_alpine_repository"
 	EOF
     fi
   else
     cat <<-EOF >> "$run_script"
-	  echo "${alpine_mirror_site}/${image_alpine_release}/main"
-	  echo "${alpine_mirror_site}/${image_alpine_release}/community"
+	  printf '%s/%s/main\n' "$alpine_mirror_site" "$image_alpine_release"
+	  printf '%s/%s/community\n' "$alpine_mirror_site" "$image_alpine_release"
 	EOF
 
     case $image_alpine_release in
       edge )
         cat <<-EOF >> "$run_script"
-	  echo "${alpine_mirror_site}/${image_alpine_release}/testing"
+	  printf '%s/%s/testing\n' "$alpine_mirror_site" "$image_alpine_release"
 	EOF
         ;;
     esac
 
     if [ -n "$local_alpine_repository" ]; then
       cat <<-EOF >> "$run_script"
-	  echo "$local_alpine_repository/${image_alpine_release}"
+	  printf '%s/%s\n' "$local_alpine_repository" "$image_alpine_release"
 	EOF
     fi
   fi
@@ -394,10 +391,7 @@ create_repositories_file_inside_chroot() {
 # Determine the Linux distro that this script is being run on
 #
 detect_host_os() {
-  local _os
-
-  _os=$(grep "^ID=" /etc/os-release | sed -e 's/^ID=//')
-  echo "$_os"
+  grep "^ID=" /etc/os-release | sed -e 's/^ID=//'
 }
 
 
@@ -498,9 +492,7 @@ create_runscript_header() {
 	#############################################################################
 	
 	if [ "$(id -u)" -ne 0 ]; then
-	  echo
-	  echo "This script must be run as the root user!"
-	  echo
+	  printf '\nThis script must be run as the root user!\n\n'
 	  exit 1
 	fi
 	
@@ -517,9 +509,6 @@ download_static_apk() {
     cat <<-'EOF' >> "$run_script"
 	
 	_host_arch="$(detect_host_arch)"
-	_host_os="$(detect_host_os)"
-	
-	if [ "$_host_os" != "alpine" ]; then
 	EOF
   else
     cat <<-EOF >> "$run_script"
@@ -529,34 +518,25 @@ download_static_apk() {
   fi
 
   cat <<-EOF >> "$run_script"
-	  write_log "Downloading statically built APK tool for \${_host_arch} arch"
-	  {
-	    wget -q -O ${TMPDIR}/apk.static \\
-	      ${apk_static_url}/"\${_host_arch}"/apk.static \\
-	      2>> "\$logfile"
-	    _rc=\$?
-	    case \$_rc in
-	      5 )
-	        error_message "Error with wget HTTPS certificate validation!"
-	        ;;
-	      1 | 3 | 4 | 7 | 8 )
-	        error_message "A wget error (\$_rc) occurred during download!"
-	        ;;
-	    esac
-	    chmod +x ${TMPDIR}/apk.static
-	  }
+	write_log "Downloading statically built APK tool for \${_host_arch} arch"
+	{
+	  wget -q -O ${TMPDIR}/apk.static \\
+	    ${apk_static_url}/"\${_host_arch}"/apk.static \\
+	    2>> "\$logfile"
+	  _rc=\$?
+	  case \$_rc in
+	    5 )
+	      error_message "Error with wget HTTPS certificate validation!" ;;
+	    1 | 3 | 4 | 7 | 8 )
+	      error_message "A wget error (\$_rc) occurred during download!" ;;
+	  esac
+	  chmod +x ${TMPDIR}/apk.static
 	
-	  if ! echo "$apk_static_checksum ${TMPDIR}/apk.static" | sha256sum -c; then
+	  if ! echo "$apk_static_checksum ${TMPDIR}/apk.static" | sha256sum -c >/dev/null; then
 	    error_message "The checksum of the downloaded APK tool does not match the expected checksum!"
 	  fi
+	}
 	EOF
-
-  if [ "$image_script_host_arch" = "all" ] || \
-     [ "$image_script_host_arch" != "$image_arch" ]; then
-    cat <<-'EOF' >> "$run_script"
-	fi
-	EOF
-  fi
 }
 
 
@@ -566,9 +546,7 @@ download_static_apk() {
 error_message() {
   local _error_message="$1"
 
-  echo
-  echo "${_error_message}"
-  echo
+  printf '\n%s\n\n' "$_error_message"
   exit 2
 }
 
@@ -584,7 +562,7 @@ first_entry_in_comma_list() {
 
 
 #
-# Returns first entry from a string which uses specified separator
+# Returns first entry from a string which uses the specified separator
 #
 first_entry_in_list() {
   _list="$1"
@@ -743,14 +721,6 @@ get_kernel_type() {
 
       physical )
         case $image_physical_type in
-          arm-server | pc )
-            case $image_kernel_type in
-              edge | edge-special )
-                _kernel_pkg_type="edge" ;;
-              * )
-                _kernel_pkg_type="lts" ;;
-            esac
-            ;;
           rpi2 | rpi3 )
             case $image_arch in
               aarch64 )
@@ -759,8 +729,18 @@ get_kernel_type() {
                 _kernel_pkg_type="rpi2" ;;
             esac
             ;;
+
           rpi4 )
             _kernel_pkg_type="rpi4" ;;
+
+          * )
+            case $image_kernel_type in
+              edge | edge-special )
+                _kernel_pkg_type="edge" ;;
+              * )
+                _kernel_pkg_type="lts" ;;
+            esac
+            ;;
         esac
         ;;
     esac
@@ -854,7 +834,7 @@ insert_chroot_function_add_fstab_entry() {
 	  _fstab_entry="\${_fstab_entry}\t\${_mount_point}\t\${_fs_type}\t\${_fs_options} 0 \${_fs_passno}"
 	
 	  write_log "Add \${_entry_log} entry" 2
-	  # shellcheck disable=SC2169,SC3036
+	  # shellcheck disable=SC2059
 	  printf "\${_fstab_entry}\n" >> /etc/fstab
 	}
 	EOF
@@ -966,7 +946,7 @@ insert_runscript_function_check_binfmt_packages() {
 	# running user-mode QEMU via binfmt and that it is configured.
 	#
 	check_binfmt_packages() {
-		EOF
+	EOF
 
   case $image_script_host_os in
     alpine | all )
@@ -999,11 +979,8 @@ insert_runscript_function_check_binfmt_packages() {
 	        _required_packages="qemu-openrc $_alpine_arch_package"
 	        # shellcheck disable=SC2086
 	        if ! apk info -e -q $_required_packages; then
-	          echo
-	          echo "The following Alpine packages need to be installed:"
-	          echo
-	          echo "  $_required_packages"
-	          echo
+	          printf '\nThe following Alpine packages need to be installed:\n\n'
+	          printf '  %s\n\n' "$_required_packages"
 	          exit 1
 	        fi
 	        ;;
@@ -1036,11 +1013,8 @@ insert_runscript_function_check_binfmt_packages() {
 	        _required_packages="binfmt-support qemu-user-static"
 	        # shellcheck disable=SC2086
 	        if ! dpkg-query -W -f='${Status}\n' $_required_packages 1>/dev/null 2>&1; then
-	          echo
-	          echo "The following packages need to be installed:"
-	          echo
-	          echo "  $_required_packages"
-	          echo
+	          printf '\nThe following packages need to be installed:\n\n'
+	          printf '  %s\n\n' "$_required_packages"
 	          exit 1
 	        fi
 	        ;;
@@ -1052,9 +1026,7 @@ insert_runscript_function_check_binfmt_packages() {
     cat <<-'EOF' >> "$run_script"
 	
 	      * )
-	        echo
-	        echo "Unsupported host OS!"
-	        echo
+	        printf '\nUnsupported host OS!\n\n'
 	        exit 1
 	        ;;
 	    esac
@@ -1062,14 +1034,12 @@ insert_runscript_function_check_binfmt_packages() {
   else
     cat <<-EOF >> "$run_script"
 	      * )
-	        echo
 	        case \$_host_os in
 	          alpine | debian | ubuntu )
-	            echo "Re-run create-alpine-disk-image specifying '--script-host-os \$_host_os'!" ;;
+	            printf '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' "\$_host_os" ;;
 	          * )
-	            echo "Unsupported host OS!" ;;
+	            printf '\nUnsupported host OS!\n\n' ;;
 	        esac
-	        echo
 	        exit 1
 	        ;;
 	    esac
@@ -1084,9 +1054,7 @@ insert_runscript_function_check_binfmt_packages() {
 	      if [ "$_binfmt_arch_enabled" = "enabled" ]; then
 	        return
 	      else
-	        echo
-	        echo "Binfmt is not enabled for $_arch"
-	        echo
+	        printf '\nBinfmt is not enabled for %s\n\n' "$_arch"
 	        exit 1
 	      fi
 	EOF
@@ -1114,9 +1082,7 @@ insert_runscript_function_check_binfmt_packages() {
   else
     cat <<-'EOF' >> "$run_script"
 	    else
-	      echo
-	      echo "Binfmt and QEMU are not configured for $_arch"
-	      echo
+	      printf '\nBinfmt and QEMU are not configured for %s\n\n' "$_arch"
 	      exit 1
 	    fi
 	EOF
@@ -1257,11 +1223,8 @@ insert_runscript_function_check_for_required_packages() {
 	      esac
 	      # shellcheck disable=SC2086
 	      if ! apk info -e -q \$_required_packages; then
-	        echo
-	        echo "The following Alpine packages need to be installed:"
-	        echo
-	        echo "  \$_required_packages"
-	        echo
+	        printf '\nThe following Alpine packages need to be installed:\n\n'
+	        printf '  %s\n\n' "\$_required_packages"
 	        exit 1
 	      fi
 	      ;;
@@ -1295,11 +1258,8 @@ insert_runscript_function_check_for_required_packages() {
 	
 	      # shellcheck disable=SC2086
 	      if ! dpkg-query -W -f='\${Status}\n' \$_required_packages 1>/dev/null 2>&1; then
-	        echo
-	        echo "The following packages need to be installed:"
-	        echo
-	        echo "  \$_required_packages"
-	        echo
+	        printf '\nThe following packages need to be installed:\n\n'
+	        printf '  %s\n\n' "\$_required_packages"
 	        exit 1
 	      fi
 	      # The apk.static package requires a CAs file to use for trusting HTTPS
@@ -1328,9 +1288,7 @@ insert_runscript_function_check_for_required_packages() {
     cat <<-EOF >> "$run_script"
 	
 	    * )
-	      echo
-	      echo "Unsupported host OS!"
-	      echo
+	      printf '\nUnsupported host OS!\n\n'
 	      exit 1
 	      ;;
 	  esac
@@ -1339,14 +1297,12 @@ insert_runscript_function_check_for_required_packages() {
     cat <<-EOF >> "$run_script"
 	
 	    * )
-	      echo
 	      case \$_host_os in
 	        alpine | debian | ubuntu )
-	          echo "Re-run create-alpine-disk-image specifying '--script-host-os \$_host_os'!" ;;
+	          printf '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' "\$_host_os" ;;
 	        * )
-	          echo "Unsupported host OS!" ;;
+	          printf '\nUnsupported host OS!\n\n' ;;
 	      esac
-	      echo
 	      exit 1
 	      ;;
 	  esac
@@ -1386,10 +1342,7 @@ insert_runscript_function_detect_host_os() {
 	# Determine the Linux distro that this script is being run on
 	#
 	detect_host_os() {
-	  local _os
-	
-	  _os=$(grep "^ID=" /etc/os-release | sed -e 's/^ID=//')
-	  echo "$_os"
+	  grep "^ID=" /etc/os-release | sed -e 's/^ID=//'
 	}
 	EOF
 }
@@ -1426,7 +1379,7 @@ insert_runscript_function_error_cleanup() {
           if { [ -z "$image_experimental" ] || \
                [ -z "$luks_remote_unlock_enabled" ]; } && \
              [ -z "$image_no_grub_luks_fde_encryption" ] && \
-             [ -z "$needs_boot_partition" ]; then
+             [ "$image_create_boot_partition" = "false" ]; then
             cat <<-'EOF' >> "$run_script"
 	
 	  rm -f crypto_keyfile.bin
@@ -1464,8 +1417,7 @@ insert_runscript_function_get_uuid_from_device() {
 	get_uuid_from_device() {
 	  local _device=$1
 	
-	  # shellcheck disable=SC2005
-	  echo "$(blkid -s UUID -o value "$_device")"
+	  blkid -s UUID -o value "$_device"
 	}
 	EOF
 }
@@ -1546,9 +1498,7 @@ insert_runscript_function_normal_cleanup() {
 	    losetup -d "$loop_device" >> "$logfile"
 	    _rc=$?
 	    if [ $_rc -ne 0 ]; then
-	      echo
-	      echo "There was a problem freeing the loop device '$loop_device'!"
-	      echo
+	      printf '\nThere was a problem freeing the loop device '\''%s'\''!\n\n' "$loop_device"
 	      exit 1
 	    fi
 	  fi
@@ -1777,12 +1727,10 @@ install_additional_packages() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Disk space usage after additional packages added:"
-	    busybox df -k >> /chroot.log
-	    write_debug_log "Additional installed packages list:"
-	    apk info -v | sort >> /chroot.log
-	  }
+	  write_debug_log "Disk space usage after additional packages added:"
+	  busybox df -k >> /chroot.log
+	  write_debug_log "Additional installed packages list:"
+	  apk info -v | sort >> /chroot.log
 	EOF
   fi
 
@@ -1803,12 +1751,10 @@ install_additional_packages() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Disk space usage after OS configuration software packages added:"
-	    busybox df -k >> /chroot.log
-	    write_debug_log "Packages list after OS configuration software packages installed:"
-	    apk info -v | sort >> /chroot.log
-	  }
+	  write_debug_log "Disk space usage after OS configuration software packages added:"
+	  busybox df -k >> /chroot.log
+	  write_debug_log "Packages list after OS configuration software packages installed:"
+	  apk info -v | sort >> /chroot.log
 	EOF
   fi
 
@@ -1852,12 +1798,10 @@ install_additional_packages() {
       cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Disk space usage after machine-specific packages added:"
-	    busybox df -k >> /chroot.log
-	    write_debug_log "Packages list after machine-specific packages installed:"
-	    apk info -v | sort >> /chroot.log
-	  }
+	  write_debug_log "Disk space usage after machine-specific packages added:"
+	  busybox df -k >> /chroot.log
+	  write_debug_log "Packages list after machine-specific packages installed:"
+	  apk info -v | sort >> /chroot.log
 	EOF
     fi
 
@@ -1979,11 +1923,10 @@ is_single_entry_in_comma_list() {
 #
 mount_ramdisk() {
   cat <<-EOF >> "$run_script"
+	
 	write_log "Setting up ramdisk"
-	{
-	  mkdir -p \$ramdisk_dir
-	  mount -t tmpfs -o size=${CADI_RAMDISK_SIZE} tmpfs \$ramdisk_dir >> \$logfile
-	}
+	mkdir -p \$ramdisk_dir
+	mount -t tmpfs -o size=${CADI_RAMDISK_SIZE} tmpfs \$ramdisk_dir >> \$logfile
 	EOF
 }
 
@@ -1999,9 +1942,7 @@ mount_host_special_fs_in_chroot() {
 	  working_dir=$(mktemp -d -p /tmp create-alpine.XXXXXX)
 	  _rc=$?
 	  if [ $_rc -ne 0 ]; then
-	    echo
-	    echo "There was a problem creating a temporary working directory!"
-	    echo
+	    printf '\nThere was a problem creating a temporary working directory!\n\n'
 	    exit 1
 	  fi
 	  mount -v -t none -o rbind "$working_dir" $chroot_dir/tmp
@@ -2137,9 +2078,7 @@ setup_loop_device() {
 	    if [ "\$loop_module_filename" != "" ] && [ "\$loop_module_filename" != "(builtin)" ]; then
 	      modprobe loop 2>> \$logfile
 	    else
-	      echo
-	      echo "There is a problem with loop devices!"
-	      echo
+	      printf '\nThere is a problem with loop devices!\n\n'
 	      exit 1
 	    fi
 	  fi
@@ -2148,20 +2087,16 @@ setup_loop_device() {
 	  loop_device=\$(losetup -P --show -b $image_os_device_sector_size -f \$image_full_filename 2>> \$logfile)
 	  _rc=\$?
 	  if [ \$_rc -ne 0 ]; then
-	    echo
 	    if [ -n "\$loop_device" ]; then
 	      unset loop_device
-	      echo "There was a problem creating the loop device!"
+	      printf '\nThere was a problem creating the loop device!\n\n'
 	    else
-	      echo "There was a problem creating the loop device '\$loop_device'!"
+	      printf '\nThere was a problem creating the loop device '\''%s'\''!\n\n' "\$loop_device"
 	    fi
-	    echo
 	    exit 1
 	  fi
 	  if [ -z "\$loop_device" ]; then
-	    echo
-	    echo "There was a problem creating the loop device. Aborting!"
-	    echo
+	    printf '\nThere was a problem creating the loop device. Aborting!\n\n'
 	    exit 1
 	  fi
 	}
@@ -2175,11 +2110,12 @@ setup_loop_device() {
 update_upgrade_packages() {
   cat <<-'EOF' >> "$run_script"
 	
+	write_log "Updating packages info"
 	{
-	  write_log "Updating package list"
+	  write_log "Updating packages list" 2
 	  apk update >> /chroot.log
 	
-	  write_log "Upgrading base packages if necessary"
+	  write_log "Upgrading base packages if necessary" 2
 	  apk -a upgrade >> /chroot.log
 	EOF
 
@@ -2187,10 +2123,8 @@ update_upgrade_packages() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Base packages list:"
-	    apk info -v | sort | tee /base-packages.list >> /chroot.log
-	  }
+	  write_debug_log "Base packages list:" 2
+	  apk info -v | sort | tee /base-packages.list >> /chroot.log
 	EOF
   fi
 

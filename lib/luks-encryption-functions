@@ -203,10 +203,8 @@ setup_crypttab() {
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
-	{
-	  write_debug_log "/etc/crypttab contents:" 4
-	  cat "$chroot_dir"/etc/crypttab >> /chroot.log
-	}
+	write_debug_log "/etc/crypttab contents:" 4
+	cat "$chroot_dir"/etc/crypttab >> /chroot.log
 	EOF
   fi
 }
@@ -301,14 +299,12 @@ setup_luks_device() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Show LUKS device details:" 2
-	    cryptsetup luksDump "$luks_device" >> "$logfile"
-	    write_debug_log "Show /dev/mapper entries:" 2
-	    busybox ls -lR /dev/mapper \
-	      | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
-	      >> "$logfile"
-	  }
+	  write_debug_log "Show LUKS device details:" 2
+	  cryptsetup luksDump "$luks_device" >> "$logfile"
+	  write_debug_log "Show /dev/mapper entries:" 2
+	  busybox ls -lR /dev/mapper \
+	    | sed -E -e 's| [A-Z][a-z]{2} [ ]*[0-9]{1,2} [0-9]{2}:[0-9]{2}||g' \
+	    >> "$logfile"
 	EOF
   fi
 

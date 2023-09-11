@@ -26,9 +26,7 @@ configure_busybox_ntpd() {
       if [ -n "$debug_enabled" ]; then
         cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/conf.d/ntpd /etc/conf.d/ntpd-orig
-	      }
+	      cp /etc/conf.d/ntpd /etc/conf.d/ntpd-orig
 	
 	EOF
       fi
@@ -58,10 +56,8 @@ configure_busybox_ntpd() {
         cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        diff /etc/conf.d/ntpd-orig /etc/conf.d/ntpd >> /chroot.log || true
-	        rm /etc/conf.d/ntpd-orig
-	      }
+	      diff /etc/conf.d/ntpd-orig /etc/conf.d/ntpd >> /chroot.log || true
+	      rm /etc/conf.d/ntpd-orig
 	EOF
       fi
       ;;
@@ -93,9 +89,7 @@ configure_chronyd() {
       if [ -n "$debug_enabled" ]; then
         cat <<-'EOF' >> "$run_script"
 	      # Debug
-	      {
-	        cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
-	      }
+	      cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf-orig
 	
 	EOF
       fi
@@ -106,11 +100,9 @@ configure_chronyd() {
         cat <<-'EOF' >> "$run_script"
 	
 	      # Debug
-	      {
-	        diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
-	          /chroot.log || true
-	        rm /etc/chrony/chrony.conf-orig
-	      }
+	      diff /etc/chrony/chrony.conf-orig /etc/chrony/chrony.conf >> \
+	        /chroot.log || true
+	      rm /etc/chrony/chrony.conf-orig
 	EOF
       fi
       ;;

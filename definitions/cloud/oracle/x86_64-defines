@@ -11,6 +11,9 @@
 #############################################################################
 
 
+# https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/importingcustomimagelinux.htm
+# https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/enablingserialconsoleaccess.htm#Enabling_Serial_Console_Access_for_Imported_Linux_Images
+
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
@@ -35,6 +38,7 @@ readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
 readonly CADI_SUPPORTED_RNGS="virtio"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
+readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED="115200"
 readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,virtio-scsi"
 
 
@@ -51,6 +55,7 @@ readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 readonly CADI_CLOUD_CLI_PACKAGES="oci-cli"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_CLOUD_CLI_PACKAGES_SIZE=174
+readonly CADI_DISK_IMAGE_FORMAT="qcow2"
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_EXTRA_SIZE=1

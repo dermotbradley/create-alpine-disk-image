@@ -45,6 +45,8 @@ readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional
+readonly CADI_DISK_IMAGE_FORMAT="vhd"
+readonly CADI_EXTRA_CMDLINE_OPTIONS="nvme_core.io_timeout=4294967295"
 readonly CADI_PACKAGES_ADDITIONAL="irqbalance"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_PACKAGES_ADDITIONAL_SIZE=4

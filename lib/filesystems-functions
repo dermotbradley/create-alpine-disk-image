@@ -226,10 +226,8 @@ configure_fstab() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Resultant /etc/fstab contents:" 2
-	    cat /etc/fstab >> "/chroot.log"
-	  }
+	  write_debug_log "Resultant /etc/fstab contents:" 2
+	  cat /etc/fstab >> "/chroot.log"
 	EOF
   fi
 
@@ -298,10 +296,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "/etc/filesystems content:" 4
-	      cat /etc/filesystems >> /chroot.log
-	    }
+	    write_debug_log "/etc/filesystems content:" 4
+	    cat /etc/filesystems >> /chroot.log
 	EOF
   fi
 
@@ -541,10 +537,8 @@ format_and_mount_fs() {
     cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Size of root filesystem:" 2
-	    df -BM "\$chroot_dir" >> "\$logfile"
-	  }
+	  write_debug_log "Size of root filesystem:" 2
+	  df -BM "\$chroot_dir" >> "\$logfile"
 	EOF
 	fi
 
@@ -563,10 +557,8 @@ format_and_mount_fs() {
       cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Size of boot filesystem:" 2
-	    df -BM "\$chroot_dir"/boot >> "\$logfile"
-	  }
+	  write_debug_log "Size of boot filesystem:" 2
+	  df -BM "\$chroot_dir"/boot >> "\$logfile"
 	EOF
     fi
   fi
@@ -585,10 +577,8 @@ format_and_mount_fs() {
         cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Size of ESP filesystem:" 2
-	    df -BM "\$chroot_dir"/boot/efi >> "\$logfile"
-	  }
+	  write_debug_log "Size of ESP filesystem:" 2
+	  df -BM "\$chroot_dir"/boot/efi >> "\$logfile"
 	EOF
       fi
       ;;
@@ -607,10 +597,8 @@ format_and_mount_fs() {
       cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Size of logs filesystem:" 2
-	    df -BM "\$chroot_dir"/var/log >> "\$logfile"
-	  }
+	  write_debug_log "Size of logs filesystem:" 2
+	  df -BM "\$chroot_dir"/var/log >> "\$logfile"
 	EOF
   	fi
   fi
@@ -629,10 +617,8 @@ format_and_mount_fs() {
       cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Size of cloud-init YAML filesystem:" 2
-	    df -BM "\$chroot_dir"/cidata >> "\$logfile"
-	  }
+	  write_debug_log "Size of cloud-init YAML filesystem:" 2
+	  df -BM "\$chroot_dir"/cidata >> "\$logfile"
 	EOF
   	fi
   fi
@@ -641,14 +627,12 @@ format_and_mount_fs() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Filesystems' UUIDs" 2
-	    lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
-	    write_debug_log "Blkid output:" 2
-	    lsblk \
-	      --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTLABEL \
-	      "$loop_device" >> "$logfile" 2>&1
-	  }
+	  write_debug_log "Filesystems' UUIDs" 2
+	  lsblk --ascii --fs "$loop_device" >> "$logfile" 2>&1
+	  write_debug_log "Blkid output:" 2
+	  lsblk \
+	    --output NAME,FSTYPE,LABEL,UUID,FSSIZE,FSAVAIL,FSUSED,FSUSE%,MOUNTPOINT,PARTLABEL \
+	    "$loop_device" >> "$logfile" 2>&1
 	EOF
   fi
 

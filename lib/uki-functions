@@ -62,23 +62,21 @@ configure_bootloader_uki() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    cp /etc/kernel-hooks.d/secureboot.conf \
-	      /etc/kernel-hooks.d/secureboot.conf-orig
+	  cp /etc/kernel-hooks.d/secureboot.conf \
+	    /etc/kernel-hooks.d/secureboot.conf-orig
 	EOF
 
     case $image_efi_bootstub in
       stubby )
         cat <<-'EOF' >> "$run_script"
 	
-	    cp /usr/share/kernel-hooks.d/secureboot.hook \
-	      /usr/share/kernel-hooks.d/secureboot.hook-orig
+	  cp /usr/share/kernel-hooks.d/secureboot.hook \
+	    /usr/share/kernel-hooks.d/secureboot.hook-orig
 	EOF
         ;;
     esac
 
     cat <<-'EOF' >> "$run_script"
-	  }
 	
 	EOF
   fi
@@ -147,33 +145,25 @@ configure_bootloader_uki() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "secureboot.conf differences:" 2
-	    diff /etc/kernel-hooks.d/secureboot.conf-orig \
-	      /etc/kernel-hooks.d/secureboot.conf >> /chroot.log || true
-	
-	    rm /etc/kernel-hooks.d/secureboot.conf-orig
+	  write_debug_log "secureboot.conf differences:" 2
+	  diff /etc/kernel-hooks.d/secureboot.conf-orig \
+	    /etc/kernel-hooks.d/secureboot.conf >> /chroot.log || true
+	  rm /etc/kernel-hooks.d/secureboot.conf-orig
 	EOF
 
     case $image_efi_bootstub in
       stubby )
         cat <<-EOF >> "$run_script"
 	
-	    write_debug_log "secureboot.hook differences:" 2
-	    diff /usr/share/kernel-hooks.d/secureboot.hook-orig \
-	      /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log || true
-	
-	    write_debug_log "secureboot.hook contents:" 2
-	    cat /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log
-	
-	    rm /usr/share/kernel-hooks.d/secureboot.hook-orig
+	  write_debug_log "secureboot.hook differences:" 2
+	  diff /usr/share/kernel-hooks.d/secureboot.hook-orig \
+	    /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log || true
+	  write_debug_log "secureboot.hook contents:" 2
+	  cat /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log
+	  rm /usr/share/kernel-hooks.d/secureboot.hook-orig
 	EOF
         ;;
     esac
-
-    cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
