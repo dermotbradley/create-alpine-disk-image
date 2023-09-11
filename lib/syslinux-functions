@@ -90,9 +90,7 @@ configure_bootloader_syslinux() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    cp /etc/update-extlinux.conf /etc/update-extlinux.conf-orig
-	  }
+	  cp /etc/update-extlinux.conf /etc/update-extlinux.conf-orig
 	EOF
   fi
 
@@ -152,15 +150,12 @@ configure_bootloader_syslinux() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "diff update-extlinux.conf" 2
-	    diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \\
-	      >> /chroot.log || true
-	    rm /etc/update-extlinux.conf-orig
-	
-	    write_debug_log "update-extlinux.conf contents:" 2
-	    cat /etc/update-extlinux.conf >> /chroot.log
-	  }
+	  write_debug_log "diff update-extlinux.conf" 2
+	  diff /etc/update-extlinux.conf-orig /etc/update-extlinux.conf \\
+	    >> /chroot.log || true
+	  rm /etc/update-extlinux.conf-orig
+	  write_debug_log "update-extlinux.conf contents:" 2
+	  cat /etc/update-extlinux.conf >> /chroot.log
 	EOF
   fi
 
@@ -202,11 +197,9 @@ install_syslinux() {
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
-	{
-	  cp /boot/extlinux.conf /boot/extlinux.conf-orig
-	  write_debug_log "/boot/extlinux.conf contents at start:"
-	  cat /boot/extlinux.conf >> /chroot.log
-	}
+	cp /boot/extlinux.conf /boot/extlinux.conf-orig
+	write_debug_log "/boot/extlinux.conf contents at start:"
+	cat /boot/extlinux.conf >> /chroot.log
 	EOF
   fi
 
@@ -230,10 +223,8 @@ install_syslinux() {
         cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/boot/extlinux.conf contents after extlinux --install:"
-	    cat /boot/extlinux.conf >> /chroot.log
-	  }
+	  write_debug_log "/boot/extlinux.conf contents after extlinux --install:"
+	  cat /boot/extlinux.conf >> /chroot.log
 	EOF
       fi
       ;;
@@ -243,10 +234,8 @@ install_syslinux() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Before update-extlinux" 2
-	    busybox ls -ltrR /boot/ >> /chroot.log
-	  }
+	  write_debug_log "Before update-extlinux" 2
+	  busybox ls -ltrR /boot/ >> /chroot.log
 	EOF
   fi
 
@@ -260,10 +249,8 @@ install_syslinux() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/boot/extlinux.conf contents after update-extlinux:"
-	    cat /boot/extlinux.conf >> /chroot.log
-	  }
+	  write_debug_log "/boot/extlinux.conf contents after update-extlinux:"
+	  cat /boot/extlinux.conf >> /chroot.log
 	
 	EOF
   fi
@@ -274,20 +261,13 @@ install_syslinux() {
 	EOF
 
   if [ -n "$debug_enabled" ]; then
-
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	EOF
-
-    cat <<-'EOF' >> "$run_script"
-	    diff /boot/extlinux.conf-orig /boot/extlinux.conf >> /chroot.log || true
-	    rm /boot/extlinux.conf-orig
-	
-	    write_debug_log "extlinux.conf contents:" 2
-	    cat /boot/extlinux.conf >> /chroot.log
-	  }
+	  diff /boot/extlinux.conf-orig /boot/extlinux.conf >> /chroot.log || true
+	  rm /boot/extlinux.conf-orig
+	  write_debug_log "extlinux.conf contents:" 2
+	  cat /boot/extlinux.conf >> /chroot.log
 	EOF
   fi
 

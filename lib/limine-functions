@@ -61,10 +61,8 @@ configure_bootloader_limine() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    write_debug_log "Root fs partition device is $root_part_device" 2
-	    write_debug_log "Loopback device is $loop_device" 2
-	  }
+	  write_debug_log "Root fs partition device is $root_part_device" 2
+	  write_debug_log "Loopback device is $loop_device" 2
 	
 	EOF
   fi
@@ -194,10 +192,8 @@ EOF
     cat <<-EOF >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "Contents of limine.cfg:" 2
-	      cat $_config_file_path >> /chroot.log 2>&1 || true
-	    }
+	    write_debug_log "Contents of limine.cfg:" 2
+	    cat $_config_file_path >> /chroot.log 2>&1 || true
 	EOF
   fi
 

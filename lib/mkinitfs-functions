@@ -25,7 +25,7 @@ configure_mkinitfs() {
 	{
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     configure_mkinitfs_conf "optimise-"
   else
     configure_mkinitfs_conf
@@ -40,7 +40,7 @@ configure_mkinitfs() {
     configure_mkinitfs_feature_network
   fi
   if [ "$image_os_device_type" = "usb" ] || \
-     { [ -z "$image_optimise" ] && \
+     { [ -n "$image_disable_optimisation" ] && \
        { [ "$image_keyboard_type" = "usb" ] || \
          [ "$image_keyboard_type" = "generic" ]; }; }; then
     # Either using USB for boot or else USB keyboard support with
@@ -74,14 +74,13 @@ configure_mkinitfs() {
   cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Regenerating initramfs" 2
-	  {
-	    mkinitfs "\$_kernel_version" >> /chroot.log 2>&1
-	  }
+	  mkinitfs "\$_kernel_version" >> /chroot.log 2>&1
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	
+	  # Debug
 	  write_debug_log "Disk space usage after initramfs regenerated:" 2
 	  df -k >> /chroot.log
 	EOF
@@ -109,8 +108,7 @@ configure_mkinitfs_conf() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    cp /etc/mkinitfs/mkinitfs.conf /etc/mkinitfs/mkinitfs.conf-orig
+	  cp /etc/mkinitfs/mkinitfs.conf /etc/mkinitfs/mkinitfs.conf-orig
 	EOF
   fi
 
@@ -120,7 +118,7 @@ configure_mkinitfs_conf() {
   fi
 
   if [ "$image_os_device_type" = "usb" ] || \
-     { [ -z "$image_optimise" ] && \
+     { [ -n "$image_disable_optimisation" ] && \
        { [ "$image_keyboard_type" = "usb" ] || \
          [ "$image_keyboard_type" = "generic" ]; }; }; then
     # Either using USB for boot or else USB keyboard support with
@@ -174,7 +172,6 @@ configure_mkinitfs_conf() {
       ;;
   esac
 
-
   case $image_class in
     cloud )
       _subclass_type="$image_cloud_type"
@@ -190,9 +187,7 @@ configure_mkinitfs_conf() {
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
-	
-	    write_debug_log "mkinitfs features list is: ${_features_list}" 2
-	  }
+	  write_debug_log "mkinitfs features list is: ${_features_list}" 2
 	EOF
   fi
 
@@ -215,11 +210,9 @@ configure_mkinitfs_conf() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    diff /etc/mkinitfs/mkinitfs.conf-orig /etc/mkinitfs/mkinitfs.conf \
-	      >> /chroot.log || true
-	    rm /etc/mkinitfs/mkinitfs.conf-orig
-	  }
+	  diff /etc/mkinitfs/mkinitfs.conf-orig /etc/mkinitfs/mkinitfs.conf \
+	    >> /chroot.log || true
+	  rm /etc/mkinitfs/mkinitfs.conf-orig
 	EOF
   fi
 }
@@ -235,7 +228,7 @@ configure_mkinitfs_feature_base() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-base.files
 
     cat <<-'EOF' >> "$run_script"
@@ -271,10 +264,8 @@ configure_mkinitfs_feature_base() {
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      write_debug_log "optimise-base.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-base.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-base.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-base.files >> /chroot.log
 	
 	EOF
     fi
@@ -294,48 +285,51 @@ configure_mkinitfs_feature_base() {
       normal | normal_and_serial | generic )
         case $image_keyboard_type in
           usb | generic )
-            # Need to add USB HID-related drivers to mkinitfs so that USB
-            # keyboard can work in initramfs (i.e. for typing in Rescue Mode
-            # or entering decryption passphrase for LUKS encryption)
-            initramfs_entry_add "# USB keyboard-related modules"
-            initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
-            initramfs_entry_add "kernel/drivers/hid/usbhid/usbhid.ko*"
-            initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
-            case $image_class in
-              physical )
-                # Extra vendor keyboards
-                initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
-                initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
-                initramfs_entry_add "kernel/drivers/hid/hid-kensington.ko*"
-                initramfs_entry_add "kernel/drivers/hid/hid-lenovo.ko*"
-                initramfs_entry_add "kernel/drivers/hid/hid-logitech.ko*"
-                initramfs_entry_add "kernel/drivers/hid/hid-microsoft.ko*"
-                ;;
-            esac
-            case $image_arch in
-              aarch64 | armv7 )
-                # Include OHCI module for Arm
-                initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*" ;;
-              x86 | x86_64 )
-                # Include OHCI module by default, or where CPU vendor is
-                # specified and is not Intel
-                if [ -z "$image_cpu_vendor" ] || \
-                   [ "$image_cpu_vendor" != "intel" ]; then
-                  initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
-                fi
-                ;;
-            esac
-            case $image_arch in
-              x86 | x86_64 )
-                # Include UHCI module by default, or where CPU vendor is
-                # specified and is Intel
-                if [ -z "$image_cpu_vendor" ] || \
-                   [ "$image_cpu_vendor" = "intel" ]; then
-                  initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
-                fi
-                ;;
-            esac
-            initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+            if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                "usb"; then
+              # Need to add USB HID-related drivers to mkinitfs so that USB
+              # keyboard can work in initramfs (i.e. for typing in Rescue Mode
+              # or entering decryption passphrase for LUKS encryption)
+              initramfs_entry_add "# USB keyboard-related modules"
+              initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
+              initramfs_entry_add "kernel/drivers/hid/usbhid/usbhid.ko*"
+              initramfs_entry_add "kernel/drivers/usb/host/ehci-pci.ko*"
+              case $image_class in
+                physical )
+                  # Extra vendor keyboards
+                  initramfs_entry_add "kernel/drivers/hid/hid-cherry.ko*"
+                  initramfs_entry_add "kernel/drivers/hid/hid-apple.ko*"
+                  initramfs_entry_add "kernel/drivers/hid/hid-kensington.ko*"
+                  initramfs_entry_add "kernel/drivers/hid/hid-lenovo.ko*"
+                  initramfs_entry_add "kernel/drivers/hid/hid-logitech.ko*"
+                  initramfs_entry_add "kernel/drivers/hid/hid-microsoft.ko*"
+                  ;;
+              esac
+              case $image_arch in
+                aarch64 | armv7 )
+                  # Include OHCI module for Arm
+                  initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*" ;;
+                x86 | x86_64 )
+                  # Include OHCI module by default, or where CPU vendor is
+                  # specified and is not Intel
+                  if [ -z "$image_cpu_vendor" ] || \
+                     [ "$image_cpu_vendor" != "intel" ]; then
+                    initramfs_entry_add "kernel/drivers/usb/host/ohci-pci.ko*"
+                  fi
+                  ;;
+              esac
+              case $image_arch in
+                x86 | x86_64 )
+                  # Include UHCI module by default, or where CPU vendor is
+                  # specified and is Intel
+                  if [ -z "$image_cpu_vendor" ] || \
+                     [ "$image_cpu_vendor" = "intel" ]; then
+                    initramfs_entry_add "kernel/drivers/usb/host/uhci-hcd.ko*"
+                  fi
+                  ;;
+              esac
+              initramfs_entry_add "kernel/drivers/usb/host/xhci-pci.ko*"
+            fi
             ;;
         esac
 
@@ -360,10 +354,8 @@ configure_mkinitfs_feature_base() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-base.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-base.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-base.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-base.modules >> /chroot.log
 	EOF
     fi
 
@@ -373,10 +365,8 @@ configure_mkinitfs_feature_base() {
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      write_debug_log "base.files contents:" 2
-	      cat /etc/mkinitfs/features.d/base.files
-	    }
+	    write_debug_log "base.files contents:" 2
+	    cat /etc/mkinitfs/features.d/base.files
 	
 	EOF
     fi
@@ -388,21 +378,17 @@ configure_mkinitfs_feature_base() {
 	EOF
 
     initramfs_entry_initialise "base" "append"
-
     if [ -n "$image_hwrng" ] && [ "$image_class" = "physical" ]; then
       initramfs_entry_add "kernel/drivers/char/hw_random/*.ko*"
     fi
-
     initramfs_entry_finish
 
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "base.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/base.modules >> /chroot.log
-	    }
+	    write_debug_log "base.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/base.modules >> /chroot.log
 	EOF
     fi
 
@@ -424,7 +410,7 @@ configure_mkinitfs_feature_bootchart() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-bootchart.files
 
     cat <<-'EOF' >> "$run_script"
@@ -439,10 +425,8 @@ configure_mkinitfs_feature_bootchart() {
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      write_debug_log "optimise-bootchart.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-bootchart.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-bootchart.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-bootchart.files >> /chroot.log
 	
 	EOF
     fi
@@ -457,11 +441,8 @@ configure_mkinitfs_feature_bootchart() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "bootchart.files contents:" 2
-	      cat /etc/mkinitfs/features.d/bootchart.files >> /chroot.log
-	    }
-	
+	    write_debug_log "bootchart.files contents:" 2
+	    cat /etc/mkinitfs/features.d/bootchart.files >> /chroot.log
 	EOF
     fi
   fi
@@ -482,7 +463,7 @@ configure_mkinitfs_feature_btrfs() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-btrfs.files
 
     cat <<-'EOF' >> "$run_script"
@@ -496,10 +477,8 @@ configure_mkinitfs_feature_btrfs() {
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      write_debug_log "optimise-btrfs.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-btrfs.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-btrfs.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-btrfs.files >> /chroot.log
 	
 	EOF
     fi
@@ -526,10 +505,8 @@ configure_mkinitfs_feature_btrfs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-btrfs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-btrfs.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-btrfs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-btrfs.modules >> /chroot.log
 	EOF
     fi
 
@@ -544,10 +521,8 @@ configure_mkinitfs_feature_btrfs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "btrfs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/btrfs.modules >> /chroot.log
-	    }
+	    write_debug_log "btrfs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/btrfs.modules >> /chroot.log
 	EOF
 
     fi
@@ -570,7 +545,7 @@ configure_mkinitfs_feature_cryptsetup() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-cryptsetup.files
 
     cat <<-'EOF' >> "$run_script"
@@ -584,10 +559,8 @@ configure_mkinitfs_feature_cryptsetup() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-cryptsetup.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-cryptsetup.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-cryptsetup.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-cryptsetup.files >> /chroot.log
 	EOF
     fi
 
@@ -619,7 +592,10 @@ configure_mkinitfs_feature_cryptsetup() {
             initramfs_entry_add "kernel/arch/arm64/crypto/*-ce*.ko*" ;;
           physical )
             case $image_physical_type in
-              arm-server )
+              rpi* )
+                # Raspberry Pis don't have crypto instructions
+                : ;;
+              * )
                 # Add Arm Crypto Extension modules for ARM64 physical servers
                 initramfs_entry_add "kernel/arch/arm64/crypto/*-ce*.ko*" ;;
             esac
@@ -665,10 +641,8 @@ configure_mkinitfs_feature_cryptsetup() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-cryptsetup.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-cryptsetup.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-cryptsetup.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-cryptsetup.modules >> /chroot.log
 	EOF
     fi
   else
@@ -693,7 +667,7 @@ configure_mkinitfs_feature_ext4() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-ext4.modules
 
     cat <<-'EOF' >> "$run_script"
@@ -719,13 +693,10 @@ configure_mkinitfs_feature_ext4() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-ext4.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-ext4.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-ext4.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-ext4.modules >> /chroot.log
 	EOF
     fi
-
   else
     # ext4.modules
 
@@ -737,14 +708,10 @@ configure_mkinitfs_feature_ext4() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "ext4.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/ext4.modules >> /chroot.log
-	    }
+	    write_debug_log "ext4.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/ext4.modules >> /chroot.log
 	EOF
-
     fi
-
   fi
 
   cat <<-'EOF' >> "$run_script"
@@ -763,7 +730,7 @@ configure_mkinitfs_feature_f2fs() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-f2fs.modules
 
     cat <<-'EOF' >> "$run_script"
@@ -786,13 +753,10 @@ configure_mkinitfs_feature_f2fs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-f2fs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-f2fs.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-f2fs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-f2fs.modules >> /chroot.log
 	EOF
     fi
-
   else
     # f2fs.modules
 
@@ -804,14 +768,10 @@ configure_mkinitfs_feature_f2fs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "f2fs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/f2fs.modules >> /chroot.log
-	    }
+	    write_debug_log "f2fs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/f2fs.modules >> /chroot.log
 	EOF
-
     fi
-
   fi
 
   cat <<-'EOF' >> "$run_script"
@@ -830,10 +790,8 @@ configure_mkinitfs_feature_keymap() {
 	  # Keymap
 	  {
 	    # Debug
-	    {
-	      write_debug_log "keymap.files contents:" 2
-	      cat /etc/mkinitfs/features.d/keymap.files >> /chroot.log
-	    }
+	    write_debug_log "keymap.files contents:" 2
+	    cat /etc/mkinitfs/features.d/keymap.files >> /chroot.log
 	  }
 	EOF
   fi
@@ -850,7 +808,7 @@ configure_mkinitfs_feature_lvm() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-lvm.files
     cat <<-'EOF' >> "$run_script"
 	    write_log "Setting up features.d/optimise-lvm.files" 2
@@ -863,10 +821,8 @@ configure_mkinitfs_feature_lvm() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-lvm.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-lvm.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-lvm.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-lvm.files >> /chroot.log
 	EOF
     fi
 
@@ -886,10 +842,8 @@ configure_mkinitfs_feature_lvm() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-lvm.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-lvm.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-lvm.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-lvm.modules >> /chroot.log
 	EOF
     fi
 
@@ -903,80 +857,10 @@ configure_mkinitfs_feature_lvm() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "lvm.files contents:" 2
-	      cat /etc/mkinitfs/features.d/lvm.files >> /chroot.log
-	
-	      write_debug_log "lvm.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/lvm.modules >> /chroot.log
-	    }
-	EOF
-    fi
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create/modify mmc mkinitfs feature files
-#
-configure_mkinitfs_feature_mmc() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  # MMC
-	  {
-	EOF
-
-  if [ -n "$image_optimise" ]; then
-    # optimise-mmc.modules
-    cat <<-'EOF' >> "$run_script"
-	
-	    write_log "Setting up features.d/optimise-mmc.modules" 2
-	EOF
-
-    initramfs_entry_initialise "optimise-mmc"
-    case $image_physical_type in
-      pc )
-        initramfs_entry_add "kernel/drivers/mmc" ;;
-      rpi* )
-        if [ "$image_physical_type" = "rpi4" ]; then
-          # RPI4 only?
-          initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
-          initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
-          initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
-        fi
-        ;;
-    esac
-    initramfs_entry_finish
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "optimise-mmc.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-mmc.modules >> /chroot.log
-	    }
-	EOF
-    fi
-
-  else
-    # mmc.modules
-    cat <<-'EOF' >> "$run_script"
-	    :
-	EOF
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "mmc.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/mmc.modules >> /chroot.log
-	    }
+	    write_debug_log "lvm.files contents:" 2
+	    cat /etc/mkinitfs/features.d/lvm.files >> /chroot.log
+	    write_debug_log "lvm.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/lvm.modules >> /chroot.log
 	EOF
     fi
   fi
@@ -997,7 +881,7 @@ configure_mkinitfs_feature_network() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-network.files
     cat <<-'EOF' >> "$run_script"
 	    write_log "Setting up features.d/optimise-network.files" 2
@@ -1013,10 +897,8 @@ configure_mkinitfs_feature_network() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-network.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-network.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-network.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-network.files >> /chroot.log
 	EOF
     fi
 
@@ -1037,26 +919,32 @@ configure_mkinitfs_feature_network() {
       if [ -n "$luks_remote_unlock_enabled" ]; then
         if [ -n "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" ]; then
           if [ -n "$image_ethernet_module" ]; then
-            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "$image_ethernet_module"; then
+            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
+                                "$image_ethernet_module"; then
               convert_network_names_to_initramfs_entries "$image_ethernet_module"
               case $image_ethernet_module in
                 r8169 )
                   initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*" ;;
               esac
             else
-              error_message "Ethernet driver '$image_ethernet_module' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
+              error_message \
+                "Ethernet driver '$image_ethernet_module' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
             fi
           elif [ -n "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" ]; then
-            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
+            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
+                                "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
               convert_network_names_to_initramfs_entries "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"
             else
-              error_message "'$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
+              error_message \
+                "'$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
             fi
           else
-            error_message "CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER is not defined for '$image_class'!"
+            error_message \
+              "CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER is not defined for '$image_class'!"
           fi
         else
-          error_message "CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS is not defined for '$image_class'!"
+          error_message \
+            "CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS is not defined for '$image_class'!"
         fi
       fi
 
@@ -1066,10 +954,8 @@ configure_mkinitfs_feature_network() {
         cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-network.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-network.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-network.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-network.modules >> /chroot.log
 	EOF
       fi
     else
@@ -1100,146 +986,12 @@ configure_mkinitfs_feature_network() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "network.files contents:" 2
-	      cat /etc/mkinitfs/features.d/network.files >> /chroot.log
-	
-	      write_debug_log "network.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/network.modules >> /chroot.log
-	    }
+	    write_debug_log "network.files contents:" 2
+	    cat /etc/mkinitfs/features.d/network.files >> /chroot.log
+	    write_debug_log "network.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/network.modules >> /chroot.log
 	EOF
     fi
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create/modify nvme mkinitfs feature files
-#
-configure_mkinitfs_feature_nvme() {
-  cat <<-'EOF' >> "$run_script"
-	
-	   # NVME
-	  {
-	EOF
-
-  if [ -n "$image_optimise" ]; then
-    # optimise-nvme.modules
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/optimise-nvme.modules" 2
-	EOF
-
-    initramfs_entry_initialise "optimise-nvme"
-    initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-    initramfs_entry_add "kernel/drivers/pci/controller/vmd.ko*"
-    initramfs_entry_finish
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "optimise-nvme.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-nvme.modules >> /chroot.log
-	    }
-	EOF
-    fi
-
-  else
-    # nvme.modules
-    cat <<-'EOF' >> "$run_script"
-	    :
-	EOF
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "nvme.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/nvme.modules >> /chroot.log
-	    }
-	EOF
-    fi
-
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create/modify scsi mkinitfs feature files
-#
-configure_mkinitfs_feature_scsi() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  # SCSI
-	  {
-	EOF
-
-  if [ -n "$image_optimise" ]; then
-    # optimised-scsi.modules
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/optimise-scsi.modules" 2
-	EOF
-
-    initramfs_entry_initialise "optimise-scsi"
-
-    case $image_physical_type in
-      arm-server | pc )
-        case $image_os_device_type in
-          sata | scsi )
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*" ;;
-          usb )
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-            initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
-            ;;
-        esac
-        ;;
-      rpi* )
-        if [ "$image_os_device_type" = "usb" ]; then
-          initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-          initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
-        fi
-        ;;
-    esac
-    initramfs_entry_finish
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "optimise-scsi.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-scsi.modules >> /chroot.log
-	    }
-	EOF
-    fi
-
-  else
-    # scsi.modules
-    cat <<-'EOF' >> "$run_script"
-	    :
-	EOF
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "scsi.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/scsi.modules >> /chroot.log
-	    }
-	EOF
-    fi
-
   fi
 
   cat <<-'EOF' >> "$run_script"
@@ -1258,22 +1010,22 @@ configure_mkinitfs_feature_usb() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-usb.modules
     cat <<-'EOF' >> "$run_script"
 	    write_log "Setting up features.d/optimise-usb.modules" 2
 	EOF
 
     initramfs_entry_initialise "optimise-usb"
-
-    # OS device
     case $image_class in
       physical )
         # Boot/root filesystem stored on USB device
         case $image_os_device_type in
-          usb )
-            initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
-            initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
+          usb | generic )
+            if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "usb"; then
+              initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
+              initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
+            fi
             ;;
         esac
         case $image_physical_type in
@@ -1290,13 +1042,10 @@ configure_mkinitfs_feature_usb() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-usb.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-usb.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-usb.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-usb.modules >> /chroot.log
 	EOF
     fi
-
   else
     # usb.modules
     cat <<-'EOF' >> "$run_script"
@@ -1307,73 +1056,11 @@ configure_mkinitfs_feature_usb() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "usb.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/usb.modules >> /chroot.log
-	    }
+	    write_debug_log "usb.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/usb.modules >> /chroot.log
 	EOF
     fi
 
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create/modify virthost mkinitfs feature files
-#
-configure_mkinitfs_feature_virthost() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  # VirtHost
-	  {
-	EOF
-
-  if [ -n "$image_optimise" ]; then
-    # optimised-virthost.modules
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/optimise-virthost.modules" 2
-	EOF
-
-    initramfs_entry_initialise "optimise-virthost"
-    initramfs_entry_add "kernel/drivers/vhost/vhost.ko*"
-    initramfs_entry_add "kernel/drivers/vhost/vhost_net.ko*"
-    initramfs_entry_add "kernel/drivers/vhost/vhost_scsi.ko*"
-    initramfs_entry_finish
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "optimise-virthost.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-virthost.modules >> /chroot.log
-	    }
-	EOF
-    fi
-  else
-    # virthost.modules
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/virthost.modules" 2
-	EOF
-
-    initramfs_entry_initialise "virthost"
-    initramfs_entry_add "kernel/drivers/vhost/*.ko*"
-    initramfs_entry_finish
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "virthost.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/virthost.modules >> /chroot.log
-	    }
-	EOF
-    fi
   fi
 
   cat <<-'EOF' >> "$run_script"
@@ -1392,7 +1079,7 @@ configure_mkinitfs_feature_xfs() {
 	  {
 	EOF
 
-  if [ -n "$image_optimise" ]; then
+  if [ -z "$image_disable_optimisation" ]; then
     # optimise-xfs.files
     cat <<-'EOF' >> "$run_script"
 	    write_log "Setting up features.d/optimise-xfs.files" 2
@@ -1405,10 +1092,8 @@ configure_mkinitfs_feature_xfs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-xfs.files contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-xfs.files >> /chroot.log
-	    }
+	    write_debug_log "optimise-xfs.files contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-xfs.files >> /chroot.log
 	EOF
     fi
 
@@ -1435,13 +1120,10 @@ configure_mkinitfs_feature_xfs() {
       cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "optimise-xfs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/optimise-xfs.modules >> /chroot.log
-	    }
+	    write_debug_log "optimise-xfs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/optimise-xfs.modules >> /chroot.log
 	EOF
     fi
-
   else
     # xfs.files and xfs.modules
     cat <<-'EOF' >> "$run_script"
@@ -1451,15 +1133,11 @@ configure_mkinitfs_feature_xfs() {
     if [ -n "$debug_enabled" ]; then
       cat <<-'EOF' >> "$run_script"
 	
-	    {
-	      # Debug
-	      write_debug_log "xfs.files contents:" 2
-	      cat /etc/mkinitfs/features.d/xfs.files >> /chroot.log
-	
-	      # Debug
-	      write_debug_log "xfs.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/xfs.modules >> /chroot.log
-	    }
+	    # Debug
+	    write_debug_log "xfs.files contents:" 2
+	    cat /etc/mkinitfs/features.d/xfs.files >> /chroot.log
+	    write_debug_log "xfs.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/xfs.modules >> /chroot.log
 	EOF
     fi
 
@@ -1479,6 +1157,7 @@ configure_mkinitfs_image_type_feature() {
 
   cat <<-EOF >> "$run_script"
 	
+	  # ${image_class}-${image_class_subtype}
 	  {
 	    write_log "Setting up features.d/${image_class}-${image_class_subtype}.modules" 2
 	EOF
@@ -1491,13 +1170,14 @@ configure_mkinitfs_image_type_feature() {
       initramfs_entry_add "kernel/drivers/acpi/button.ko*" ;;
 
     generic )
-      if is_in_comma_list "CADI_SUPPORTED_ACPI_BUTTONS" "button"; then
+      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" "button"; then
         initramfs_entry_add "kernel/drivers/acpi/button.ko*"
       fi
-      if is_in_comma_list "CADI_SUPPORTED_ACPI_BUTTONS" "tiny-power-button"; then
+      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" \
+                          "tiny-power-button"; then
         initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
       fi
-      if is_in_comma_list "CADI_SUPPORTED_ACPI_BUTTONS" "gpio"; then
+      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" "gpio"; then
         case $image_arch in
           aarch64 )
             initramfs_entry_add "kernel/drivers/gpio/gpio-pl061.ko*" ;;
@@ -1575,10 +1255,12 @@ configure_mkinitfs_image_type_feature() {
   case $image_console_device_type in
     hypervisor )
       if [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "hypervisor"; then
+         is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                          "hypervisor"; then
         initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
       else
-        error_message "Virtio console is not supported by $class_type_description!"
+        error_message \
+          "Virtio console is not supported by $class_type_description!"
       fi
       ;;
 
@@ -1622,7 +1304,8 @@ configure_mkinitfs_image_type_feature() {
                 fi
               done
             else
-              error_message "Adding graphic drivers to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
+              error_message \
+                "Adding graphic drivers to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
             fi
             ;;
 
@@ -1632,7 +1315,8 @@ configure_mkinitfs_image_type_feature() {
               #  List of supported graphics drivers is defined
               if [ -n "$image_graphics_driver" ]; then
                 # Override default graphics driver
-                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" "$image_graphics_driver"; then
+                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
+                                    "$image_graphics_driver"; then
                   if [ "$image_graphics_driver" = "generic" ]; then
                     # Add every graphics driver listed (except "generic")
                     _list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
@@ -1647,7 +1331,8 @@ configure_mkinitfs_image_type_feature() {
                           if [ -n "$_driver_path" ]; then
                             initramfs_entry_add "$_driver_path"
                           else
-                            error_message "Unknown graphics driver: $_list_item!"
+                            error_message \
+                              "Unknown graphics driver: $_list_item!"
                           fi
                           ;;
                       esac
@@ -1662,17 +1347,20 @@ configure_mkinitfs_image_type_feature() {
                   else
                     _driver_path="$(get_graphics_driver_initfs_path "$image_graphics_driver")"
                     if [ -z "$_driver_path" ]; then
-                      error_message "Unknown graphics driver: $image_graphics_driver!"
+                      error_message \
+                        "Unknown graphics driver: $image_graphics_driver!"
                     else
                       initramfs_entry_add "$_driver_path"
                     fi
                   fi
                 else
-                  error_message "Specified graphic driver '$image_graphics_driver' is not supported by $class_type_description!"
+                  error_message \
+                    "Specified graphic driver '$image_graphics_driver' is not supported by $class_type_description!"
                 fi
               elif [ -n "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" ]; then
                 # Use the default graphics driver
-                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
+                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
+                                    "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
                   if [ "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" = "generic" ]; then
                     # Add every graphics driver listed (except "generic")
                     _list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
@@ -1687,7 +1375,8 @@ configure_mkinitfs_image_type_feature() {
                           if [ -n "$_driver_path" ]; then
                             initramfs_entry_add "$_driver_path"
                           else
-                            error_message "Unknown graphics driver: $_list_item!"
+                            error_message \
+                              "Unknown graphics driver: $_list_item!"
                           fi
                           ;;
                       esac
@@ -1702,21 +1391,35 @@ configure_mkinitfs_image_type_feature() {
                   else
                     _driver_path="$(get_graphics_driver_initfs_path "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER")"
                     if [ -z "$_driver_path" ]; then
-                      error_message "Unknown graphics driver: $CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
+                      error_message \
+                        "Unknown graphics driver: $CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
                     else
                       initramfs_entry_add "$_driver_path"
                     fi
                   fi
                 else
-                  error_message "Wanted to add default graphic driver '$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER' to initramfs but it is not defined in CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
+                  error_message \
+                    "Wanted to add default graphic driver '$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER' to initramfs but it is not defined in CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
+                fi
+              elif is_single_entry_in_comma_list \
+                   "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"; then
+                # No default driver defined as supported list has single entry
+                _driver_path="$(get_graphics_driver_initfs_path "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS")"
+                if [ -z "$_driver_path" ]; then
+                  error_message \
+                    "Unknown graphics driver: $CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS!"
+                else
+                  initramfs_entry_add "$_driver_path"
                 fi
               else
                 # No default graphics driver is defined
-                error_message "Wanted to add default graphic driver to initramfs but CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER is not defined!"
+                error_message \
+                  "Wanted to add default graphic driver to initramfs but CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER is not defined!"
               fi
             else
               #  No list of supported graphics drivers is defined
-              error_message "Wanted to add graphic driver to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
+              error_message \
+                "Wanted to add graphic driver to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
             fi
             ;;
         esac
@@ -1724,7 +1427,8 @@ configure_mkinitfs_image_type_feature() {
         # Text console
         if [ "$image_console_device_type" = "generic" ] && \
            [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
-           is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "hypervisor"; then
+           is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                            "hypervisor"; then
           initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
         fi
       fi
@@ -1735,7 +1439,8 @@ configure_mkinitfs_image_type_feature() {
   if [ -n "$luks_remote_unlock_enabled" ]; then
     if [ -n "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" ]; then
       if [ -n "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
+         is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
+                          "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
         case $CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER in
           hyperv )
             initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*" ;;
@@ -1766,7 +1471,8 @@ configure_mkinitfs_image_type_feature() {
         done
       fi
     else
-      error_message "Unable to determine network driver to add to initramfs for remote encryption unlocking support!"
+      error_message \
+        "Unable to determine network driver to add to initramfs for remote encryption unlocking support!"
     fi
   fi
 
@@ -1776,7 +1482,8 @@ configure_mkinitfs_image_type_feature() {
 
     if [ -n "$CADI_DEFAULT_OS_DEVICE_TYPE" ] && \
        [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
+       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                        "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
       case $CADI_DEFAULT_OS_DEVICE_TYPE in
         generic )
           initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
@@ -1858,8 +1565,9 @@ configure_mkinitfs_image_type_feature() {
           nvme )
             initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*" ;;
           pvscsi )
-            # VMware's VMDK file provides no way to indicate PVSCSI is used, can only
-            # indicate "lsi_logic" and then later switch the VM to use PVSCSI.
+            # VMware's VMDK file provides no way to indicate PVSCSI is used,
+            # can only indicate "lsi_logic" and then later switch the VM to
+            # use PVSCSI.
             initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
             initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
             ;;
@@ -1883,10 +1591,12 @@ configure_mkinitfs_image_type_feature() {
         fi
       done
     else
-      error_message "Unable to determine storage driver to add to initramfs for booting!"
+      error_message \
+        "Unable to determine storage driver to add to initramfs for booting!"
     fi
   elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "$image_os_device_type"; then
+       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                        "$image_os_device_type"; then
     case $image_os_device_type in
       generic )
         # Check every storage device listed
@@ -1903,8 +1613,9 @@ configure_mkinitfs_image_type_feature() {
               fi
               ;;
             pvscsi )
-              # VMware's VMDK file provides no way to indicate PVSCSI is used, can only
-              # indicate "lsi_logic" and then later switch the VM to use PVSCSI.
+              # VMware's VMDK file provides no way to indicate PVSCSI is used,
+              # can only indicate "lsi_logic" and then later switch the VM to
+              # use PVSCSI.
               initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
               initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
               ;;
@@ -1967,8 +1678,8 @@ configure_mkinitfs_image_type_feature() {
         ;;
 
       pvscsi )
-        # VMware's VMDK file provides no way to indicate PVSCSI is used, can only
-        # indicate "lsi_logic" and then later switch the VM to use PVSCSI.
+        # VMware's VMDK file provides no way to indicate PVSCSI is used, can
+        # only indicate "lsi_logic" and then later switch the VM to use PVSCSI.
         initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
         initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
         ;;
@@ -2050,10 +1761,8 @@ configure_mkinitfs_image_type_feature() {
     cat <<-EOF >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "${image_class}-${image_class_subtype}.modules contents:" 2
-	      cat /etc/mkinitfs/features.d/${image_class}-${image_class_subtype}.modules >> /chroot.log
-	    }
+	    write_debug_log "${image_class}-${image_class_subtype}.modules contents:" 2
+	    cat /etc/mkinitfs/features.d/${image_class}-${image_class_subtype}.modules >> /chroot.log
 	EOF
   fi
 

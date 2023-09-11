@@ -171,13 +171,11 @@ if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
-	{
-	  write_debug_log "Resultant partition layout:" 2
-	  parted --machine --script --align=optimal $image_full_filename \
-	    unit s print >> $logfile
-	  parted --machine --script --align=optimal $image_full_filename \
-	    unit MiB print >> $logfile
-	}
+	write_debug_log "Resultant partition layout:" 2
+	parted --machine --script --align=optimal $image_full_filename \
+	  unit s print >> $logfile
+	parted --machine --script --align=optimal $image_full_filename \
+	  unit MiB print >> $logfile
 	EOF
   fi
 fi
@@ -206,7 +204,7 @@ case $image_bootloader in
         if { [ -z "$image_experimental" ] || \
              [ -z "$remote_luks_unlock_enabled" ]; } && \
            [ -z "$image_no_grub_luks_fde_encryption" ] && \
-           [ -z "$needs_boot_partition" ]; then
+           [ "$image_create_boot_partition" = "false" ]; then
           # LUKS keyfile is used to unlock LUKS rootfs without 2nd password prompt.
           # It applies only when:
           #  - bootloader is Grub, AND
@@ -292,7 +290,7 @@ install_additional_packages
 additional_os_configuration
 configure_autoconfiguration_software
 
-if [ -n "$image_optimise" ]; then
+if [ -z "$image_disable_optimisation" ]; then
   disable_kernel_modules
 fi
 if [ -n "$image_harden" ]; then
@@ -550,9 +548,7 @@ fi
 
 chmod +x "$run_script"
 
-echo
-echo "Created tailored script '$run_script'."
-echo "This script must be run as user 'root'."
-echo
+printf '\nCreated tailored script '\''%s'\''.\n' "$run_script"
+printf 'This script must be run as user '\''root'\''.\n\n'
 
 exit

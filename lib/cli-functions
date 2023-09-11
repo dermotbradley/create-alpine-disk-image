@@ -58,6 +58,7 @@ device-management:,\
 dhcp-client:,\
 disable-cloud-provider-cli,\
 disable-hypervisor-agent,\
+disable-optimisation,\
 disk-resize-free-percent:,\
 do-not-convert-image,\
 enable-graphics,\
@@ -109,7 +110,6 @@ no-grub-encryption,\
 ntp-pools:,\
 ntp-servers:,\
 ntp-use:,\
-optimise,\
 os-device-media:,\
 os-device-sector-size:,\
 os-device-type:,\
@@ -449,6 +449,14 @@ help\
       --disable-hypervisor-agent )
         if [ "$script_type" = "creator" ]; then
           image_disable_hypervisor_agent=true
+        else
+          cli_option_not_handled
+        fi
+        shift
+        ;;
+      --disable-optimisation )
+        if [ "$script_type" = "creator" ]; then
+         image_disable_optimisation=true
         else
           cli_option_not_handled
         fi
@@ -864,14 +872,6 @@ help\
         esac
         shift 2
         ;;
-      --optimise )
-        if [ "$script_type" = "creator" ]; then
-         image_optimise=true
-        else
-          cli_option_not_handled
-        fi
-        shift
-        ;;
       --os-device-media )
         case $2 in
           disk | flash | sdcard | ssd )
@@ -1223,6 +1223,7 @@ usage() {
   if [ -z "$image_class" ] || [ "$image_class" = "virtual" ]; then
     option_help "--disable-hypervisor-agent" "When creating virtual machine images for which agent software is available (i.e. Qemu, VirtualBox, and VMware) do not install and enable the agent."
   fi
+  option_help "--disable-optimisation" "Disable optimisation of the image."
   if [ -n "$image_experimental" ]; then
     option_help "--disk-resize-free-percent < percent >" "Only for physical machines. For Flash/SSDs/SDcard devices the percent of disk to leave unallocated when root is resized. '10' is a reasonable value."
   fi
@@ -1298,7 +1299,6 @@ usage() {
   option_help "--ntp-pools < comma separated list of NTP pool machines >" "Synch with these NTP pool machines."
   option_help "--ntp-servers < comma separated list of NTP servers >" "Synch with these NTP servers."
   option_help "--ntp-use < none | pools | servers | servers_and_pools >" "Which form of NTP sync to use."
-  option_help "--optimise" "Optimise the image setup such as only enabling required kernel modules."
   option_help "--os-device-media < disk | flash | sd | ssd >" "The storage media type of the device that disk image will be installed on."
   if [ -n "$image_experimental" ]; then
     option_help "--os-device-sector-size < 512 | 4096 >" "The sector size, in bytes, of the device that disk image will be installed on. This should reflect the logical sector size, rather than physical sector size, of the device (some devices are 512/512, some 512/4097, others 4096/4096). Defaults to 512."

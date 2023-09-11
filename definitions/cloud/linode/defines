@@ -13,11 +13,8 @@
 
 # Supported
 readonly CADI_SUPPORTED_ARCHS="x86,x86_64"
-# Linode/Akamai have submitted a DS upstream but it is
-# not yet present in any cloud-init release.
-#readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Akamai"
-#readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
-readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="none"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="Akamai"
+readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
 readonly CADI_SUPPORTED_IPV4=true
 readonly CADI_SUPPORTED_IPV6=true
 readonly CADI_SUPPORTED_IPV4_IPV6=true
@@ -27,3 +24,4 @@ readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4"
 
 # Defaults
 readonly CADI_DEFAULT_ARCH="x86_64"
+readonly CADI_DEFAULT_CONFIGURATION_TOOL="cloud-init"

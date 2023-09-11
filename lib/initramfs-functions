@@ -42,7 +42,6 @@ show_initramfs_contents() {
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
-	{
 	EOF
 
     _initramfs_filename="$(get_initramfs_filename)"
@@ -50,28 +49,24 @@ show_initramfs_contents() {
     case $image_initramfs_tool in
       booster )
         cat <<-EOF >> "$run_script"
-	  write_debug_log "booster $_initramfs_filename contents:"
-	  booster ls "/boot/$_initramfs_filename" >> /chroot.log 2>&1
+	write_debug_log "booster $_initramfs_filename contents:"
+	booster ls "/boot/$_initramfs_filename" >> /chroot.log 2>&1
 	EOF
         ;;
       dracut )
         cat <<-'EOF' >> "$run_script"
-	  write_debug_log "dracut ??? contents:"
-	  ###mkinitfs -l "\$_kernel_version" >> /chroot.log 2>&1
+	write_debug_log "dracut ??? contents:"
+	###mkinitfs -l "\$_kernel_version" >> /chroot.log 2>&1
 	EOF
         ;;
       mkinitfs )
         cat <<-EOF >> "$run_script"
-	  write_debug_log "mkinitfs contents:"
-	  zcat /boot/$_initramfs_filename | cpio -t >> /chroot.log 2>/dev/null
+	write_debug_log "mkinitfs contents:"
+	zcat /boot/$_initramfs_filename | cpio -t >> /chroot.log 2>/dev/null
 	EOF
         ;;
       * )
         : ;;
     esac
-
-    cat <<-'EOF' >> "$run_script"
-	}
-	EOF
   fi
 }

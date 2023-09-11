@@ -13,6 +13,7 @@
 
 # https://cloud.google.com/compute/docs/images/building-custom-os
 # https://cloud.google.com/compute/docs/import/import-existing-image#prepare_boot_disk
+# https://cloud.google.com/compute/docs/import/importing-virtual-disks
 # https://cloud.google.com/compute/docs/instances/enabling-virtio-rng
 # https://cloud.google.com/compute/docs/machine-resource
 #
@@ -21,8 +22,9 @@
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
-readonly CADI_SUPPORTED_BOOT_TYPES="bios"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios,uefi"
 readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub"
 readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,kvm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="serial"
 readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="simpledrm"
@@ -43,6 +45,7 @@ readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,virtio-scsi"
 
 
 # Defaults
+readonly CADI_DEFAULT_BOOT_TYPE="bios"
 readonly CADI_DEFAULT_NETWORK_DRIVER="generic"
 readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
 readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-scsi"

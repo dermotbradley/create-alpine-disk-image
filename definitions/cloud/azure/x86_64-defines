@@ -11,6 +11,8 @@
 #############################################################################
 
 
+# https://learn.microsoft.com/en-us/azure/virtual-machines/linux/create-upload-generic
+
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="tiny-power-button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
@@ -27,6 +29,7 @@ readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
 readonly CADI_SUPPORTED_DHCP_CLIENTS="dhclient"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt,mbr"
 readonly CADI_SUPPORTED_NETWORK_DRIVERS="generic,hyperv,mana,mlx4_en,mlx5_core"
+readonly CADI_SUPPORTED_OS_BOOT_DISK_SWAP=false
 readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
 readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,hyperv,nvme"
@@ -51,7 +54,8 @@ readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 # Additional
 readonly CADI_ADDITIONAL_INITRAMFS_MODULES="hv_utils,hv_vmbus"
-readonly CADI_PACKAGES_ADDITIONAL="hvtools"
+readonly CADI_DISK_IMAGE_FORMAT="vhd"
+readonly CADI_PACKAGES_ADDITIONAL="hvtools py3-passlib"
 # Size of packages & all their dependencies (in MB)
 readonly CADI_PACKAGES_ADDITIONAL_SIZE=1
 readonly CADI_PACKAGES_EXTRA="nvme-cli"

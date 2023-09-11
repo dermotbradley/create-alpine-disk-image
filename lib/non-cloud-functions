@@ -65,10 +65,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "Contents of /etc/network/interfaces:" 4
-	      cat /etc/network/interfaces >> /chroot.log
-	    }
+	    write_debug_log "Contents of /etc/network/interfaces:" 4
+	    cat /etc/network/interfaces >> /chroot.log
 	EOF
   fi
 
@@ -124,11 +122,9 @@ create_default_user() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	    # Debug
-	    {
-	      cp /etc/passwd /etc/passwd-orig
-	      cp /etc/shadow /etc/shadow-orig
-	      cp /etc/group /etc/group-orig
-	    }
+	    cp /etc/passwd /etc/passwd-orig
+	    cp /etc/shadow /etc/shadow-orig
+	    cp /etc/group /etc/group-orig
 	
 	EOF
   fi
@@ -492,10 +488,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      write_debug_log "resize-rootfs contents:" 4
-	      cat /etc/init.d/resize-rootfs >> /chroot.log
-	    }
+	    write_debug_log "resize-rootfs contents:" 4
+	    cat /etc/init.d/resize-rootfs >> /chroot.log
 	EOF
   fi
 

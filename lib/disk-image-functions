@@ -79,10 +79,8 @@ EOF
         cat <<-EOF >> "$run_script"
 	    
 	    # Debug
-	    {
-	      diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
-	      rm ${_doas_file}-orig
-	    }
+	    diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
+	    rm ${_doas_file}-orig
 	EOF
       fi
 
@@ -147,6 +145,11 @@ add_cmdline_settings() {
     fi
   fi
 
+  # Add any extra defined cmdline options
+  if [ -n "$CADI_EXTRA_CMDLINE_OPTIONS" ]; then
+    _cmdline_additions="$_cmdline_additions $CADI_EXTRA_CMDLINE_OPTIONS"
+  fi
+
   if [ -z "$debug_enabled" ]; then
     if [ -z "$CADI_CMDLINE_QUIET" ] || [ "$CADI_CMDLINE_QUIET" = "true" ]; then
       _cmdline_additions="$_cmdline_additions quiet"
@@ -170,8 +173,7 @@ basic_os_configuration() {
 	write_log "Doing basic OS configuration"
 	{
 	  write_log "Setting the login and MOTD messages" 2
-	  {
-	    printf '\nWelcome\n\n' > /etc/issue
+	  printf '\nWelcome\n\n' > /etc/issue
 	EOF
 
   case $image_class in
@@ -180,8 +182,6 @@ basic_os_configuration() {
       ;;
     physical )
       case $image_physical_type in
-        arm-server )
-          _login_banner="Alpine ARM server" ;;
         pc )
           _login_banner="Alpine $image_arch PC server" ;;
         rpi* )
@@ -194,8 +194,7 @@ basic_os_configuration() {
   esac
 
   cat <<-EOF >> "$run_script"
-	    printf '\n\n%s\n\n' "$_login_banner" > /etc/motd
-	  }
+	  printf '\n\n%s\n\n' "$_login_banner" > /etc/motd
 	EOF
 
   cat <<-'EOF' >> "$run_script"
@@ -238,11 +237,9 @@ basic_os_configuration() {
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    {
-	      diff /etc/profile.d/\${locale_file}-orig /etc/profile.d/\${locale_file} \\
-	        >> /chroot.log || true
-	      rm /etc/profile.d/\${locale_file}-orig
-	    }
+	    diff /etc/profile.d/\${locale_file}-orig /etc/profile.d/\${locale_file} \\
+	      >> /chroot.log || true
+	    rm /etc/profile.d/\${locale_file}-orig
 	EOF
   fi
 
@@ -325,10 +322,8 @@ basic_os_configuration() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    diff /etc/rc.conf-orig /etc/rc.conf >> /chroot.log || true
-	    rm /etc/rc.conf-orig
-	  }
+	  diff /etc/rc.conf-orig /etc/rc.conf >> /chroot.log || true
+	  rm /etc/rc.conf-orig
 	EOF
   fi
 
@@ -376,9 +371,7 @@ basic_os_configuration() {
             udev )
               cat <<-EOF >> "$run_script"	
 	  write_log "Enable udev init.d services" 2
-	  {
-	    setup-udev  >> /chroot.log 2>&1 || true
-	  }
+	  setup-udev  >> /chroot.log 2>&1 || true
 	EOF
               ;;
           esac
@@ -393,9 +386,7 @@ basic_os_configuration() {
         cloud-init | none )
           cat <<-EOF >> "$run_script"
 	  write_log "Enable $image_device_management_type init.d services" 2
-	  {
-	    setup-devd $image_device_management_type >> /chroot.log 2>&1 || true
-	  }
+	  setup-devd $image_device_management_type >> /chroot.log 2>&1 || true
 	EOF
           ;;
         tiny-cloud )
@@ -589,8 +580,13 @@ configure_autoconfiguration_software() {
 # Define the base options for the cmdline list used by the bootloader
 #
 configure_base_cmdline_values() {
-  # Increase the kernel message buffer so all messages during boot are retained
-  base_cmdline="log_buf_len=32768 rootfstype=$image_fs_type"
+  base_cmdline="rootfstype=$image_fs_type"
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      # Kernels in these Alpine releases didn't have a large enough buffer
+      # to retain all messages during boot.
+      base_cmdline="$base_cmdline log_buf_len=32768" ;;
+  esac
 
   case $image_fs_type in
     btrfs | ext4 )
@@ -617,7 +613,14 @@ configure_base_cmdline_values() {
      [ -n "$image_serial_console_port_speed" ]; then
     case $image_console_device_type in
       generic | normal_and_serial | serial )
-        base_cmdline="$base_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}" ;;
+        base_cmdline="$base_cmdline console=${image_serial_console_name},${image_serial_console_port_speed}"
+        if [ -n "$image_serial_console_parity" ]; then
+          base_cmdline="${base_cmdline}${image_serial_console_parity}"
+          if [ -n "$image_serial_console_data_bits" ]; then
+            base_cmdline="${base_cmdline}${image_serial_console_data_bits}"
+          fi
+        fi
+        ;;
     esac
   fi
   if [ -n "$image_console_device_name" ] && \
@@ -727,8 +730,14 @@ convert_raw_disk_image() {
 
   if [ -n "$CADI_DISK_IMAGE_FORMAT" ]; then
     case $CADI_DISK_IMAGE_FORMAT in
-      qcow2 | vdi | vmdk )
-        _new_format="$CADI_DISK_IMAGE_FORMAT"
+      parallels | qcow2 | vdi | vhd | vmdk )
+        if [ "$CADI_DISK_IMAGE_FORMAT" = "vhd" ]; then
+          _new_format="vpc"
+          _new_format_extension="$CADI_DISK_IMAGE_FORMAT"
+        else
+          _new_format="$CADI_DISK_IMAGE_FORMAT"
+          _new_format_extension="$_new_format"
+        fi
         if [ -n "$CADI_DISK_IMAGE_FORMAT_OPTIONS" ]; then
           _new_format_options="$CADI_DISK_IMAGE_FORMAT_OPTIONS"
         fi
@@ -742,8 +751,8 @@ convert_raw_disk_image() {
 
       cat <<-EOF >> "$run_script"
 	
-	write_log "Converting image from RAW format to ${_new_format} format"
-	new_filename="\$(basename -s img \$image_filename)$_new_format"
+	write_log "Converting image from RAW format to ${_new_format_extension} format"
+	new_filename="\$(basename -s img \$image_filename)$_new_format_extension"
 	qemu-img convert $_convert_cli \$images_dir/\$image_filename \\
 	  \$images_dir/"\$new_filename" >> "\$logfile"
 	rm \$images_dir/\$image_filename
@@ -931,8 +940,9 @@ do_specific_validation_checks() {
     if [ -n "$image_device_management" ] && [ "$image_device_management" != "mdev" ]; then
       error_message "'--barebones' implies '--device-management mdev'!"
     fi
-    if [ -n "$image_optimise" ] && [ "$image_optimise" != "true" ]; then
-      error_message "'--barebones' implies '--optimise'!"
+    if [ -n "$image_disable_optimisation" ] && \
+       [ "$image_disable_optimisation" = "true" ]; then
+      error_message "'--barebones' implies optimisation!"
     fi
     if [ -n "$image_enable_utmp" ] && [ "$image_enable_utmp" = "true" ]; then
       error_message "'--barebones' implies no UTMP!"
@@ -1299,7 +1309,8 @@ default_boot_related_settings() {
     error_message "Boot reference '$image_boot_reference' is not supported by $class_type_description!"
   fi
 
-  # OS Boot device type: nvme / sata / scsi / sd / usb / virtio-blk / virtio-scsi
+  # OS Boot device type:
+  #     nvme / pvscsi / sata / scsi / sd / usb / virtio-blk / virtio-scsi
   if [ -z "$image_os_device_type" ]; then
     # Automatically decide OS boot device type
     if [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ]; then
@@ -1318,6 +1329,8 @@ default_boot_related_settings() {
         image_os_device_type="virtio-scsi"
       elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "nvme"; then
         image_os_device_type="nvme"
+      elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "pvscsi"; then
+        image_os_device_type="pvscsi"
       elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "sata"; then
         image_os_device_type="sata"
       elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "scsi"; then
@@ -1816,6 +1829,20 @@ default_console_related_settings() {
       else
         error_message "CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME is not defined for '$class_type_description'!"
       fi
+      if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED" ]; then
+        image_serial_console_speed="${CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED}"
+      else
+        image_serial_console_speed="9600"
+      fi
+      if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_DATA_BITS" ]; then
+        image_serial_console_data_bits="${CADI_SUPPORTED_SERIAL_CONSOLE_DATA_BITS}"
+      fi
+      if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_PARITY" ]; then
+        image_serial_console_parity="${CADI_SUPPORTED_SERIAL_CONSOLE_PARITY}"
+      fi
+      if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_STOP_BITS" ]; then
+        image_serial_console_stop_bits="${CADI_SUPPORTED_SERIAL_CONSOLE_STOP_BITS}"
+      fi
       ;;
   esac
 
@@ -2240,14 +2267,20 @@ partition_sizing_related() {
 
   # This accounts for System.map, config, kernel, DTB files,
   # initramfs, and microcode in /boot
+  : "${CADI_MICROCODE_SIZE:=0}"
   # shellcheck disable=SC1102,SC2018,SC2019,SC2046
   eval _base_bootfs_size="$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE + CADI_INITRAMFS_SIZE + CADI_MICROCODE_SIZE))"
 
-  _bootfs_extra_space=0
+  # Allow space for kernel package updates
+  eval _bootfs_extra_space=$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE))
 
   if [ -n "$debug_sizing_enabled" ]; then
     {
-      echo "[partition_sizing_related] base size of bootfs is: $_base_bootfs_size MiB"
+      printf '[partition_sizing_related] base size of bootfs is: %s MiB\n' "$_base_bootfs_size"
+      printf '[partition_sizing_related]   based on:  kernel=%s, initramfs=%s, microcode=%s\n' \
+        "$(eval echo '$'CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE)" \
+        "$CADI_INITRAMFS_SIZE" \
+        "$CADI_MICROCODE_SIZE"
       if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
         echo "[partition_sizing_related] size of bootloader files in bootfs is: $_bootloader_files_size MiB"
       fi
@@ -2754,37 +2787,35 @@ define_os_config_software_packages() {
 delete_users_groups() {
   cat <<-'EOF' >> "$run_script"
 	
-	write_log "Delete unnecessary users and groups"
+	write_log "Deleting unnecessary users and groups"
 	{
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	  # Debug
-	  {
-	    cp /etc/group /etc/group-orig
-	    cp /etc/passwd /etc/passwd-orig
-	    cp /etc/shadow /etc/shadow-orig
+	  cp /etc/group /etc/group-orig
+	  cp /etc/passwd /etc/passwd-orig
+	  cp /etc/shadow /etc/shadow-orig
 	EOF
 
     case $image_device_management_type in
       udev )
         cat <<-'EOF' >> "$run_script"
 	
-	    cp /lib/udev/rules.d/50-udev-default.rules \
-	      /lib/udev/rules.d/50-udev-default.rules-orig
+	  cp /lib/udev/rules.d/50-udev-default.rules \
+	    /lib/udev/rules.d/50-udev-default.rules-orig
 	EOF
-      ;;
+        ;;
     esac
 
     cat <<-'EOF' >> "$run_script"
-	  }
 	
 	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
-	  write_log "Delete unnecessary users" 2
+	  write_log "Deleting unnecessary users" 2
 	  {
 	    _unreq_users_list="cyrus ftp games guest halt man news ntp operator"
 	    _unreq_users_list="\$_unreq_users_list postmaster shutdown smmsp squid"
@@ -2797,7 +2828,7 @@ delete_users_groups() {
 	    done
 	  }
 	
-	  write_log "Delete unnecessary groups" 2
+	  write_log "Deleting unnecessary groups" 2
 	  {
 	    _unreq_groups_list="abuild cdrw"
 	
@@ -2836,34 +2867,25 @@ delete_users_groups() {
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "Users differences:" 2
-	    diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
-	
-	    write_debug_log "Users differences:" 2
-	    diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
-	
-	    write_debug_log "Groups differences:" 2
-	    diff /etc/group-orig /etc/group >> /chroot.log || true
-	
-	    rm /etc/group-orig /etc/passwd-orig /etc/shadow-orig
+	  write_debug_log "Users differences:" 2
+	  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+	  write_debug_log "Users differences:" 2
+	  diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+	  write_debug_log "Groups differences:" 2
+	  diff /etc/group-orig /etc/group >> /chroot.log || true
+	  rm /etc/group-orig /etc/passwd-orig /etc/shadow-orig
 	EOF
 
     case $image_device_management_type in
       udev )
         cat <<-'EOF' >> "$run_script"
-	
-	    write_debug_log "50-udev-default.rules differences:" 2
-	    diff /lib/udev/rules.d/50-udev-default.rules-orig \
-	      /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
-	    rm /lib/udev/rules.d/50-udev-default.rules-orig
+	  write_debug_log "50-udev-default.rules differences:" 2
+	  diff /lib/udev/rules.d/50-udev-default.rules-orig \
+	    /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
+	  rm /lib/udev/rules.d/50-udev-default.rules-orig
 	EOF
         ;;
     esac
-
-    cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
@@ -3013,33 +3035,38 @@ install_alpine_base() {
 	write_log "Bootloader packages to be installed are: $_bootloader_packages"
 	EOF
 
+  cat <<-EOF >> "$run_script"
+	
+	write_log "Install base Alpine (plus bootloader packages) for ${image_arch} arch inside chroot"
+	{
+	EOF
+
   case $image_script_host_os in
     all )
       cat <<-EOF >> "$run_script"
-	_host_os=\$(detect_host_os)
-	case \$_host_os in
-	  alpine )
-	    _apk_binary="apk" ;;
-	  * )
-	    _apk_binary="\$TMPDIR/apk.static" ;;
-	esac
+	  _host_os=\$(detect_host_os)
+	  case \$_host_os in
+	    alpine )
+	      _apk_binary="apk" ;;
+	    * )
+	      _apk_binary="\$TMPDIR/apk.static" ;;
+	  esac
 	EOF
       ;;
     alpine )
       cat <<-EOF >> "$run_script"
-	_apk_binary="apk"
+	  _apk_binary="apk"
 	EOF
       ;;
     * )
       cat <<-EOF >> "$run_script"
-	_apk_binary="\$TMPDIR/apk.static"
+	  _apk_binary="\$TMPDIR/apk.static"
 	EOF
       ;;
   esac
 
   cat <<-EOF >> "$run_script"
-	write_log "Install base Alpine (plus bootloader packages) for ${image_arch} arch inside chroot"
-	{
+	
 	  # shellcheck disable=SC2086
 	  \$_apk_binary --arch "${image_arch}" --initdb --allow-untrusted \\
 	    --root \$chroot_dir --update-cache \\
@@ -3055,8 +3082,8 @@ install_alpine_base() {
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
-	write_debug_log "Disk space usage for base Alpine:"
-	df -k $chroot_dir >> "$logfile"
+	  write_debug_log "Disk space usage for base Alpine:"
+	  df -k $chroot_dir >> "$logfile"
 	EOF
   fi
 
@@ -3223,13 +3250,11 @@ install_kernel() {
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	
+	  # Debug
 	  write_debug_log "Disk space usage after kernel installed:"
 	  df -k >> /chroot.log
-
 	  write_debug_log "Kernel is: \\\$_kernel_version"
 	  write_debug_log "Kernel package version is: \\\$_kernel_package_version"
-	
-	  # Take a copy of the kernel config file
 	  cp /boot/$_kernel_config_file \\
 	    /kernel-config_"\\\${_kernel_package_version}"_${image_arch}_${_kernel_config_file}
 	EOF
@@ -3368,10 +3393,8 @@ setup_dropbear_authorized_keys() {
     cat <<-'EOF' >> "$run_script"
 	
 	# Debug
-	{
-	  write_debug_log "Dropbear authorized_keys contents:" 2
-	  cat /etc/dropbear/authorized_keys >> "$logfile"
-	}
+	write_debug_log "Dropbear authorized_keys contents:" 2
+	cat /etc/dropbear/authorized_keys >> "$logfile"
 	EOF
   fi
 }

@@ -14,7 +14,7 @@
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
-readonly CADI_SUPPORTED_BOOT_TYPES="bios,secure-uefi,uefi,hybrid"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios,hybrid,secure-uefi,uefi"
 readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,limine,syslinux"
 readonly CADI_SUPPORTED_BOOTLOADERS_HYBRID="grub,limine"
 readonly CADI_SUPPORTED_BOOTLOADERS_SECURE_UEFI="grub"

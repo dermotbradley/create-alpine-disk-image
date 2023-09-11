@@ -96,10 +96,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/boot/cmdline.txt contents:" 2
-	    cat /boot/cmdline.txt >> /chroot.log
-	  }
+	  write_debug_log "/boot/cmdline.txt contents:" 2
+	  cat /boot/cmdline.txt >> /chroot.log
 	EOF
   fi
 }
@@ -195,10 +193,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/boot/config.txt contents:" 2
-	    cat /boot/config.txt >> /chroot.log
-	  }
+	  write_debug_log "/boot/config.txt contents:" 2
+	  cat /boot/config.txt >> /chroot.log
 	EOF
   fi
 }
@@ -319,10 +315,8 @@ EOF
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  {
-	    write_debug_log "/boot/usercfg.txt contents:" 2
-	    cat /boot/usercfg.txt >> /chroot.log
-	  }
+	  write_debug_log "/boot/usercfg.txt contents:" 2
+	  cat /boot/usercfg.txt >> /chroot.log
 	EOF
   fi
 }
