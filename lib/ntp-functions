@@ -13,7 +13,7 @@
 
 
 #
-# Configure Busybox NTP daemon
+# Configure Busybox NTP daemon.
 #
 configure_busybox_ntpd() {
   cat <<-'EOF' >> "$run_script"
@@ -70,13 +70,9 @@ configure_busybox_ntpd() {
 
 
 #
-# Configure Chrony server daemon
+# Configure Chrony server daemon.
 #
 configure_chronyd() {
-  local _chrony_config_file _chrony_config_file_type
-  local _init_threshold _makestep_limit _makestep_threshold
-  local _ntp_pool_list _ntp_pool_options _ntp_server_list _ntp_server_options
-
   cat <<-'EOF' >> "$run_script"
 	    write_log "Configuring Chrony NTP server" 4
 	    {
@@ -124,7 +120,7 @@ configure_chronyd() {
 
 
 #
-# Configure the relevant NTP server
+# Configure the relevant NTP server.
 #
 configure_ntpd() {
   cat <<-'EOF' >> "$run_script"
@@ -147,7 +143,7 @@ configure_ntpd() {
 
 
 #
-# Create /etc/chrony/chrony.conf with required configuration
+# Create /etc/chrony/chrony.conf with required configuration.
 #
 write_chrony_ntp_config() {
   local _description _entry _phc_options_line _pool_line _server_line
@@ -258,7 +254,7 @@ EOF
       for _entry in $image_ntp_servers_list; do
         _server_line="server $_entry"
         if [ -n "$image_ntp_servers_list" ]; then
-        _server_line="$_server_line $image_ntp_servers_options"
+          _server_line="$_server_line $image_ntp_servers_options"
         fi
         cat <<EOF >> "$run_script"
 	$_server_line
@@ -285,7 +281,7 @@ EOF
       for _entry in $image_ntp_servers_list; do
         _server_line="server $_entry"
         if [ -n "$image_ntp_servers_list" ]; then
-        _server_line="$_server_line $image_ntp_servers_options"
+          _server_line="$_server_line $image_ntp_servers_options"
         fi
         cat <<EOF >> "$run_script"
 	$_server_line

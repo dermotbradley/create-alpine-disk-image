@@ -13,11 +13,9 @@
 
 
 #
-# Additional OS configuration
+# Additional OS configuration.
 #
 additional_os_configuration() {
-  local _doas_file
-
   cat <<-'EOF' >> "$run_script"
 	
 	write_log "Doing additional OS configuration"
@@ -43,51 +41,7 @@ additional_os_configuration() {
 
   case $image_auth_control in
     doas | both )
-      cat <<-'EOF' >> "$run_script"
-	  write_log "Configure doas" 2
-	  {
-	EOF
-
-      case $image_alpine_release in
-        v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
-          _doas_file="/etc/doas.d/doas.conf" ;;
-        * )
-          _doas_file="/etc/doas.conf" ;;
-      esac
-
-      if [ -n "$debug_enabled" ]; then
-        cat <<-EOF >> "$run_script"
-	    # Debug
-	    cp ${_doas_file} ${_doas_file}-orig
-	
-	EOF
-      fi
-
-      cat <<EOF >> "$run_script"
-    write_log "Adding doas configuration for root user" 4
-    cat <<-_SCRIPT_ >> ${_doas_file}
-	
-	# Allow root to run doas (i.e. "doas -u <user> <command>")
-	permit nopass root
-	_SCRIPT_
-
-    write_log "Enabling doas configuration for wheel group" 4
-    sed -i -E -e 's/^[#][ ]*(permit persist :wheel)$/\1/g' ${_doas_file}
-EOF
-
-      if [ -n "$debug_enabled" ]; then
-        cat <<-EOF >> "$run_script"
-	    
-	    # Debug
-	    diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
-	    rm ${_doas_file}-orig
-	EOF
-      fi
-
-      cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-      ;;
+      configure_doas ;;
 
     sudo )
       cat <<-'EOF' >> "$run_script"
@@ -104,7 +58,7 @@ EOF
 
 
 #
-# Append specific cmdline settings
+# Append specific cmdline settings.
 #
 add_cmdline_settings() {
   local _cmdline_additions
@@ -129,16 +83,22 @@ add_cmdline_settings() {
     physical )
       : ;;
     * )
-      # For non-physical machines always ensure that the console output is visible
+      # For non-physical machines always ensure that the
+      # console output is visible.
       _cmdline_additions="$_cmdline_additions consoleblank=0" ;;
   esac
 
   if [ -n "$CADI_DEFAULT_CLOCKSOURCE" ]; then
     if [ -n "$CADI_SUPPORTED_CLOCKSOURCES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_CLOCKSOURCES" "$CADI_DEFAULT_CLOCKSOURCE"; then
+       is_in_comma_list "$CADI_SUPPORTED_CLOCKSOURCES" \
+                        "$CADI_DEFAULT_CLOCKSOURCE"; then
       case $CADI_DEFAULT_CLOCKSOURCE in
+        arch_sys_counter )
+          _cmdline_additions="$_cmdline_additions clocksource=arch_sys_counter"
+          ;;
         hyperv )
-          _cmdline_additions="$_cmdline_additions clocksource=hyperv_clocksource_tsc_page" ;;
+          _cmdline_additions="$_cmdline_additions clocksource=hyperv_clocksource_tsc_page"
+          ;;
         kvm )
           _cmdline_additions="$_cmdline_additions clocksource=kvm-clock" ;;
       esac
@@ -163,10 +123,10 @@ add_cmdline_settings() {
 
 
 #
-# Basic OS configuration
+# Basic OS configuration.
 #
 basic_os_configuration() {
-  local _color_prompt_file _login_banner
+  local _color_prompt_file _locale_file _login_banner
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -237,7 +197,7 @@ basic_os_configuration() {
     cat <<-'EOF' >> "$run_script"
 	
 	    # Debug
-	    diff /etc/profile.d/\${locale_file}-orig /etc/profile.d/\${locale_file} \\
+	    diff /etc/profile.d/\${locale_file}-orig /etc/profile.d/\${locale_file} \
 	      >> /chroot.log || true
 	    rm /etc/profile.d/\${locale_file}-orig
 	EOF
@@ -264,47 +224,20 @@ basic_os_configuration() {
 	  fi
 	EOF
 
-
-  umask="077"
-  cat <<-EOF >> "$run_script"
-	
-	  umask_file="05-umask.sh"
-	  write_log "Creating profile file to set umask to \\\$umask" 2
-	  {
-	    printf '# Created by create-alpine-disk-image\n#\n'
-	    printf 'umask %s\n' "\\\$umask"
-	  } > /etc/profile.d/\\\${umask_file}
-	EOF
+  harden_etc_profile
 
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  write_debug_log "Contents of /etc/profile.d/\${umask_file}:"
-	  cat /etc/profile.d/\${umask_file} >> /chroot.log || true
 	  cp /etc/rc.conf /etc/rc.conf-orig
 	EOF
   fi
-
   cat <<-'EOF' >> "$run_script"
 	
 	  write_log "Set OpenRC to log init.d start/stop sequences" 2
 	  sed -i -e 's|[#]rc_logger=.*|rc_logger="YES"|g' /etc/rc.conf
-	
-	  write_log "Configure /etc/init.d/bootmisc to keep previous copy of dmesg logfile" 2
-	  sed -i -e 's|[#]previous_dmesg=.*|previous_dmesg=yes|g' /etc/conf.d/bootmisc
 	EOF
-
-  case $image_alpine_release in
-    v3.13 | v3.14 | v3.15 )
-      cat <<-'EOF' >> "$run_script"
-	
-	  write_log "Create dummy dmesg logfile to workaround openrc bug" 2
-	  touch /var/log/dmesg
-	EOF
-      ;;
-  esac
-
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 | v3.16 | v3.17 )
       cat <<-'EOF' >> "$run_script"
@@ -317,7 +250,6 @@ basic_os_configuration() {
       # Unicode is default from Edge/v3.18 onwards
       : ;;
   esac
-
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
@@ -327,19 +259,37 @@ basic_os_configuration() {
 	EOF
   fi
 
+
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log \
+	    "Configure /etc/init.d/bootmisc to keep previous dmesg logfile" 2
+	  sed -i -e 's|[#]previous_dmesg=.*|previous_dmesg=yes|g' /etc/conf.d/bootmisc
+	EOF
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 )
+      cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Create dummy dmesg logfile to workaround openrc bug" 2
+	  touch /var/log/dmesg
+	EOF
+      ;;
+  esac
+
+
   case $image_alpine_release in
     v3.13 )
       _color_prompt_file="color_prompt" ;;
     * )
       _color_prompt_file="color_prompt.sh.disabled" ;;
   esac
-
   cat <<-EOF >> "$run_script"
 	
 	  write_log "Enable colour shell prompt" 2
 	  cp /etc/profile.d/${_color_prompt_file} /etc/profile.d/color_prompt.sh
 	
 	EOF
+
 
   if [ "$image_tmp_on_tmpfs" != "true" ]; then
     case $image_alpine_release in
@@ -355,6 +305,7 @@ basic_os_configuration() {
       ;;
     esac
   fi
+
 
   # Enable mdevd or eudev where appropriate
   case $image_alpine_release in
@@ -381,6 +332,7 @@ basic_os_configuration() {
           : ;;
       esac
       ;;
+
     * )
       case $image_cloud_software in
         cloud-init | none )
@@ -395,6 +347,7 @@ basic_os_configuration() {
       esac
       ;;
   esac
+
 
   if [ "$image_class" != "virtual" ] || [ "$image_vm_type" != "vmware" ]; then
     cat <<-EOF >> "$run_script"
@@ -417,45 +370,53 @@ calculate_image_size() {
   local _boot_part_size _image_total_size _reserved_disk_size _swap_part_size
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_image_size] determining image size" >> "$sizing_debug"
+    printf '[calculate_image_size] determining image size\n' >> "$sizing_debug"
   fi
 
-  if [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; then
+  if [ "$image_encryption_type" = "both" ] || \
+     [ "$image_encryption_type" = "luks" ]; then
     # LUKS (including LVM-inside-LUKS)
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] image contains LUKS partition, determining LUKS partition size" >> "$sizing_debug"
+      printf \
+        '[calculate_image_size] image contains LUKS partition, determining LUKS partition size\n' \
+        >> "$sizing_debug"
     fi
 
     _image_total_size=$(( $(calculate_luks_part_size) ))
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] size for LUKS partition is $_image_total_size MiB" >> "$sizing_debug"
+      printf '[calculate_image_size] size for LUKS partition is %s MiB\n' \
+        "$_image_total_size" >> "$sizing_debug"
     fi
   elif [ -n "$image_lvm_rootfs" ]; then
     # LVM
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] image contains LVM partition, determining LVM partition size" >> "$sizing_debug"
+      printf \
+        '[calculate_image_size] image contains LVM partition, determining LVM partition size\n' \
+        >> "$sizing_debug"
     fi
 
     _image_total_size=$(( $(calculate_lvm_part_size) ))
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] size for LVM partition is $_image_total_size MiB" >> "$sizing_debug"
-
+      printf '[calculate_image_size] size for LVM partition is %s MiB\n' \
+        "$_image_total_size" >> "$sizing_debug"
     fi
   else
     # Neither LUKS nor LVM
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] determining rootfs partition size" >> "$sizing_debug"
+      printf '[calculate_image_size] determining rootfs partition size\n' \
+        >> "$sizing_debug"
     fi
 
     _image_total_size=$(calculate_root_part_size)
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] size for root partition is $_image_total_size MiB" >> "$sizing_debug"
+      printf '[calculate_image_size] size for root partition is %s MiB\n' \
+        "$_image_total_size" >> "$sizing_debug"
     fi
   fi
 
@@ -463,13 +424,16 @@ calculate_image_size() {
   if [ "$image_class" = "physical" ] && \
      [ "$image_cloud_software" = "cloud-init" ]; then
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] image also contains CIDATA partition" >> "$sizing_debug"
+      printf '[calculate_image_size] image also contains CIDATA partition\n' \
+        >> "$sizing_debug"
     fi
 
     _image_total_size="$(( _image_total_size + CADI_CIDATA_PART_SIZE ))"
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_image_size] adding on $CADI_CIDATA_PART_SIZE MiB CIDATA partition, giving $_image_total_size MiB" >> "$sizing_debug"
+      printf \
+        '[calculate_image_size] adding on %s MiB CIDATA partition, giving %s MiB\n' \
+        "$CADI_CIDATA_PART_SIZE" "$_image_total_size" >> "$sizing_debug"
     fi
   fi
 
@@ -477,14 +441,17 @@ calculate_image_size() {
     true )
       # Swap partition to account for
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] image also contains swap partition" >> "$sizing_debug"
+        printf '[calculate_image_size] image also contains swap partition\n' \
+          >> "$sizing_debug"
       fi
 
       _swap_part_size=$(calculate_swap_part_size)
       _image_total_size="$(( _image_total_size + _swap_part_size ))"
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] adding on $_swap_part_size MiB Swap partition, giving $_image_total_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_image_size] adding on %s MiB Swap partition, giving %s MiB\n' \
+          "$_swap_part_size" "$_image_total_size" >> "$sizing_debug"
       fi
       ;;
   esac
@@ -493,14 +460,17 @@ calculate_image_size() {
     true )
       # Separate boot partition to account for
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] image also contains boot partition" >> "$sizing_debug"
+        printf '[calculate_image_size] image also contains boot partition\n' \
+          >> "$sizing_debug"
       fi
 
       _boot_part_size=$(calculate_boot_part_size)
       _image_total_size="$(( _image_total_size + _boot_part_size ))"
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] adding on $_boot_part_size MiB Boot partition, giving $_image_total_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_image_size] adding on %s MiB Boot partition, giving %s MiB\n' \
+          "$_boot_part_size" "$_image_total_size" >> "$sizing_debug"
       fi
       ;;
   esac
@@ -514,9 +484,13 @@ calculate_image_size() {
 
       if [ -n "$debug_sizing_enabled" ]; then
         if [ "$image_os_partitioning_type" = "unpartitioned" ]; then
-          echo "[calculate_image_size] size unchanged for unpartitioned disk, giving $_image_total_size MiB" >> "$sizing_debug"
+          printf \
+            '[calculate_image_size] size unchanged for unpartitioned disk, giving %s MiB\n' \
+            "$_image_total_size" >> "$sizing_debug"
         else
-          echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB for boot sector, giving $_image_total_size MiB" >> "$sizing_debug"
+          printf \
+            '[calculate_image_size] adding on %s MiB for boot sector, giving %s MiB\n' \
+            "$_reserved_disk_size" "$_image_total_size" >> "$sizing_debug"
         fi
       fi
       ;;
@@ -526,35 +500,42 @@ calculate_image_size() {
 
       _image_total_size="$(( _image_total_size + _reserved_disk_size ))"
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB for boot sector, giving $_image_total_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_image_size] adding on %s MiB for boot sector, giving %s MiB\n' \
+          "$_reserved_disk_size" "$_image_total_size" >> "$sizing_debug"
       fi
       ;;
     secure-uefi | uefi )
       # Account for GPT reserved space at start of device
       case $image_os_device_sector_size in
         512 )
-          # with GPT 34 512-byte sectors are reserved (so 17K)
+          # with GPT 34 x 512-byte sectors are reserved (so 17K)
           _reserved_disk_size=1 ;;
         4096 )
-          # with GPT 6 4K sectors are reserved (so 24K)
+          # with GPT 6 x 4K sectors are reserved (so 24K)
           _reserved_disk_size=1 ;;
       esac
 
       # Account for ESP partition
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] image also contains ESP partition" >> "$sizing_debug"
+        printf '[calculate_image_size] image also contains ESP partition\n' \
+          >> "$sizing_debug"
       fi
 
       _image_total_size="$(( _image_total_size + _reserved_disk_size + $(calculate_uefi_part_size) ))"
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_image_size] adding on ${_reserved_disk_size}MiB GPT overhead and $(calculate_uefi_part_size)MiB ESP partition, giving $_image_total_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_image_size] adding on %s MiB GPT overhead and %s MiB ESP partition, giving %s MiB\n' \
+          "$_reserved_disk_size" "$(calculate_uefi_part_size)" \
+          "$_image_total_size" >> "$sizing_debug"
       fi
       ;;
   esac
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_image_size] total image size of $_image_total_size MiB" >> "$sizing_debug"
+    printf '[calculate_image_size] total image size of %s MiB\n' \
+      "$_image_total_size" >> "$sizing_debug"
   fi
 
   echo "$_image_total_size"
@@ -562,7 +543,7 @@ calculate_image_size() {
 
 
 #
-# Configure whatever software is used to manage auto-configuration
+# Configure whatever software is used to manage auto-configuration.
 #
 configure_autoconfiguration_software() {
   case $image_cloud_software in
@@ -577,14 +558,17 @@ configure_autoconfiguration_software() {
 
 
 #
-# Define the base options for the cmdline list used by the bootloader
+# Define the base options for the cmdline list used by the bootloader.
 #
 configure_base_cmdline_values() {
+  local _console_list _console_list_item
+
   base_cmdline="rootfstype=$image_fs_type"
+
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
       # Kernels in these Alpine releases didn't have a large enough buffer
-      # to retain all messages during boot.
+      # to retain all kernel messages during boot.
       base_cmdline="$base_cmdline log_buf_len=32768" ;;
   esac
 
@@ -629,15 +613,15 @@ configure_base_cmdline_values() {
     if is_single_entry_in_comma_list "$image_console_device_name"; then
       base_cmdline="$base_cmdline console=$image_console_device_name"
     else
-      _list="$image_console_device_name"
+      _console_list="$image_console_device_name"
       while true; do 
-        _list_item="$(first_entry_in_comma_list "$_list")"
-        base_cmdline="$base_cmdline console=$_list_item"
-        if [ "${_list%,*}" = "$_list" ]; then
+        _console_list_item="$(first_entry_in_comma_list "$_console_list")"
+        base_cmdline="$base_cmdline console=$_console_list_item"
+        if [ "${_console_list%,*}" = "$_console_list" ]; then
           # No more entries
           break
         else
-          _list="${_list#$_list_item,}"
+          _console_list="${_console_list#$_console_list_item,}"
         fi
       done
     fi
@@ -687,7 +671,8 @@ configure_base_cmdline_values() {
             if [ -n "$image_graphics_driver" ]; then
               case $image_graphics_driver in
                 generic )
-                  base_cmdline="$base_cmdline i915.modeset=0 nouveau.modeset=0" ;;
+                  base_cmdline="$base_cmdline i915.modeset=0 nouveau.modeset=0"
+                  ;;
                 i915 )
                   base_cmdline="$base_cmdline i915.modeset=0" ;;
                 nouveau )
@@ -708,7 +693,7 @@ configure_base_cmdline_values() {
 
 
 #
-# Configure whichever tool is used to create/manage initramfs
+# Configure whichever tool is used to create/manage initramfs.
 #
 configure_initramfs_tool() {
   case $image_initramfs_tool in
@@ -723,10 +708,11 @@ configure_initramfs_tool() {
 
 
 #
-# Convert RAW disk image to another format
+# Convert RAW disk image to another format.
 #
 convert_raw_disk_image() {
-  local _compression_tool _convert_cli _new_format _new_format_options
+  local _compression_tool _convert_cli _new_format
+  local _new_format_extension _new_format_options
 
   if [ -n "$CADI_DISK_IMAGE_FORMAT" ]; then
     case $CADI_DISK_IMAGE_FORMAT in
@@ -775,7 +761,7 @@ convert_raw_disk_image() {
 
 
 #
-# Basic settings and checks
+# Basic settings and checks.
 #
 basic_settings() {
   # Chroot directory
@@ -817,7 +803,7 @@ basic_settings() {
 
 
 #
-# Perform some initial validation checks
+# Perform some initial validation checks.
 #
 do_generic_validation_checks() {
   # Kernel type
@@ -825,12 +811,15 @@ do_generic_validation_checks() {
     edge )
       case $image_alpine_release in
         v3.13 | v3.14 )
-          error_message "There is no edge kernel package for Alpine $image_alpine_release!" ;;
+          error_message \
+            "There is no edge kernel package for Alpine $image_alpine_release!"
+          ;;
         v3.15 )
-          # Both linux-edge and linux-edge4virt packages exist
+          # Both linux-edge and linux-edge4virt packages exist.
           : ;;
         * )
-          # linux-edge4virt package no longer exists so linux-edge will be used instead
+          # linux-edge4virt package no longer exists so
+          # linux-edge will be used instead.
           : ;;
       esac
       ;;
@@ -849,7 +838,8 @@ do_generic_validation_checks() {
   esac
 
   if [ -n "$image_ntp_servers" ] && [ "$image_class" != "physical" ]; then
-    error_message "NTP servers can only be specified for physical servers, other machine type obtain this information either from defaults for their hypervisor/cloud provider or from user-data!"
+    error_message \
+      "NTP servers can only be specified for physical servers, other machine type obtain this information either from defaults for their hypervisor/cloud provider or from user-data!"
   fi
 
   # UTMP
@@ -860,8 +850,10 @@ do_generic_validation_checks() {
     esac
   fi
 
-  if [ -n "$image_disable_cloud_provider_cli" ] && [ "$image_class" != "cloud" ]; then
-    error_message "The 'disable-cloud-provider-cli' option only applies for cloud disk images!"
+  if [ -n "$image_disable_cloud_provider_cli" ] && \
+     [ "$image_class" != "cloud" ]; then
+    error_message \
+      "The 'disable-cloud-provider-cli' option only applies for cloud disk images!"
   fi
 }
 
@@ -879,13 +871,16 @@ do_specific_validation_checks() {
     error_message "Unable to use barebones with '$class_type_description'!"
   elif [ -z "$image_cloud_software" ]; then
     if [ -n "$CADI_DEFAULT_CONFIGURATION_TOOL" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" "$CADI_DEFAULT_CONFIGURATION_TOOL"; then
+       is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" \
+                        "$CADI_DEFAULT_CONFIGURATION_TOOL"; then
       image_cloud_software="$CADI_DEFAULT_CONFIGURATION_TOOL"
     elif [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" "cloud-init"; then
+         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" \
+                          "cloud-init"; then
       image_cloud_software="cloud-init"
     elif [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" "tiny-cloud"; then
+         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" \
+                          "tiny-cloud"; then
       image_cloud_software="tiny-cloud"
     else
       image_cloud_software="none"
@@ -894,11 +889,13 @@ do_specific_validation_checks() {
     # Check that the specified configuration software is supported by
     # the particular cloud/hypervisor/machine.
     if [ -n "$CADI_SUPPORTED_CONFIGURATION_TOOLS" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" "$image_cloud_software"; then
+         is_in_comma_list "$CADI_SUPPORTED_CONFIGURATION_TOOLS" \
+                          "$image_cloud_software"; then
       # selected configuration software is supported
       :
     else
-      error_message "configuration software '$image_cloud_software' is not supported for $class_type_description!"
+      error_message \
+        "configuration software '$image_cloud_software' is not supported for $class_type_description!"
     fi
   fi
 
@@ -919,14 +916,17 @@ do_specific_validation_checks() {
           : ;;
       esac
     elif [ -n "$image_cloud_init_seed_url" ]; then
-      error_message "When defining a cloud-init seed URL you also need to specify '--cloud-init-seed-define' accordingly!"
+      error_message \
+        "When defining a cloud-init seed URL you also need to specify '--cloud-init-seed-define' accordingly!"
     fi
   else
     # Not cloud-init
     if [ -n "$image_cloud_init_seed_define" ]; then
-      error_message "'--cloud-init-seed-define' only applies when cloud-init is being used!"
+      error_message \
+        "'--cloud-init-seed-define' only applies when cloud-init is being used!"
     elif [ -n "$image_cloud_init_seed_url" ]; then
-      error_message "'--cloud-init-seed-url' only applies when cloud-init is being used!"
+      error_message \
+        "'--cloud-init-seed-url' only applies when cloud-init is being used!"
     else
       image_cloud_init_seed_define="none"
     fi
@@ -934,10 +934,12 @@ do_specific_validation_checks() {
 
   # Barebones
   if [ -n "$image_barebones" ]; then
-    if [ -n "$image_cloud_software" ] && [ "$image_cloud_software" != "none" ]; then
+    if [ -n "$image_cloud_software" ] && \
+       [ "$image_cloud_software" != "none" ]; then
       error_message "'--barebones' implies '--no-cloud-configuration'!"
     fi
-    if [ -n "$image_device_management" ] && [ "$image_device_management" != "mdev" ]; then
+    if [ -n "$image_device_management" ] && \
+       [ "$image_device_management" != "mdev" ]; then
       error_message "'--barebones' implies '--device-management mdev'!"
     fi
     if [ -n "$image_disable_optimisation" ] && \
@@ -953,13 +955,17 @@ do_specific_validation_checks() {
   if [ -n "$image_ntp_use" ]; then
     case $image_ntp_use in
       ptp )
-        if [ "$image_class" = "physical" ] && [ "$image_ntp_use" = "ptp" ]; then
-          error_message "PTP host sync can not be specified for physical servers!"
+        if [ "$image_class" = "physical" ] && \
+           [ "$image_ntp_use" = "ptp" ]; then
+          error_message \
+            "PTP host sync can not be specified for physical servers!"
         fi
         if [ "$image_cloud_software" = "cloud-init" ]; then
           case $image_alpine_release in
             v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 | edge )
-              error_message "PTP host clock sync support is not present in this Alpine release." ;;
+              error_message \
+                "PTP host clock sync support is not present in this Alpine release."
+              ;;
             edge-special )
               : ;;
           esac
@@ -971,7 +977,7 @@ do_specific_validation_checks() {
 
 
 #
-# Boot type/Partitioning type/Bootloader/etc settings
+# Boot type/Partitioning type/Bootloader/etc settings.
 #
 default_boot_related_settings() {
   # Boot type: BIOS / Hybrid / RPI / Secure UEFI / UEFI etc
@@ -997,7 +1003,8 @@ default_boot_related_settings() {
       # cloud/physical/virtual type
       :
     else
-      error_message "Boot type '$image_boot_type' is not supported by $class_type_description!"
+      error_message \
+        "Boot type '$image_boot_type' is not supported by $class_type_description!"
     fi
   fi
 
@@ -1011,12 +1018,15 @@ default_boot_related_settings() {
            { [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "unpartitioned" ] || \
              [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "mbr" ]; }; then
           image_os_partitioning_type="$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE"
-        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" "mbr"; then
+        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" \
+                              "mbr"; then
           image_os_partitioning_type="mbr"
-        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" "unpartitioned"; then
+        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" \
+                              "unpartitioned"; then
           image_os_partitioning_type="unpartitioned"
         else
-          error_message "No supported partitioning type for $image_boot_type booting!"
+          error_message \
+            "No supported partitioning type for $image_boot_type booting!"
         fi
         ;;
       hybrid )
@@ -1024,30 +1034,37 @@ default_boot_related_settings() {
            { [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "gpt" ] || \
              [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "mbr" ]; }; then
           image_os_partitioning_type="hybrid"
-        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" "gpt" || \
-             is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" "mbr"; then
+        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" \
+                              "gpt" || \
+             is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" \
+                              "mbr"; then
           image_os_partitioning_type="hybrid"
         else
-          error_message "No supported partitioning type for $image_boot_type booting!"
+          error_message \
+            "No supported partitioning type for $image_boot_type booting!"
         fi
         ;;
       secure-uefi | uefi )
         if [ -n "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" ] && \
            [ "$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE" = "gpt" ]; then
           image_os_partitioning_type="$CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE"
-        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" "gpt"; then
+        elif is_in_comma_list "$CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES" \
+                              "gpt"; then
           image_os_partitioning_type="gpt"
         else
-          error_message "No supported partitioning type for $image_boot_type booting!"
+          error_message \
+            "No supported partitioning type for $image_boot_type booting!"
         fi
         ;;
     esac
   elif [ -n "$image_os_partitioning_type" ]; then
-    if is_in_comma_list "$CADI_SUPPORTED_BOOT_TYPES" "$image_os_partitioning_type"; then
+    if is_in_comma_list "$CADI_SUPPORTED_BOOT_TYPES" \
+                        "$image_os_partitioning_type"; then
       # Specified partitioning type is supported by particular boot type
       :
     else
-      error_message "Partitioning type '$image_boot_type' is not supported for $image_boot_type booting!"
+      error_message \
+        "Partitioning type '$image_boot_type' is not supported for $image_boot_type booting!"
     fi
   else
     error_message "Invalid partitioning type specified!"
@@ -1060,51 +1077,65 @@ default_boot_related_settings() {
     if [ -n "$CADI_DEFAULT_BOOTLOADER" ]; then
       case $image_boot_type in
         bios )
-          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "$CADI_DEFAULT_BOOTLOADER"; then
+          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                              "$CADI_DEFAULT_BOOTLOADER"; then
             image_bootloader="$CADI_DEFAULT_BOOTLOADER"
           elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "syslinux"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                                "syslinux"; then
             image_bootloader="syslinux"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         hybrid )
-          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "$CADI_DEFAULT_BOOTLOADER"; then
+          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" \
+                              "$CADI_DEFAULT_BOOTLOADER"; then
             image_bootloader="$CADI_DEFAULT_BOOTLOADER"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "grub"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" \
+                                "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         rpi )
-          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" "$CADI_DEFAULT_BOOTLOADER"; then
+          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" \
+                              "$CADI_DEFAULT_BOOTLOADER"; then
             image_bootloader="$CADI_DEFAULT_BOOTLOADER"
           elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" "rpi"; then
             image_bootloader="rpi"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         secure-uefi )
-          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "$CADI_DEFAULT_BOOTLOADER"; then
+          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                              "$CADI_DEFAULT_BOOTLOADER"; then
             image_bootloader="$CADI_DEFAULT_BOOTLOADER"
           elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "grub"; then
             image_bootloader="grub"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         uefi )
-          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "$CADI_DEFAULT_BOOTLOADER"; then
+          if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                              "$CADI_DEFAULT_BOOTLOADER"; then
             image_bootloader="$CADI_DEFAULT_BOOTLOADER"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "efistub" && \
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                                "efistub" && \
                [ -n "$image_experimental" ]; then
             image_bootloader="efistub"
             if [ -n "$image_efi_bootstub" ]; then
@@ -1112,7 +1143,8 @@ default_boot_related_settings() {
                 gummiboot | stubby )
                   : ;;
                 * )
-                  error_message "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
+                  error_message \
+                    "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
               esac
             else
               image_efi_bootstub="$CADI_DEFAULT_EFI_BOOTSTUB"
@@ -1125,17 +1157,20 @@ default_boot_related_settings() {
                 gummiboot | stubby )
                   : ;;
                 * )
-                  error_message "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
+                  error_message \
+                    "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
               esac
             else
               image_efi_bootstub="$CADI_DEFAULT_EFI_BOOTSTUB"
             fi
           elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
       esac
@@ -1144,35 +1179,42 @@ default_boot_related_settings() {
         bios )
           if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "syslinux"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                                "syslinux"; then
             image_bootloader="syslinux"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         hybrid )
           if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         rpi )
           if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" "rpi"; then
             image_bootloader="rpi"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         secure-uefi )
           if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "grub"; then
             image_bootloader="grub"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
         uefi )
@@ -1184,7 +1226,8 @@ default_boot_related_settings() {
                 gummiboot | stubby )
                   : ;;
                 * )
-                  error_message "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
+                  error_message \
+                    "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
               esac
             else
               image_efi_bootstub="$CADI_DEFAULT_EFI_BOOTSTUB"
@@ -1197,17 +1240,20 @@ default_boot_related_settings() {
                 gummiboot | stubby )
                   : ;;
                 * )
-                  error_message "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
+                  error_message \
+                    "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
               esac
             else
               image_efi_bootstub="$CADI_DEFAULT_EFI_BOOTSTUB"
             fi
           elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "grub"; then
             image_bootloader="grub"
-          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "limine"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                                "limine"; then
             image_bootloader="limine"
           else
-            error_message "Unable to determine $image_boot_type bootloader to use!"
+            error_message \
+              "Unable to determine $image_boot_type bootloader to use!"
           fi
           ;;
       esac
@@ -1217,39 +1263,49 @@ default_boot_related_settings() {
   elif [ -n "$image_bootloader" ]; then
     case $image_boot_type in
       bios )
-        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" "$image_bootloader"; then
+        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_BIOS" \
+                            "$image_bootloader"; then
           :
         else
-          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+          error_message \
+            "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
         fi
         ;;
       hybrid )
-        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" "$image_bootloader"; then
+        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_HYBRID" \
+                            "$image_bootloader"; then
           :
         else
-          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+          error_message \
+            "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
         fi
         ;;
       rpi )
-        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" "$image_bootloader"; then
+        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_RPI" \
+                            "$image_bootloader"; then
           :
         else
-          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+          error_message \
+            "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
         fi
         ;;
       secure-uefi )
-        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "$image_bootloader"; then
+        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                            "$image_bootloader"; then
           :
         else
-          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+          error_message \
+            "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
         fi
         ;;
       uefi )
-        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" "$image_bootloader"; then
+        if is_in_comma_list "$CADI_SUPPORTED_BOOTLOADERS_UEFI" \
+                            "$image_bootloader"; then
           if [ -z "$image_experimental" ] && \
              { [ "$image_bootloader" = "efistub" ] || \
                [ "$image_bootloader" = "uki" ]; }; then
-            error_message "$image_bootloader bootloader support is an experimental option!"
+            error_message \
+              "$image_bootloader bootloader support is an experimental option!"
           else
             case $image_bootloader in
               efistub | uki )
@@ -1258,7 +1314,8 @@ default_boot_related_settings() {
                     gummiboot | stubby )
                       : ;;
                     * )
-                      error_message "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
+                      error_message \
+                        "Unknown UEFI bootstub '$image_efi_bootstub'!" ;;
                   esac
                 else
                   image_efi_bootstub="$CADI_DEFAULT_EFI_BOOTSTUB"
@@ -1271,7 +1328,8 @@ default_boot_related_settings() {
             esac
           fi
         else
-          error_message "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
+          error_message \
+            "Bootloader '$image_bootloader' is not a valid bootloader to use for $image_boot_type booting!"
         fi
         ;;
     esac
@@ -1295,18 +1353,22 @@ default_boot_related_settings() {
   if [ -z "$image_boot_reference" ]; then
     if [ -n "$CADI_DEFAULT_BOOT_REFERENCE" ] && \
        [ -n "$CADI_SUPPORTED_BOOT_REFERENCES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_BOOT_REFERENCES" "$CADI_DEFAULT_BOOT_REFERENCE"; then
+       is_in_comma_list "$CADI_SUPPORTED_BOOT_REFERENCES" \
+                        "$CADI_DEFAULT_BOOT_REFERENCE"; then
       image_boot_reference="$CADI_DEFAULT_BOOT_REFERENCE"
     elif [ -n "$CADI_SUPPORTED_BOOT_REFERENCES" ]; then
       image_boot_reference="$(first_entry_in_comma_list "$CADI_SUPPORTED_BOOT_REFERENCES")"
     else
-      error_message "Unable to determine whether to use UUID or device name to refer to boot filesystem!"
+      error_message \
+        "Unable to determine whether to use UUID or device name to refer to boot filesystem!"
     fi
   elif [ -n "$CADI_SUPPORTED_BOOT_REFERENCES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_BOOT_REFERENCES" "$image_boot_reference"; then
+       is_in_comma_list "$CADI_SUPPORTED_BOOT_REFERENCES" \
+                        "$image_boot_reference"; then
     :
   else
-    error_message "Boot reference '$image_boot_reference' is not supported by $class_type_description!"
+    error_message \
+      "Boot reference '$image_boot_reference' is not supported by $class_type_description!"
   fi
 
   # OS Boot device type:
@@ -1318,14 +1380,18 @@ default_boot_related_settings() {
         if [ "$CADI_DEFAULT_OS_DEVICE_TYPE" = "generic" ] && \
            is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "generic"; then
           image_os_device_type="generic"
-        elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
+        elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                              "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
           image_os_device_type="$CADI_DEFAULT_OS_DEVICE_TYPE"
         else
-          error_message "Default OS device type '$CADI_DEFAULT_OS_DEVICE_TYPE' is not defined in CADI_SUPPORTED_OS_DEVICE_TYPES!"
+          error_message \
+            "Default OS device type '$CADI_DEFAULT_OS_DEVICE_TYPE' is not defined in CADI_SUPPORTED_OS_DEVICE_TYPES!"
         fi
-      elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "virtio-blk"; then
+      elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                            "virtio-blk"; then
         image_os_device_type="virtio-blk"
-      elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "virtio-scsi"; then
+      elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                            "virtio-scsi"; then
         image_os_device_type="virtio-scsi"
       elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "nvme"; then
         image_os_device_type="nvme"
@@ -1340,17 +1406,21 @@ default_boot_related_settings() {
       elif is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "sd"; then
         image_os_device_type="sd"
       else
-        error_message "Unable to determine OS device type to use for $class_type_description!"
+        error_message \
+          "Unable to determine OS device type to use for $class_type_description!"
       fi
     else
-      error_message "Unable to determine OS device type to use for $class_type_description as CADI_SUPPORTED_OS_DEVICE_TYPES is not defined!"
+      error_message \
+        "Unable to determine OS device type to use for $class_type_description as CADI_SUPPORTED_OS_DEVICE_TYPES is not defined!"
     fi
   elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" "$image_os_device_type"; then
+       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                        "$image_os_device_type"; then
     # Boot device type specified is fine
     :
   else
-      error_message "Specified OS device type '$image_os_device_type' is not valid for $class_type_description!"
+      error_message \
+        "Specified OS device type '$image_os_device_type' is not valid for $class_type_description!"
   fi
 
   # OS Boot device media: disk / flash / sdcard / ssd
@@ -1362,61 +1432,72 @@ default_boot_related_settings() {
           if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" "ssd"; then
             image_os_device_media="ssd"
           else
-            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+            error_message \
+              "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
           fi
           ;;
         sd )
           if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" "sdcard"; then
             image_os_device_media="sdcard"
           else
-            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+            error_message \
+              "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
           fi
           ;;
         usb )
           if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" "flash"; then
             image_os_device_media="flash"
           else
-            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+            error_message \
+              "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
           fi
           ;;
         * )
           if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" "disk"; then
             image_os_device_media="disk"
           else
-            error_message "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
+            error_message \
+              "Unable to determine OS device media to use for $class_type_description with $image_os_device_type storage device!"
           fi
           ;;
       esac
     else
-      error_message "Unable to determine OS device media to use as no storage medias defined for $class_type_description with $image_os_device_type storage device!"
+      error_message \
+        "Unable to determine OS device media to use as no storage medias defined for $class_type_description with $image_os_device_type storage device!"
     fi
   elif [ -n "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" "$image_os_device_media"; then
+       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_MEDIAS" \
+                        "$image_os_device_media"; then
     case $image_os_device_type in
       nvme )
         if [ "$image_os_device_media" != "ssd" ]; then
-          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+          error_message \
+            "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
         fi
         ;;
       sd )
         if [ "$image_os_device_media" != "sdcard" ]; then
-          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+          error_message \
+            "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
         fi
         ;;
       usb )
         if [ "$image_os_device_media" != "flash" ]; then
-          error_message "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+          error_message \
+            "OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
         fi
         ;;
       * )
         if [ "$image_os_device_media" != "disk" ] && \
            [ "$image_os_device_media" != "ssd" ]; then
-          error_message "Specified OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
+          error_message \
+            "Specified OS device media $image_os_device_media is not valid for $image_os_device_type storage device!"
         fi
         ;;
     esac
   else
-      error_message "Specified OS device media '$image_os_device_media' is not valid for $class_type_description!"
+    error_message \
+      "Specified OS device media '$image_os_device_media' is not valid for $class_type_description!"
   fi
 
   # Filesystem type: btrfs/  f2fs / ext4 / xfs
@@ -1425,7 +1506,8 @@ default_boot_related_settings() {
     # or one of the supported alternative filesystems for the particular
     # cloud/physical/virtual type
     if [ -n "$CADI_DEFAULT_OS_FILESYSTEM" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_FILESYSTEMS" "$CADI_DEFAULT_OS_FILESYSTEM"; then
+       is_in_comma_list "$CADI_SUPPORTED_OS_FILESYSTEMS" \
+                        "$CADI_DEFAULT_OS_FILESYSTEM"; then
       image_fs_type="$CADI_DEFAULT_OS_FILESYSTEM"
     elif is_in_comma_list "$CADI_SUPPORTED_OS_FILESYSTEMS" "ext4"; then
       image_fs_type="ext4"
@@ -1445,14 +1527,16 @@ default_boot_related_settings() {
       if [ -z "$image_experimental" ] && \
          { [ "$image_fs_type" = "btrfs" ] || \
            [ "$image_fs_type" = "f2fs" ]; }; then
-        error_message "Support for '$image_fs_type' filesystem type is experimental!"
+        error_message \
+          "Support for '$image_fs_type' filesystem type is experimental!"
       else
         # Specified boot_type is supported by particular
         # cloud/physical/virtual type
         :
       fi
     else
-      error_message "Boot type '$image_fs_type' ia not supported by $class_type_description!"
+      error_message \
+        "Boot type '$image_fs_type' ia not supported by $class_type_description!"
     fi
   else
     error_message "Invalid filesystem type specified!"
@@ -1472,7 +1556,8 @@ default_boot_related_settings() {
        [ "$CADI_SUPPORTED_OS_LUKS_ENCRYPTION" = "false" ] && \
        { [ "$image_encryption_type" = "luks" ] || \
          [ "$image_encryption_type" = "both" ]; }; then
-    error_message "LUKS encryption is not supported by $class_type_description!"
+    error_message \
+      "LUKS encryption is not supported by $class_type_description!"
   else
     case $image_encryption_type in
       both | fscrypt )
@@ -1480,7 +1565,9 @@ default_boot_related_settings() {
           ext4 | f2fs )
             : ;;
           * )
-            error_message "Filesystem type $image_fs_type does not support fscrypt encryption!" ;;
+            error_message \
+              "Filesystem type $image_fs_type does not support fscrypt encryption!"
+            ;;
         esac
         ;;
     esac
@@ -1489,7 +1576,8 @@ default_boot_related_settings() {
       both | luks )
         if [ -n "$luks_remote_unlock_enabled" ] && \
            [ "$image_class" = "cloud" ]; then
-          error_message "Remote unlocking of encrypted rootfs is not supported in cloud!"
+          error_message \
+            "Remote unlocking of encrypted rootfs is not supported in cloud!"
         fi
         ;;
     esac
@@ -1506,12 +1594,14 @@ default_boot_related_settings() {
       case $CADI_BOOT_PARTITION_REQUIRED in
         true )
           if [ "$image_os_partitioning_type" = "unpartitioned" ]; then
-            error_message "Contradiction in settings, a separate /boot partition is required but disk is unpartitioned!"
+            error_message \
+              "Contradiction in settings, a separate /boot partition is required but disk is unpartitioned!"
           elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
              [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
             image_create_boot_partition=true
           elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ]; then
-            error_message "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
+            error_message \
+              "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
           else
             image_create_boot_partition=false
           fi
@@ -1527,20 +1617,23 @@ default_boot_related_settings() {
         grub )
           case $image_encryption_type in
             both | luks )
-              # When GRUB is bootloader a separate boot partition is required if
-              # using an LUKS encrypted rootfs:
+              # When GRUB is bootloader a separate boot partition is required
+              # if using an LUKS encrypted rootfs:
               #   - with remote unlock OR
-              #   - with Adiantum encryption (GRUB's LUKS module does not support this)
+              #   - with Adiantum encryption (GRUB's LUKS module does
+              #     not support this)
               if { [ -n "$image_experimental" ] && \
                    [ -n "$luks_remote_unlock_enabled" ]; } || \
                  [ "$image_luks_cipher" = "adiantum" ]; then
                 if [ "$image_os_partitioning_type" = "unpartitioned" ]; then
-                  error_message "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
+                  error_message \
+                    "Contradiction in settings, a separate /boot partition is required but not supported by $class_type_description!"
                 elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
-                   [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
+                     [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
                   image_create_boot_partition=true
                 else
-                  error "A separate /boot partition is required but is not clear if supported by $class_type_description!"
+                  error_message \
+                    "A separate /boot partition is required but is not clear if supported by $class_type_description!"
                 fi
               else
                 image_create_boot_partition=false
@@ -1558,10 +1651,11 @@ default_boot_related_settings() {
           if [ "$image_encryption_type" = "both" ] || \
              [ "$image_encryption_type" = "luks" ] || \
              [ -n "$image_lvm_rootfs" ]; then
-            # When Syslinux is bootloader a separate boot partition is required
-            # with LUKS encrypted rootfs or LVM rootfs
+            # When Syslinux is bootloader a separate boot partition is
+            # required with LUKS encrypted rootfs or LVM rootfs.
             if [ "$image_os_partitioning_type" = "unpartitioned" ]; then
-              error "A separate /boot partition is required but is not clear if supported by $class_type_description!"
+              error_message \
+                "A separate /boot partition is required but is not clear if supported by $class_type_description!"
             else
               image_create_boot_partition=true
             fi
@@ -1571,13 +1665,15 @@ default_boot_related_settings() {
     fi
   elif [ "$image_create_boot_partition" = "true" ]; then
     if [ "$image_os_partitioning_type" = "unpartitioned" ]; then
-      error_message "A separate /boot partition was spcified but disk is unpartitioning!"
+      error_message \
+        "A separate /boot partition was spcified but disk is unpartitioning!"
     elif [ -n "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" ] && \
        [ "$CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION" = "true" ]; then
     # Separate /boot is supported
       image_create_boot_partition=true
     else
-      error_message "A separate /boot partition is not supported by $class_type_description!"
+      error_message \
+        "A separate /boot partition is not supported by $class_type_description!"
     fi
   else
     image_create_boot_partition=false
@@ -1602,7 +1698,8 @@ default_boot_related_settings() {
       image_create_swap_partition=false
     fi
   elif [ "$image_swap_partition_size" != "0" ]; then
-    error_message "Disk is unpartitioned and so cannot create a swap partition!"
+    error_message \
+      "Disk is unpartitioned and so cannot create a swap partition!"
   else
     image_create_swap_partition=false
   fi
@@ -1610,34 +1707,41 @@ default_boot_related_settings() {
 
 
 #
-# Console related settings
+# Console related settings.
 #
 default_console_related_settings() {
   # Console device type
   if [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ]; then
     if [ -n "$image_console_device_type" ]; then
-      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "$image_console_device_type"; then
+      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                          "$image_console_device_type"; then
         # image_console_device_type value is ok
         :
       else
-        error_message "Console device type '$image_console_device_type' is not supported for '$class_type_description'!"
+        error_message \
+          "Console device type '$image_console_device_type' is not supported for '$class_type_description'!"
       fi
     else
       # Automatically determine console type
       if [ -n "$CADI_DEFAULT_CONSOLE_DEVICE_TYPE" ]; then
-        if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "$CADI_DEFAULT_CONSOLE_DEVICE_TYPE"; then
+        if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                            "$CADI_DEFAULT_CONSOLE_DEVICE_TYPE"; then
           image_console_device_type="$CADI_DEFAULT_CONSOLE_DEVICE_TYPE"
         else
-          error_message "Console device type '$image_console_device_type' is not supported for '$class_type_description'!"
+          error_message \
+            "Console device type '$image_console_device_type' is not supported for '$class_type_description'!"
         fi
-      elif is_single_entry_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
+      elif is_single_entry_in_comma_list \
+           "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"; then
         image_console_device_type="$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES"
       else
-        error_message "CADI_DEFAULT_CONSOLE_DEVICE_TYPE is not defined for '$class_type_description'!"
+        error_message \
+          "CADI_DEFAULT_CONSOLE_DEVICE_TYPE is not defined for '$class_type_description'!"
       fi
     fi
   else
-    error_message "CADI_SUPPORTED_CONSOLE_DEVICE_TYPES is not defined for '$class_type_description'!"
+    error_message \
+      "CADI_SUPPORTED_CONSOLE_DEVICE_TYPES is not defined for '$class_type_description'!"
   fi
 
 
@@ -1661,22 +1765,28 @@ default_console_related_settings() {
   case $image_console_device_type in
     generic )
       if [ -n "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ]; then
-        if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"; then
+        if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                            "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"; then
           image_console_output_type="$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"
         else
-          error_message "Default console output type is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+          error_message \
+            "Default console output type is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
         fi
-      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "generic"; then
+      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                            "generic"; then
         # Use "generic" if in list
         image_console_output_type="generic"
-      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "graphics"; then
+      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                            "graphics"; then
         # Use "graphics" if in list
         image_console_output_type="graphics"
-      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "text"; then
+      elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                            "text"; then
         # Use "text" if in list
         image_console_output_type="text"
       else
-        error_message "Unable to select console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+        error_message \
+          "Unable to select console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
       fi
       ;;
 
@@ -1684,7 +1794,8 @@ default_console_related_settings() {
       if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "text"; then
         image_console_output_type="text"
       else
-        error_message "Unable to select 'text' console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+        error_message \
+          "Unable to select 'text' console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
       fi
       ;;
 
@@ -1692,7 +1803,8 @@ default_console_related_settings() {
       if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "none"; then
         image_console_output_type="none"
       else
-        error_message "Unable to select 'none' console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+        error_message \
+          "Unable to select 'none' console output type from $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
       fi
       ;;
 
@@ -1702,34 +1814,43 @@ default_console_related_settings() {
          [ "$image_enable_graphics" = "true" ]; then
         # Graphics output is required
         if [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ] && \
-           is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "graphics"; then
+           is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                            "graphics"; then
           image_console_output_type="graphics"
         else
-          error_message "Graphics console forced but graphics console output type not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+          error_message \
+            "Graphics console forced but graphics console output type not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
         fi
       elif [ -z "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ]; then
         # No default output type defined so look at what is supported
         if [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ]; then
-          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "generic"; then
+          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                              "generic"; then
             image_console_output_type="generic"
-          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "graphics"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                                "graphics"; then
             image_console_output_type="graphics"
-          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "text" && \
+          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                                "text" && \
                [ "$image_boot_type" = "bios" ]; then
             # Text mode can only be used for BIOS based systems   
             image_console_output_type="text"
-          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "none"; then
+          elif is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                                "none"; then
             image_console_output_type="none"
           else
-            error_message "Unable to determine console output type from CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
+            error_message \
+              "Unable to determine console output type from CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES for $class_type_description!"
           fi
         else
-          error_message "Unable to determine console output type for $class_type_description as CADI_DEFAULT_CONSOLE_OUTPUT_TYPE and CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES are undefined!"
+          error_message \
+            "Unable to determine console output type for $class_type_description as CADI_DEFAULT_CONSOLE_OUTPUT_TYPE and CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES are undefined!"
         fi
       else
         # Default console output type is defined, use that if supported.
         if [ -n "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" ]; then
-          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"; then
+          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                              "$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"; then
             case $CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES in
               text )
                 case $image_boot_type in
@@ -1737,25 +1858,32 @@ default_console_related_settings() {
                     # VGA Text mode can only be used for BIOS based systems
                     image_console_output_type="text" ;;
                   secure-uefi | uefi )
-                    if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" "graphics"; then
+                    if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES" \
+                                        "graphics"; then
                       # Text mode can not be used for UEFI based systems
                       image_console_output_type="graphics"
                     else
-                      error_message "Cannot determine which type of console output to use for $image_boot_type boot type and $class_type_description as 'graphics' is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES!"
+                      error_message \
+                        "Cannot determine which type of console output to use for $image_boot_type boot type and $class_type_description as 'graphics' is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES!"
                     fi
                     ;;
                   * )
-                    error_message "Cannot determine which type of console output to use for $image_boot_type boot type and $class_type_description!"
+                    error_message \
+                      "Cannot determine which type of console output to use for $image_boot_type boot type and $class_type_description!"
+                    ;;
                 esac
                 ;;
               *)
-                image_console_output_type="$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE" ;;
+                image_console_output_type="$CADI_DEFAULT_CONSOLE_OUTPUT_TYPE"
+                ;;
             esac
           else
-            error_message "Cannot use default console output type for $class_type_description as it is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES!"
+            error_message \
+              "Cannot use default console output type for $class_type_description as it is not defined in CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES!"
           fi
         else
-          error_message "Cannot use default console output type for $class_type_description as CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES is not defined!"
+          error_message \
+            "Cannot use default console output type for $class_type_description as CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES is not defined!"
         fi
       fi
       ;;
@@ -1781,7 +1909,8 @@ default_console_related_settings() {
   case $image_console_device_type in
     hypervisor | serial )
       if [ -n "$image_keyboard_type" ]; then
-        error_message "Keyboard type '$image_keyboard_type' makes no sense for a $image_console_device_type console!"
+        error_message \
+          "Keyboard type '$image_keyboard_type' makes no sense for a $image_console_device_type console!"
       else
         image_keyboard_type="none"
       fi
@@ -1790,28 +1919,35 @@ default_console_related_settings() {
     * )
       if [ -n "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" ]; then
         if [ -n "$image_keyboard_type" ]; then
-          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" "$image_keyboard_type"; then
+          if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                              "$image_keyboard_type"; then
             # Use specified keyboard type
             :
           else
-            error_message "Console keyboard type '$image_keyboard_type' is not supported for '$class_type_description'!"
+            error_message \
+              "Console keyboard type '$image_keyboard_type' is not supported for '$class_type_description'!"
           fi
         else
           # Automatically determine console keyboard type
           if [ -n "$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE" ]; then
-            if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" "$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE"; then
+            if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                                "$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE"; then
               image_keyboard_type="$CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE"
             else
-              error_message "Console keyboard type '$image_keyboard_type' is not supported for '$class_type_description'!"
+              error_message \
+                "Console keyboard type '$image_keyboard_type' is not supported for '$class_type_description'!"
             fi
-          elif is_single_entry_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES"; then
+          elif is_single_entry_in_comma_list \
+               "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES"; then
             image_keyboard_type="$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES"
           else
-            error_message "CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE is not defined for '$class_type_description'!"
+            error_message \
+              "CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE is not defined for '$class_type_description'!"
           fi
         fi
       else
-        error_message "CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES is not defined for '$class_type_description'!"
+        error_message \
+          "CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES is not defined for '$class_type_description'!"
       fi
       ;;
   esac
@@ -1822,12 +1958,14 @@ default_console_related_settings() {
       if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER" ]; then
         : "${image_serial_console_port_number:=$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER}"
       else
-        error_message "CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER is not defined for '$class_type_description'!"
+        error_message \
+          "CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER is not defined for '$class_type_description'!"
       fi
       if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME" ]; then
         image_serial_console_name="${CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME}${image_serial_console_port_number}"
       else
-        error_message "CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME is not defined for '$class_type_description'!"
+        error_message \
+          "CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME is not defined for '$class_type_description'!"
       fi
       if [ -n "$CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED" ]; then
         image_serial_console_speed="${CADI_SUPPORTED_SERIAL_CONSOLE_PORT_SPEED}"
@@ -1850,7 +1988,8 @@ default_console_related_settings() {
   case $image_console_device_type in
     generic )
       image_console_device_name="tty0"
-      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" "hypervisor"; then
+      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                          "hypervisor"; then
         image_console_device_name="${image_console_device_name},hvc0"
       fi
       ;;
@@ -1865,7 +2004,7 @@ default_console_related_settings() {
 
 
 #
-# NTP related settings
+# NTP related settings.
 #
 default_ntp_related_settings() {
   if [ -n "$CADI_DEFAULT_NTP_METHOD" ]; then
@@ -2010,16 +2149,19 @@ default_ntp_related_settings() {
       if [ -n "$image_ntp_servers" ]; then
         image_ntp_servers_list="$image_ntp_servers"
       else
-        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
-          if [ -z "$image_disable_ipv4" ] && [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
+        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+           [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          if [ -z "$image_disable_ipv4" ] && \
+             [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
             image_ntp_servers_list="$CADI_NTP_IPV4_SERVERS"
           fi
-          if [ -z "$image_disable_ipv6" ] && [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
-             if [ -n "$image_ntp_servers_list" ]; then
-               image_ntp_servers_list="$image_ntp_servers_list $CADI_NTP_IPV6_SERVERS"
-             else
-               image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
-             fi
+          if [ -z "$image_disable_ipv6" ] && \
+             [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+            if [ -n "$image_ntp_servers_list" ]; then
+              image_ntp_servers_list="$image_ntp_servers_list $CADI_NTP_IPV6_SERVERS"
+            else
+              image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
+            fi
           fi
         fi
 	if [ -n "$CADI_NTP_SERVERS" ]; then
@@ -2041,11 +2183,14 @@ default_ntp_related_settings() {
       if [ -n "$image_ntp_servers" ]; then
         image_ntp_servers_list="$image_ntp_servers"
       else
-        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
-          if [ -z "$image_disable_ipv4" ] && [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
+        if [ -n "$CADI_NTP_IPV4_SERVERS" ] || \
+           [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          if [ -z "$image_disable_ipv4" ] && \
+             [ -n "$CADI_NTP_IPV4_SERVERS" ]; then
             image_ntp_servers_list="$CADI_NTP_IPV4_SERVERS"
           fi
-          if [ -z "$image_disable_ipv6" ] && [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
+          if [ -z "$image_disable_ipv6" ] && \
+             [ -n "$CADI_NTP_IPV6_SERVERS" ]; then
             image_ntp_servers_list="$CADI_NTP_IPV6_SERVERS"
           fi
         fi
@@ -2099,7 +2244,7 @@ default_ntp_related_settings() {
 
 
 #
-# Partition sizing related settings
+# Partition sizing related settings.
 #
 partition_sizing_related() {
   local _base_bootfs_size _base_rootfs_size _bootfs_extra_space
@@ -2115,7 +2260,8 @@ partition_sizing_related() {
       if [ -z "$image_esp_type" ]; then
         case $image_bootloader in
           efistub | uki )
-            image_esp_type="${image_esp_type:=$CADI_DEFAULT_EFISTUB_ESP_TYPE}" ;;
+            image_esp_type="${image_esp_type:=$CADI_DEFAULT_EFISTUB_ESP_TYPE}"
+            ;;
           * )
             image_esp_type="${image_esp_type:=$CADI_DEFAULT_ESP_TYPE}" ;;
         esac
@@ -2137,9 +2283,11 @@ partition_sizing_related() {
   case $image_bootloader in
     grub | limine | rpi | syslinux )
       # shellcheck disable=SC2018,SC2019
-      eval _bootloader_files_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_BOOT_FILES_SIZE
+      eval \
+        _bootloader_files_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_BOOT_FILES_SIZE
       # shellcheck disable=SC2018,SC2019
-      eval _bootloader_packages_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_PACKAGES_SIZE
+      eval \
+        _bootloader_packages_size='$'CADI_BOOTLOADER_"$(echo "$image_bootloader" | tr 'a-z' 'A-Z')"_PACKAGES_SIZE
       ;;
   esac
   : "${_bootloader_files_size:=0}"
@@ -2148,18 +2296,23 @@ partition_sizing_related() {
   # Additional kernel driver packages specific to the cloud/virtual/physical
   # machine type
   # shellcheck disable=SC2018,SC2019
-  eval _driver_packages_list='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_LIST
+  eval \
+    _driver_packages_list='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_LIST
   # shellcheck disable=SC2018,SC2019
-  eval _driver_packages_size='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_SIZE
+  eval \
+    _driver_packages_size='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_SIZE
   # shellcheck disable=SC2018,SC2019
-  eval _driver_packages_notpresentin='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_NOTPRESENTIN
+  eval \
+    _driver_packages_notpresentin='$'CADI_"$(echo "$image_class" | tr 'a-z' 'A-Z')"_DRIVER_PACKAGES_NOTPRESENTIN
   if [ -n "$_driver_packages_list" ]; then
     if [ -n "$_driver_packages_notpresentin" ] && \
-       ! is_in_comma_list "$_driver_packages_notpresentin" "$image_alpine_release"; then
+       ! is_in_comma_list "$_driver_packages_notpresentin" \
+                          "$image_alpine_release"; then
       # Packages are not available for this release of Alpine
       _driver_packages_list=""
     elif [ -z "$_driver_packages_size" ]; then
-      error_message "Kernel driver packages for $class_type_description defined but no installed size defined for them!"
+      error_message \
+        "Kernel driver packages for $class_type_description defined but no installed size defined for them!"
     else
       _driver_packages_list="$(echo $_driver_packages_list | tr ',' ' ')"
     fi
@@ -2171,7 +2324,8 @@ partition_sizing_related() {
       packages_additional="$(echo "$CADI_PACKAGES_ADDITIONAL" | tr ',' ' ')"
       _packages_additional_size=$CADI_PACKAGES_ADDITIONAL_SIZE
     else
-      error_message "Additional packages for $class_type_description defined but no installed size defined for them!"
+      error_message \
+        "Additional packages for $class_type_description defined but no installed size defined for them!"
     fi
   fi
   : "${_packages_additional_size:=0}"
@@ -2185,7 +2339,8 @@ partition_sizing_related() {
         hypervisor_agent_packages="$(echo "$CADI_HYPERVISOR_AGENT_PACKAGES" | tr ',' ' ')"
         _hypervisor_agent_packages_size=$CADI_HYPERVISOR_AGENT_PACKAGES_SIZE
       else
-        error_message "Agent packages defined but no installed size defined for them!"
+        error_message \
+          "Agent packages defined but no installed size defined for them!"
       fi
     fi
 
@@ -2193,11 +2348,13 @@ partition_sizing_related() {
     # which are not installed for barebones machines
     if [ -n "$CADI_CLOUD_CLI_PACKAGES" ]; then
       if [ -n "$CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN" ] && \
-         ! is_in_comma_list "$CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN" "$image_alpine_release"; then
+         ! is_in_comma_list "$CADI_CLOUD_CLI_PACKAGES_NOTPRESENTIN" \
+                            "$image_alpine_release"; then
         # Package is not available for this release of Alpine
         :
       elif [ -z "$CADI_CLOUD_CLI_PACKAGES_SIZE" ]; then
-        error_message "CLI packages for $class_type_description defined but no installed size defined for them!"
+        error_message \
+          "CLI packages for $class_type_description defined but no installed size defined for them!"
       else
         cloud_cli_packages="$(echo "$CADI_CLOUD_CLI_PACKAGES" | tr ',' ' ')"
         _cloud_cli_packages_size=$CADI_CLOUD_CLI_PACKAGES_SIZE
@@ -2211,7 +2368,8 @@ partition_sizing_related() {
         packages_extra="$(echo "$CADI_PACKAGES_EXTRA" | tr ',' ' ')"
         _packages_extra_size=$CADI_PACKAGES_EXTRA_SIZE
       else
-        error_message "Extra packages for $class_type_description defined but no installed size defined for them!"
+        error_message \
+          "Extra packages for $class_type_description defined but no installed size defined for them!"
       fi
     fi
 
@@ -2222,7 +2380,8 @@ partition_sizing_related() {
         packages_optional="$(echo "$CADI_PACKAGES_OPTIONAL" | tr ',' ' ')"
         _packages_optional_size=$CADI_PACKAGES_OPTIONAL_SIZE
       else
-        error_message "Optional packages for $class_type_description defined but no installed size defined for them!"
+        error_message \
+          "Optional packages for $class_type_description defined but no installed size defined for them!"
       fi
     fi
   fi
@@ -2256,8 +2415,9 @@ partition_sizing_related() {
           ;;
       esac
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[partition_sizing_related] size for ESP partition is: $general_uefi_part_size MiB" \
-          >> "$sizing_debug"
+        printf \
+          '[partition_sizing_related] size for ESP partition is: %s MiB\n' \
+          "$general_uefi_part_size" >> "$sizing_debug"
       fi
       ;;
   esac
@@ -2269,22 +2429,30 @@ partition_sizing_related() {
   # initramfs, and microcode in /boot
   : "${CADI_MICROCODE_SIZE:=0}"
   # shellcheck disable=SC1102,SC2018,SC2019,SC2046
-  eval _base_bootfs_size="$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE + CADI_INITRAMFS_SIZE + CADI_MICROCODE_SIZE))"
+  eval \
+    _base_bootfs_size="$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE + CADI_INITRAMFS_SIZE + CADI_MICROCODE_SIZE))"
 
   # Allow space for kernel package updates
-  eval _bootfs_extra_space=$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE))
+  eval \
+    _bootfs_extra_space=$((CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE))
 
   if [ -n "$debug_sizing_enabled" ]; then
     {
-      printf '[partition_sizing_related] base size of bootfs is: %s MiB\n' "$_base_bootfs_size"
-      printf '[partition_sizing_related]   based on:  kernel=%s, initramfs=%s, microcode=%s\n' \
+      printf '[partition_sizing_related] base size of bootfs is: %s MiB\n' \
+        "$_base_bootfs_size"
+      printf \
+        '[partition_sizing_related]   based on:  kernel=%s, initramfs=%s, microcode=%s\n' \
         "$(eval echo '$'CADI_BOOTFS_KERNEL_$(get_kernel_type | tr 'a-z' 'A-Z')_FILES_SIZE)" \
         "$CADI_INITRAMFS_SIZE" \
         "$CADI_MICROCODE_SIZE"
       if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
-        echo "[partition_sizing_related] size of bootloader files in bootfs is: $_bootloader_files_size MiB"
+        printf \
+          '[partition_sizing_related] size of bootloader files in bootfs is: %s MiB\n' \
+          "$_bootloader_files_size"
       fi
-      echo "[partition_sizing_related] extra free space for bootfs is: $_bootfs_extra_space MiB"
+      printf \
+        '[partition_sizing_related] extra free space for bootfs is: %s MiB\n' \
+        "$_bootfs_extra_space"
     } >> "$sizing_debug"
   fi
 
@@ -2295,8 +2463,8 @@ partition_sizing_related() {
   fi
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[partition_sizing_related] total size for bootfs is: $general_bootfs_size MiB" \
-      >> "$sizing_debug"
+    printf '[partition_sizing_related] total size for bootfs is: %s MiB\n' \
+      "$general_bootfs_size" >> "$sizing_debug"
   fi
 
   # Rootfs sizing
@@ -2306,7 +2474,8 @@ partition_sizing_related() {
   case $image_kernel_type in
     edge | normal )
       # shellcheck disable=SC2018,SC2019
-      eval _kernel_rootfs_files_size='$'CADI_ROOTFS_KERNEL_"$(get_kernel_type | tr 'a-z' 'A-Z')"_FILES_SIZE ;;
+      eval \
+        _kernel_rootfs_files_size='$'CADI_ROOTFS_KERNEL_"$(get_kernel_type | tr 'a-z' 'A-Z')"_FILES_SIZE ;;
   esac
 
   : "${general_rootfs_size:=$_base_rootfs_size}"
@@ -2321,19 +2490,35 @@ partition_sizing_related() {
 
   if [ -n "$debug_sizing_enabled" ]; then
     {
-      echo "[partition_sizing_related] base size for rootfs is: $general_rootfs_size MiB"
-      echo "[partition_sizing_related] size of kernel package files is: $_kernel_rootfs_files_size MiB"
-      echo "[partition_sizing_related] size of bootloader packages is: $_bootloader_packages_size MiB"
-      echo "[partition_sizing_related] size of configuration software packages is: $_config_software_packages_size MiB"
+      printf '[partition_sizing_related] base size for rootfs is: %s MiB\n' \
+        "$general_rootfs_size"
+      printf \
+        '[partition_sizing_related] size of kernel package files is: %s MiB\n' \
+        "$_kernel_rootfs_files_size"
+      printf \
+        '[partition_sizing_related] size of bootloader packages is: %s MiB\n' \
+        "$_bootloader_packages_size"
+      printf \
+        '[partition_sizing_related] size of configuration software packages is: %s MiB\n' \
+        "$_config_software_packages_size"
       case $image_class in
         cloud )
-          echo "[partition_sizing_related] size of Cloud Provider CLI packages is: $_cloud_cli_packages_size MiB" ;;
+          printf \
+            '[partition_sizing_related] size of Cloud Provider CLI packages is: %s MiB\n' \
+            "$_cloud_cli_packages_size" ;;
         virtual )
-          echo "[partition_sizing_related] size of VM Hypervisor agent packages is: $_hypervisor_agent_packages_size MiB" ;;
+          printf \
+            '[partition_sizing_related] size of VM Hypervisor agent packages is: %s MiB\n' \
+            "$_hypervisor_agent_packages_size" ;;
       esac
-      echo "[partition_sizing_related] size of additional packages is: $_packages_additional_size MiB"
-      echo "[partition_sizing_related] size of extra packages is: $_packages_extra_size MiB"
-      echo "[partition_sizing_related] size of optional packages is: $_packages_optional_size MiB"
+      printf \
+        '[partition_sizing_related] size of additional packages is: %s MiB\n' \
+        "$_packages_additional_size"
+      printf '[partition_sizing_related] size of extra packages is: %s MiB\n' \
+        "$_packages_extra_size"
+      printf \
+        '[partition_sizing_related] size of optional packages is: %s MiB\n' \
+        "$_packages_optional_size"
     } >> "$sizing_debug"
   fi
 
@@ -2349,22 +2534,23 @@ partition_sizing_related() {
   esac
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[partition_sizing_related] size of user-specified additional packages is: $image_additional_packages_size MiB" \
-      >> "$sizing_debug"
+    printf \
+      '[partition_sizing_related] size of user-specified additional packages is: %s MiB\n' \
+      "$image_additional_packages_size" >> "$sizing_debug"
   fi
 
   # Add on size of user-specified additional packages to rootfs size
   general_rootfs_size=$((general_rootfs_size + image_additional_packages_size ))
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[partition_sizing_related] total size for rootfs is: $general_rootfs_size MiB" \
-      >> "$sizing_debug"
+    printf '[partition_sizing_related] total size for rootfs is: %s MiB\n' \
+      "$general_rootfs_size" >> "$sizing_debug"
   fi
 }
 
 
 #
-# Settings shared between Cloud/Physical/Virtual machines
+# Settings shared between Cloud/Physical/Virtual machines.
 #
 default_settings() {
   local _base_bootfs_size _bootfs_extra_space _base_rootfs_size
@@ -2381,7 +2567,8 @@ default_settings() {
   # APK static version
   if [ -z "$apk_static_checksum" ]; then
     # shellcheck disable=SC2018,SC2019
-    eval apk_static_checksum='$'"CADI_APK_STATIC_$(echo "$image_arch" | tr 'a-z' 'A-Z')_CHECKSUM"
+    eval \
+      apk_static_checksum='$'"CADI_APK_STATIC_$(echo "$image_arch" | tr 'a-z' 'A-Z')_CHECKSUM"
   fi
   : "${apk_static_version:=$CADI_APK_STATIC_VERSION}"
   : "${apk_static_url:=$CADI_APK_STATIC_URL}"
@@ -2488,7 +2675,8 @@ default_settings() {
   #---------------
   if [ -z "$image_acpi_power_method" ]; then
     if [ -n "$CADI_DEFAULT_ACPI_BUTTON" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" "$CADI_DEFAULT_ACPI_BUTTON"; then
+       is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" \
+                        "$CADI_DEFAULT_ACPI_BUTTON"; then
       image_acpi_power_method="$CADI_DEFAULT_ACPI_BUTTON"
     elif [ -n "$CADI_SUPPORTED_ACPI_BUTTONS" ]; then
       image_acpi_power_method="$(first_entry_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS")"
@@ -2529,7 +2717,7 @@ default_settings() {
 
 
 #
-# Define list of packages in addition to base Alpine
+# Define list of packages in addition to base Alpine.
 #
 define_additional_packages() {
   local _initial_pkgs
@@ -2619,7 +2807,8 @@ define_additional_packages() {
     _initial_pkgs="$_initial_pkgs lvm2"
   fi
 
-  if [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ] || \
+  if [ "$image_encryption_type" = "both" ] || \
+     [ "$image_encryption_type" = "luks" ] || \
      [ -n "$image_lvm_rootfs" ]; then
     _initial_pkgs="$_initial_pkgs device-mapper"
   fi
@@ -2725,7 +2914,7 @@ define_additional_packages() {
 
 
 #
-# Define list of packages related to machine characteristics
+# Define list of packages related to machine characteristics.
 #
 define_machine_specific_packages() {
   local _machine_specific_packages
@@ -2745,7 +2934,7 @@ define_machine_specific_packages() {
 
 
 #
-# Define list of os-related configuration software packages
+# Define list of os-related configuration software packages.
 #
 define_os_config_software_packages() {
   local _os_config_software_pkgs
@@ -2782,142 +2971,29 @@ define_os_config_software_packages() {
 
 
 #
-# Delete unnecessary users & groups
-#
-delete_users_groups() {
-  cat <<-'EOF' >> "$run_script"
-	
-	write_log "Deleting unnecessary users and groups"
-	{
-	EOF
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	  # Debug
-	  cp /etc/group /etc/group-orig
-	  cp /etc/passwd /etc/passwd-orig
-	  cp /etc/shadow /etc/shadow-orig
-	EOF
-
-    case $image_device_management_type in
-      udev )
-        cat <<-'EOF' >> "$run_script"
-	
-	  cp /lib/udev/rules.d/50-udev-default.rules \
-	    /lib/udev/rules.d/50-udev-default.rules-orig
-	EOF
-        ;;
-    esac
-
-    cat <<-'EOF' >> "$run_script"
-	
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  write_log "Deleting unnecessary users" 2
-	  {
-	    _unreq_users_list="cyrus ftp games guest halt man news ntp operator"
-	    _unreq_users_list="\$_unreq_users_list postmaster shutdown smmsp squid"
-	    _unreq_users_list="\$_unreq_users_list sync vpopmail xfs"
-	
-	    for _unrequired_user in \$_unreq_users_list
-	    do
-	      write_debug_log "Delete user '\$_unrequired_user'" 4
-	      deluser "\$_unrequired_user" 2> /dev/null
-	    done
-	  }
-	
-	  write_log "Deleting unnecessary groups" 2
-	  {
-	    _unreq_groups_list="abuild cdrw"
-	
-	    for _unrequired_group in \$_unreq_groups_list
-	    do
-	      write_debug_log "Delete group '\$_unrequired_group'" 4
-	      delgroup "\$_unrequired_group"
-	    done
-	EOF
-
-  case $image_device_management_type in
-    udev )
-      cat <<-'EOF' >> "$run_script"
-	
-	    write_log "Remove references to deleted groups from udev rules" 4
-	    {
-	      write_debug_log "Rewrite any wrapped lines into single lines" 6
-	      sed -i -e ':x;/\\$/{N;s/\\\n//g;bx;}' -e 's/ [ ]*/ /g' \
-	        /lib/udev/rules.d/50-udev-default.rules
-	      for _unrequired_group in \$_unreq_groups_list
-	      do
-	        write_debug_log "Remove group \$_unrequired_group references" 6
-	        sed -i -e "/^.*GROUP=\"\$_unrequired_group\".*$/d" \
-	          /lib/udev/rules.d/50-udev-default.rules
-	      done
-	    }
-	EOF
-      ;;
-  esac
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	  # Debug
-	  write_debug_log "Users differences:" 2
-	  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
-	  write_debug_log "Users differences:" 2
-	  diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
-	  write_debug_log "Groups differences:" 2
-	  diff /etc/group-orig /etc/group >> /chroot.log || true
-	  rm /etc/group-orig /etc/passwd-orig /etc/shadow-orig
-	EOF
-
-    case $image_device_management_type in
-      udev )
-        cat <<-'EOF' >> "$run_script"
-	  write_debug_log "50-udev-default.rules differences:" 2
-	  diff /lib/udev/rules.d/50-udev-default.rules-orig \
-	    /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
-	  rm /lib/udev/rules.d/50-udev-default.rules-orig
-	EOF
-        ;;
-    esac
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	}
-	EOF
-}
-
-
-#
 # Returns the full path to the initramfs file taking into account
 # the initramfs generator tool in use.
 #
 get_initramfs_filename() {
-  local _filename _prefix
+  local _initramfs_filename _initramfs_prefix
 
   case $image_initramfs_tool in
     booster )
-      _prefix="booster" ;;
+      _initramfs_prefix="booster" ;;
     dracut )
-      _prefix="initramfs" ;;
+      _initramfs_prefix="initramfs" ;;
     mkinitfs )
-      _prefix="initramfs" ;;
+      _initramfs_prefix="initramfs" ;;
   esac
 
-  _filename="${_prefix}-$(get_kernel_type)"
+  _initramfs_filename="${_initramfs_prefix}-$(get_kernel_type)"
 
-  echo "$_filename"
+  echo "$_initramfs_filename"
 }
 
 
 #
-# Install base Alpine system
+# Install base Alpine system.
 #
 install_alpine_base() {
   local _base_packages _bootloader_packages
@@ -2967,6 +3043,7 @@ install_alpine_base() {
           _bootloader_packages="$_bootloader_packages grub-bios" ;;
       esac
       ;;
+
     limine )
       case $image_boot_type in
         secure-uefi | uefi )
@@ -2977,7 +3054,8 @@ install_alpine_base() {
                 3.17 )
                   : ;;
                 * )
-                  _bootloader_packages="$_bootloader_packages limine-efi-updater" ;;
+                  _bootloader_packages="$_bootloader_packages limine-efi-updater"
+                  ;;
               esac
               ;;
             x86_64 )
@@ -3003,6 +3081,7 @@ install_alpine_base() {
           ;;
       esac
       ;;
+
     rpi )
       _bootloader_packages="dosfstools raspberrypi-bootloader-cutdown"
       case $image_alpine_release in
@@ -3012,8 +3091,10 @@ install_alpine_base() {
           _bootloader_packages="$_bootloader_packages raspberrypi-bootloader" ;;
       esac
       ;;
+
     syslinux )
       _bootloader_packages="syslinux" ;;
+
     efistub | uki )
       _bootloader_packages="secureboot-hook"
       case $image_efi_bootstub in
@@ -3023,6 +3104,7 @@ install_alpine_base() {
           _bootloader_packages="$_bootloader_packages stubbyboot-efistub" ;;
       esac
       ;;
+
     * )
       _bootloader_packages="none" ;;
   esac
@@ -3037,7 +3119,8 @@ install_alpine_base() {
 
   cat <<-EOF >> "$run_script"
 	
-	write_log "Install base Alpine (plus bootloader packages) for ${image_arch} arch inside chroot"
+	write_log \\
+	  "Install base Alpine & bootloader packages for ${image_arch} arch inside chroot"
 	{
 	EOF
 
@@ -3053,11 +3136,13 @@ install_alpine_base() {
 	  esac
 	EOF
       ;;
+
     alpine )
       cat <<-EOF >> "$run_script"
 	  _apk_binary="apk"
 	EOF
       ;;
+
     * )
       cat <<-EOF >> "$run_script"
 	  _apk_binary="\$TMPDIR/apk.static"
@@ -3090,6 +3175,7 @@ install_alpine_base() {
   case $image_script_host_os in
     alpine )
       : ;;
+
     * )
       cat <<-EOF >> "$run_script"
 	
@@ -3113,7 +3199,7 @@ install_alpine_base() {
 
 
 #
-# Insert function get_kernel_package_version into created script
+# Insert function get_kernel_package_version into created script.
 #
 insert_chroot_function_find_module_full_path() {
   cat <<-'EOF' >> "$run_script"
@@ -3144,7 +3230,7 @@ insert_chroot_function_find_module_full_path() {
 
 
 #
-# Insert function get_kernel_package_version into created script
+# Insert function get_kernel_package_version into created script.
 #
 insert_chroot_function_get_kernel_package_version() {
   local _kernel_type
@@ -3162,7 +3248,7 @@ insert_chroot_function_get_kernel_package_version() {
 
 
 #
-# Insert functions into created script
+# Insert functions into created script.
 #
 insert_chroot_functions() {
   cat <<-'EOF' >> "$run_script"
@@ -3186,10 +3272,10 @@ insert_chroot_functions() {
 
 
 #
-# Install relevant firmware packages
+# Install relevant firmware packages.
 #
 install_firmware() {
-  local _firmware_pkgs=""
+  local _firmware_pkgs
 
   if [ "$image_class" = "physical" ]; then
     cat <<-EOF >> "$run_script"
@@ -3224,7 +3310,7 @@ install_firmware() {
 
 
 #
-# Install relevant kernel package
+# Install relevant kernel package.
 #
 install_kernel() {
   local _firmware_pkg _kernel_pkg _kernel_config_file
@@ -3267,7 +3353,7 @@ install_kernel() {
 
 
 #
-# Install CPU microcode packages
+# Install CPU microcode packages.
 #
 install_microcode() {
   cat <<-'EOF' >> "$run_script"
@@ -3286,7 +3372,7 @@ install_microcode() {
 
 
 #
-# Prepare the main section of the run script
+# Prepare the main section of the run script.
 #
 prep_runscript_main_section() {
   cat <<-EOF >> "$run_script"
@@ -3354,6 +3440,7 @@ prep_runscript_main_section() {
   cat <<-'EOF' >> "$run_script"
 	working_dir=""
 	
+	
 	check_for_required_packages
 	EOF
 
@@ -3375,7 +3462,7 @@ prep_runscript_main_section() {
 
 
 #
-# Create Dropbear authorized_keys file
+# Create Dropbear authorized_keys file.
 #
 setup_dropbear_authorized_keys() {
   cat <<-'EOF' >> "$run_script"
@@ -3401,15 +3488,16 @@ setup_dropbear_authorized_keys() {
 
 
 #
-# Source additional definitions files
+# Source additional definitions files.
 #
-source_additional_definitions_files(){
+source_additional_definitions_files() {
   local _source_script
 
   # source e.g. cloud/defines, physical/defines, virtual/defines
   _source_script="$script_dir/definitions/$image_class/defines"
   if [ ! -f "$_source_script" ]; then
-    error_message "Unable to source settings for $image_class (definitions/$image_class/defines)!"
+    error_message \
+      "Unable to source settings for $image_class (definitions/$image_class/defines)!"
   else
     . "$_source_script"
   fi
@@ -3417,7 +3505,8 @@ source_additional_definitions_files(){
   # source e.g. cloud/aws/defines, physical/pc/defines, virtual/qemu/defines
   _source_script="$script_dir/definitions/$image_class/$image_class_subtype/defines"
   if [ ! -f "$_source_script" ]; then
-    error_message "Unable to source settings for $class_type_description (definitions/$image_class/$image_class_subtype/defines)!"
+    error_message \
+      "Unable to source settings for $class_type_description (definitions/$image_class/$image_class_subtype/defines)!"
   else
     . "$_source_script"
   fi
@@ -3447,7 +3536,8 @@ source_additional_definitions_files(){
   # virtual/x86_64-defines
   _source_script="$script_dir/definitions/$image_class/$image_arch-defines"
   if [ ! -f "$_source_script" ]; then
-    error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
+    error_message \
+      "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
   else
     . "$_source_script"
   fi
@@ -3456,20 +3546,24 @@ source_additional_definitions_files(){
   # virtual/x86_64-normal-defines
   _source_script="$script_dir/definitions/$image_class/$image_arch-$(if [ -n "$image_barebones" ]; then echo "barebones"; else echo "normal"; fi)-defines"
   if [ ! -f "$_source_script" ]; then
-    error_message "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
+    error_message \
+      "Unable to source settings for $image_class using arch $image_arch ($_source_script)!"
   else
     . "$_source_script"
   fi
 
   if is_in_comma_list "$CADI_SUPPORTED_ARCHS" "$image_arch"; then
-    # source e.g. cloud/aws/x86_64-defines, physical/pc/x86_64-defines, virtual/qemu/x86_64-defines
+    # source e.g. cloud/aws/x86_64-defines, physical/pc/x86_64-defines,
+    # virtual/qemu/x86_64-defines
     _source_script="$script_dir/definitions/$image_class/$image_class_subtype/$image_arch-defines"
     if [ ! -f "$_source_script" ]; then
-      error_message "Unable to source settings for $class_type_description for arch $image_arch ($_source_script)!"
+      error_message \
+        "Unable to source settings for $class_type_description for arch $image_arch ($_source_script)!"
     else
       . "$_source_script"
     fi
   else
-    error_message "Arch $image_arch is not supported for $class_type_description"
+    error_message \
+      "Arch $image_arch is not supported for $class_type_description"
   fi
 }

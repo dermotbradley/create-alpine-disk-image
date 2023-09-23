@@ -13,7 +13,7 @@
 
 
 #
-# Check if Raspberry Pi supports booting from the selected filesystem type
+# Check if Raspberry Pi supports booting from the selected filesystem type.
 #
 check_rpi_supports_fs() {
   # Special case - for RPI boot partition is always FAT filesystem,
@@ -23,7 +23,7 @@ check_rpi_supports_fs() {
 
 
 #
-# Check if Raspberry Pi supports booting from LUKS
+# Check if Raspberry Pi supports booting from LUKS.
 #
 check_rpi_supports_luks() {
   # Special case - for RPI boot partition is always FAT filesystem,
@@ -33,7 +33,7 @@ check_rpi_supports_luks() {
 
 
 #
-# Check if Raspberry Pi supports booting from LVM
+# Check if Raspberry Pi supports booting from LVM.
 #
 check_rpi_supports_lvm() {
   # Special case - for RPI boot partition is always FAT filesystem,
@@ -43,7 +43,7 @@ check_rpi_supports_lvm() {
 
 
 #
-# Setup the config files used by Raspberry Pi bootloader
+# Setup the config files used by Raspberry Pi bootloader.
 #
 configure_bootloader_rpi() {
   local _cmdline _modules_list
@@ -77,7 +77,7 @@ configure_bootloader_rpi() {
 
 
 #
-# Create RPI cmdline.txt bootloader file
+# Create RPI cmdline.txt bootloader file.
 #
 create_rpi_bootloader_cmdline_file() {
   local _cmdline="$1"
@@ -104,7 +104,7 @@ EOF
 
 
 #
-# Create a single entry for RPI config.txt bootloader file
+# Create a single entry for RPI config.txt bootloader file.
 #
 create_rpi_bootloader_config_entry() {
   local _entry_name="$1"
@@ -128,7 +128,7 @@ EOF
 
 
 #
-# Create RPI config.txt bootloader file
+# Create RPI config.txt bootloader file.
 #
 create_rpi_bootloader_config_file() {
   local _filename_suffix
@@ -201,7 +201,7 @@ EOF
 
 
 #
-# Create RPI usercfg.txt bootloader file
+# Create RPI usercfg.txt bootloader file.
 #
 create_rpi_bootloader_usercfg_file() {
   local _fixup_file _overlay_name _start_file

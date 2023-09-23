@@ -13,7 +13,7 @@
 
 
 #
-# Create a network-config cloud-init seed-file for NoCloud
+# Create a network-config cloud-init seed-file for NoCloud.
 #
 add_nocloud_network_config_seed_file() {
   output_eof_block_blank_line
@@ -36,7 +36,7 @@ EOF
 
 
 #
-# Add a specified seed-url to the cmdline (of bootloader)
+# Add a specified seed-url to the cmdline (of bootloader).
 #
 add_nocloud_seed_url_to_cmdline() {
   case $image_release in
@@ -49,20 +49,22 @@ add_nocloud_seed_url_to_cmdline() {
 
 
 #
-# Add a specified seed-url to cloud-init config file
+# Add a specified seed-url to cloud-init config file.
 #
 add_nocloud_seed_url_to_config_file() {
-  datasource_settings="$(printf "\\t  NoCloud:\\n\\t    seedfrom: %s\\n" "$image_cloud_init_seed_url")"
+  printf "\\t  NoCloud:\\n\\t    seedfrom: %s\\n" "$image_cloud_init_seed_url"
 }
 
 
 #
-# Configure cloud-init
+# Configure cloud-init.
 #
 configure_cloud_init() {
-  local _datasource_list _debug_logging_status _ds _logging_level
+  local _datasource_list _debug_logging_status _ds
+  local _ds_description _ds_settings _logging_level
   local _ptp_device _ptp_dpoll _ptp_poll _ptp_offset _ptp_stratum
-  local _quoted_datasource_list _required_filesystems
+  local _quoted_ds_list _required_filesystems
+  local _supported_ds_list _supported_ds_list_item
 
   output_eof_block_blank_line
   cat <<-'EOF' >> "$run_script"
@@ -85,20 +87,21 @@ configure_cloud_init() {
   esac
 
   if [ -n "$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES" ]; then
-    _list="$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES"
+    _supported_ds_list="$CADI_SUPPORTED_CLOUD_INIT_DATASOURCES"
     while true; do
-      _list_item="$(first_entry_in_comma_list "$_list")"
-      _datasource_list="${_datasource_list}${_list_item}"
-      if [ "${_list%,*}" = "$_list" ]; then
+      _supported_ds_list_item="$(first_entry_in_comma_list "$_supported_ds_list")"
+      _datasource_list="${_datasource_list}${_supported_ds_list_item}"
+      if [ "${_supported_ds_list%,*}" = "$_supported_ds_list" ]; then
         # No more entries
         break
       else
-        _list="${_list#$_list_item,}"
+        _supported_ds_list="${_supported_ds_list#$_supported_ds_list_item,}"
         _datasource_list="${_datasource_list},"
       fi
     done
   else
-    error_message "No cloud-init DataSource defined for $class_type_description!"
+    error_message \
+      "No cloud-init DataSource defined for $class_type_description!"
   fi
 
   if [ -n "$image_cloud_init_datasources" ]; then
@@ -111,20 +114,20 @@ configure_cloud_init() {
       fi
       _datasource_list="${_datasource_list}${_ds}"
     done
-    datasource_description="Setting DataSources list with: $_datasource_list"
+    _ds_description="Setting DataSources list with: $_datasource_list"
   elif [ -z "$_datasource_list" ]; then
     _datasource_list="None"
-    datasource_description="Setting empty DataSources list"
+    _ds_description="Setting empty DataSources list"
   else
-    datasource_description="Setting up DataSources list"
+    _ds_description="Setting up DataSources list"
   fi
 
   if [ "$_datasource_list" = "NoCloud" ]; then
     # Only set up seed behaviour when NoCloud is the sole defined DataSource
-    setup_nocloud_seed_config
+    _ds_settings="$(setup_nocloud_seed_config)"
   fi
 
-  _quoted_datasource_list="$(quote_datasource_comma_list "$_datasource_list")"
+  _quoted_ds_list="$(quote_datasource_comma_list "$_datasource_list")"
 
 
   # cloud.cfg
@@ -155,17 +158,17 @@ EOF
   # 01-datasources.cfg
   output_eof_block_blank_line
   cat <<EOF >> "$run_script"
-  write_log "${datasource_description}" 2
+  write_log "${_ds_description}" 2
   cat <<-_SCRIPT_ > /etc/cloud/cloud.cfg.d/01-datasources.cfg
 	# /etc/cloud/cloud.cfg.d/01-datasources.cfg
 	
-	datasource_list: [$_quoted_datasource_list]
+	datasource_list: [$_quoted_ds_list]
 EOF
 
-  if [ -n "$datasource_settings" ]; then
+  if [ -n "$_ds_settings" ]; then
     cat <<EOF >> "$run_script"
 	datasource:
-$datasource_settings
+$_ds_settings
 EOF
   fi
 
@@ -637,14 +640,15 @@ EOF
   # Check which DataSources use VFAT or ISO filesystems and
   # therefore may need Busybox mount workaround.
   _required_filesystems=""
-  _list="$_datasource_list"
+  _ds_list="$_datasource_list"
   while true; do
-    _list_item="$(first_entry_in_comma_list "$_list")"
-    case $_list_item in
+    _ds_list_item="$(first_entry_in_comma_list "$_ds_list")"
+    case $_ds_list_item in
       ConfigDrive )
         if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
           if [ -n "$_required_filesystems" ] && \
-             ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+             ! is_in_comma_list "$_required_filesystems" \
+                                "$CADI_CLOUD_INIT_USES_FS"; then
             _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
           elif [ -z "$_required_filesystems" ]; then
             _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
@@ -668,7 +672,8 @@ EOF
           * )
             if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
               if [ -n "$_required_filesystems" ] && \
-                 ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+                 ! is_in_comma_list "$_required_filesystems" \
+                                    "$CADI_CLOUD_INIT_USES_FS"; then
                 _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
               elif [ -z "$_required_filesystems" ]; then
                 _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
@@ -690,7 +695,8 @@ EOF
       * )
         if [ -n "$CADI_CLOUD_INIT_USES_FS" ]; then
           if [ -n "$_required_filesystems" ] && \
-             ! is_in_comma_list "$_required_filesystems" "$CADI_CLOUD_INIT_USES_FS"; then
+             ! is_in_comma_list "$_required_filesystems" \
+                                "$CADI_CLOUD_INIT_USES_FS"; then
             _required_filesystems="${_required_filesystems},${CADI_CLOUD_INIT_USES_FS}"
           elif [ -z "$_required_filesystems" ]; then
             _required_filesystems="${CADI_CLOUD_INIT_USES_FS}"
@@ -698,11 +704,11 @@ EOF
         fi
         ;;
     esac
-    if [ "${_list%,*}" = "$_list" ]; then
+    if [ "${_ds_list%,*}" = "$_ds_list" ]; then
       # No more entries
       break
     else
-      _list="${_list#$_list_item,}"
+      _ds_list="${_ds_list#$_ds_list_item,}"
     fi
   done
   if [ -n "$_required_filesystems" ]; then
@@ -725,6 +731,9 @@ EOF
 #
 define_cloud_init_machine_packages() {
   local _ci_machine_pkgs
+
+  # No cloud-specific packages currently
+  :
 
   echo "$_ci_machine_pkgs"
 }
@@ -782,14 +791,18 @@ quote_datasource_comma_list() {
 # For cloud-init seed configuration handle the various methods
 #
 setup_nocloud_seed_config() {
+  local _nocloud_ds_settings
+
   case $image_cloud_init_seed_define in
     dhcp )
       add_nocloud_network_config_seed_file ;;
     cmdline )
       add_nocloud_seed_url_to_cmdline ;;
     config )
-      add_nocloud_seed_url_to_config_file ;;
+      _nocloud_ds_settings="$(add_nocloud_seed_url_to_config_file)" ;;
   esac
+
+  echo "$_nocloud_ds_settings"
 }
 
 

@@ -13,7 +13,7 @@
 
 
 #
-# Check if Syslinux supports booting from the selected filesystem type
+# Check if Syslinux supports booting from the selected filesystem type.
 #
 check_syslinux_supports_fs() {
   case $image_boot_type in
@@ -22,7 +22,9 @@ check_syslinux_supports_fs() {
         btrfs | ext4 | xfs )
           : ;;
         * )
-          error_message "Syslinux bootloader does not support booting from $image_fs_type filesystem!"
+          error_message \
+            "Syslinux bootloader does not support booting from $image_fs_type filesystem!"
+          ;;
       esac
       ;;
   esac
@@ -30,7 +32,7 @@ check_syslinux_supports_fs() {
 
 
 #
-# Check if Syslinux supports booting from LUKS
+# Check if Syslinux supports booting from LUKS.
 #
 check_syslinux_supports_luks() {
   error_message "Syslinux bootloader does not support booting from LUKS!"
@@ -38,7 +40,7 @@ check_syslinux_supports_luks() {
 
 
 #
-# Check if Syslinux supports booting from LVM
+# Check if Syslinux supports booting from LVM.
 #
 check_syslinux_supports_lvm() {
   # Syslinux does support booting from LVM
@@ -47,27 +49,28 @@ check_syslinux_supports_lvm() {
 
 
 #
-# Configure Syslinux
+# Configure Syslinux.
 #
 configure_bootloader_syslinux() {
   local _cmdline _modules_list
 
   _cmdline="$base_cmdline"
-
  
   case $image_alpine_release in
     v3.13 | v3.14 | v3.15 | v3.16 )
       # Ensure that USB keyboard works when in initramfs
       case $image_keyboard_type in
         usb | generic )
-          # It is important to load EHCI before OHCI/UHCI as otherwise a kernel
-          # warning will appear in 'dmesg' output:
+          # It is important to load EHCI before OHCI/UHCI as otherwise
+          # a kernel warning will appear in 'dmesg' output:
           #   Warning! ehci_hcd should always be loaded before uhci_hcd and ohci_hcd, not after
           _modules_list="xhci-pci,ehci-pci"
-          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
+          if [ -z "$image_cpu_vendor" ] || \
+             [ "$image_cpu_vendor" = "amd" ]; then
             _modules_list="${_modules_list},ohci-pci"
           fi
-          if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+          if [ -z "$image_cpu_vendor" ] || \
+             [ "$image_cpu_vendor" = "intel" ]; then
             _modules_list="${_modules_list},uhci-hcd"
           fi
           _modules_list="${_modules_list},usbhid,hid-generic"
@@ -166,7 +169,7 @@ configure_bootloader_syslinux() {
 
 
 #
-# Enable serial console for Syslinux
+# Enable serial console for Syslinux.
 #
 enable_syslinux_serial_console() {
   cat <<-EOF >> "$run_script"
@@ -190,7 +193,7 @@ enable_syslinux_serial_console() {
 
 
 #
-# Install Syslinux onto disk
+# Install Syslinux onto disk.
 #
 install_syslinux() {
   if [ -n "$debug_enabled" ]; then

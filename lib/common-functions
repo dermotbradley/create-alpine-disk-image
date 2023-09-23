@@ -13,7 +13,7 @@
 
 
 #
-# Add more Alpine repos to the repositories file
+# Add more Alpine repos to the repositories file.
 #
 add_additional_repos() {
   cat <<-'EOF' >> "$run_script"
@@ -48,7 +48,7 @@ add_additional_repos() {
 
 
 #
-# Enable base Alpine init.d services
+# Enable base Alpine init.d services.
 #
 add_base_init_d() {
   cat <<-'EOF' >> "$run_script"
@@ -116,25 +116,25 @@ add_base_init_d() {
 
 
 #
-# Add an entry to /etc/apk/repositories file
+# Add an entry to /etc/apk/repositories file.
 #
 add_alpine_repo() {
-  local _mirror=$1
-  local _release=$2
-  local _repo=${3:-local}
+  local _alpine_mirror=$1
+  local _alpine_release=$2
+  local _alpine_repo=${3:-local}
 
   cat <<EOF >> "$run_script"
-  write_log "Adding ${_repo} repo to /etc/apk/repositories" 2
+  write_log "Adding ${_alpine_repo} repo to /etc/apk/repositories" 2
   cat <<-_SCRIPT_ >> /etc/apk/repositories
 EOF
 
-  if [ "$_repo" = "local" ]; then
+  if [ "$_alpine_repo" = "local" ]; then
     cat <<EOF >> "$run_script"
-	${_mirror}/${_release}
+	${_alpine_mirror}/${_alpine_release}
 EOF
   else
     cat <<EOF >> "$run_script"
-	${_mirror}/${_release}/${_repo}
+	${_alpine_mirror}/${_alpine_release}/${_alpine_repo}
 EOF
   fi
 
@@ -145,7 +145,7 @@ EOF
 
 
 #
-# Enable the specified service on the specified runlevel
+# Enable the specified service on the specified runlevel.
 #
 add_init_d_service() {
   local _service_name=$1
@@ -163,10 +163,10 @@ add_init_d_service() {
 # except the specified entry.
 #
 all_entries_in_comma_list_except() {
-  _comma_list="$1"
-  _except="$2"
+  local _comma_list="$1"
+  local _cl_except="$2"
 
-  all_entries_in_list_except "$_comma_list" "$_except" ","
+  all_entries_in_list_except "$_comma_list" "$_cl_except" ","
 }
 
 
@@ -175,9 +175,9 @@ all_entries_in_comma_list_except() {
 # separator) except the specified entry.
 #
 all_entries_in_list_except() {
-  _list="$1"
-  _keep_item="$2"
-  _separator="$3"
+  local _list="$1"
+  local _keep_item="$2"
+  local _separator="$3"
 
   local _check _check_item _resulting_list=""
 
@@ -214,21 +214,21 @@ all_entries_in_list_except() {
 # except the specified entry.
 #
 all_entries_in_space_list_except() {
-  _space_list="$1"
-  _except="$2"
+  local _space_list="$1"
+  local _sl_except="$2"
 
-  all_entries_in_list_except "$_space_list" "$_except" " "
+  all_entries_in_list_except "$_space_list" "$_sl_except" " "
 }
 
 
 #
-# Change the extension of a filename
+# Change the extension of a filename.
 #
 change_filename_extension() {
   local _original_full_filepath="$1"
   local _new_ext="$2"
 
-  local _old_ext _new_full_filepath _path_portion _filename_portion
+  local _filename_portion _new_full_filepath _old_ext _path_portion
 
   _path_portion="$(dirname "$_original_full_filepath")"
   if [ "$_path_portion" != "." ]; then
@@ -252,7 +252,7 @@ change_filename_extension() {
 
 
 #
-# Display error as command option is not supported, and exit
+# Display error as command option is not supported, and exit.
 #
 cli_option_not_handled() {
   error_message "This option does not apply in this situation."
@@ -260,17 +260,15 @@ cli_option_not_handled() {
 
 
 #
-# Display error as command option value is not valid, and exit
+# Display error as command option value is not valid, and exit.
 #
 cli_option_unknown_value() {
-  local _additional_text="$1"
-
-  error_message "Unknown $_additional_text!"
+  error_message "Unknown $1!"
 }
 
 
 #
-# Copy /etc/resolv.conf from host system to chroot
+# Copy /etc/resolv.conf from host system to chroot.
 #
 copy_host_resolv_conf_to_chroot() {
   cat <<-'EOF' >> "$run_script"
@@ -282,7 +280,7 @@ copy_host_resolv_conf_to_chroot() {
 }
 
 #
-# Copy local repository signing key to chroot
+# Copy local repository signing key to chroot.
 #
 copy_local_repo_key_to_chroot() {
   cat <<-EOF >> "$run_script"
@@ -294,21 +292,21 @@ copy_local_repo_key_to_chroot() {
 
 
 #
-# Create MBR or GPT disk label
+# Create MBR or GPT disk label.
 #
 create_disk_label() {
-  local label_type=$1
+  local _label_type="$1"
 
   cat <<-EOF >> "$run_script"
-	  write_debug_log "Creating ${label_type} disk label" 2
+	  write_debug_log "Creating ${_label_type} disk label" 2
 	  parted --machine --script --align=optimal \$image_full_filename \\
-	    mklabel ${label_type} >> "\$logfile" 2>&1
+	    mklabel ${_label_type} >> "\$logfile" 2>&1
 	EOF
 }
 
 
 #
-# Create a disk partition
+# Create a disk partition.
 #
 create_disk_partition() {
   local _part_number=$1
@@ -338,7 +336,7 @@ create_disk_partition() {
 
 
 #
-# Create basic /etc/apk/repositories file inside chroot
+# Create basic /etc/apk/repositories file inside chroot.
 #
 create_repositories_file_inside_chroot() {
   cat <<-EOF >> "$run_script"
@@ -388,7 +386,7 @@ create_repositories_file_inside_chroot() {
 
 
 #
-# Determine the Linux distro that this script is being run on
+# Determine the Linux distro that this script is being run on.
 #
 detect_host_os() {
   grep "^ID=" /etc/os-release | sed -e 's/^ID=//'
@@ -396,30 +394,30 @@ detect_host_os() {
 
 
 #
-# Output one line per entry in list using specified line formatting
+# Output one line per entry in list using specified line formatting.
 #
 echo_lines_from_comma_list() {
-  _output_formatting="$1"
-  _input_list="$2"
+  local _output_formatting="$1"
+  local _input_cl_list="$2"
 
-  local _list _list_item
+  local _cl_list _cl_list_item
 
-  _list="$_input_list"
+  _cl_list="$_input_cl_list"
   while true; do
-    _list_item="$(first_entry_in_comma_list "$_list")"
-    printf "$_output_formatting\n" "$_list_item"
-    if [ "${_list%,*}" = "$_list" ]; then
+    _cl_list_item="$(first_entry_in_comma_list "$_cl_list")"
+    printf "$_output_formatting\n" "$_cl_list_item"
+    if [ "${_cl_list%,*}" = "$_cl_list" ]; then
       # No more entries
       break
     else
-      _list="${_list#$_list_item,}"
+      _cl_list="${_cl_list#$_cl_list_item,}"
     fi
   done
 }
 
 
 #
-# Name a GPT disk partition
+# Name a GPT disk partition.
 #
 label_gpt_disk_partition() {
   local _part_number=$1
@@ -434,7 +432,7 @@ label_gpt_disk_partition() {
 
 
 #
-# Output list of options, one per line
+# Output list of options, one per line.
 #
 options_wrap() {
   local _options_list="$1"
@@ -472,7 +470,7 @@ options_wrap() {
 
 
 #
-# Create the comment block at the start of the runscript
+# Create the comment block at the start of the runscript.
 #
 create_runscript_header() {
   cat <<-EOF > "$run_script"
@@ -501,7 +499,7 @@ create_runscript_header() {
 
 
 #
-# Download tarball of statically compiled apk tool
+# Download tarball of statically compiled apk tool.
 #
 download_static_apk() {
   if [ "$image_script_host_arch" = "all" ] || \
@@ -541,49 +539,47 @@ download_static_apk() {
 
 
 #
-# Display an error message and exit the script
+# Display an error message and exit the script.
 #
 error_message() {
-  local _error_message="$1"
-
-  printf '\n%s\n\n' "$_error_message"
+  printf '\n%s\n\n' "$1"
   exit 2
 }
 
 
 #
-# Returns first entry from a comma-separated string
+# Returns first entry from a comma-separated string.
 #
 first_entry_in_comma_list() {
-  _comma_list="$1"
+  local _comma_list="$1"
 
   first_entry_in_list "$_comma_list" ","
 }
 
 
 #
-# Returns first entry from a string which uses the specified separator
+# Returns first entry from a string which uses the specified separator.
 #
 first_entry_in_list() {
-  _list="$1"
-  _separator="$2"
+  local _list="$1"
+  local _separator="$2"
 
   echo "${_list%%$_separator*}"
 }
 
 
 #
-# Returns first entry from a space-separated string
+# Returns first entry from a space-separated string.
 #
 first_entry_in_space_list() {
-  _space_list="$1"
+  local _space_list="$1"
 
   first_entry_in_list "$_space_list" " "
 }
 
 
 #
-# Create an ESP FAT filesystem
+# Create an ESP FAT filesystem.
 #
 format_esp_fs() {
   local _uefi_info_type _uefi_mkfs_options
@@ -607,15 +603,16 @@ format_esp_fs() {
   fi
 
   cat <<-EOF >> "$run_script"
-	  write_log "Formatting ${_uefi_info_type} filesystem with ${image_os_device_sector_size}-byte sectors on ESP partition" 2
+	  write_log \\
+	    "Formatting ${_uefi_info_type} filesystem with ${image_os_device_sector_size}-byte sectors on ESP partition" 2
 	  mkfs.fat ${_uefi_mkfs_options} -n "${CADI_ESP_FS_LABEL}" "\$uefi_part_device" \\
 	    >> "\$logfile" 2>&1
-	
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	
+	  # Debug
 	  write_debug_log "FAT filesystem info:" 2
 	  file -s "\$uefi_part_device" >> "\$logfile" 2>&1
 	EOF
@@ -624,25 +621,26 @@ format_esp_fs() {
 
 
 #
-# Create an EXT4 filesystem
+# Create an EXT4 filesystem.
 #
 format_ext4_fs() {
   local _ext4_device=$1
-  local _fs_use="$2"
-  local _label=$3
+  local _ext4_fs_use="$2"
+  local _ext4_label=$3
   local _formatting_where="$4"
 
   local _ext4_fs_options
 
-  _ext4_fs_options="-L ${_label}"
-  # Ensure EXT4 inode size is 256 bytes rather than 128 in order to avoid
-  # Year 2038 problems/warning.
+  _ext4_fs_options="-L ${_ext4_label}"
+  # Ensure EXT4 inode size is 256 bytes rather than 128
+  # in order to avoid Year 2038 problems/warning.
   _ext4_fs_options="$_ext4_fs_options -I 256"
 
   case $image_bootloader in
     syslinux )
-      # Syslinux requires Ext4 64bit flag be disabled for whichever filesystem it boots from
-      case $_fs_use in
+      # Syslinux requires Ext4 64bit flag be disabled
+      # for whichever filesystem it boots from.
+      case $_ext4_fs_use in
         boot )
           _ext4_fs_options="$_ext4_fs_options -O ^64bit" ;;
         root )
@@ -667,15 +665,17 @@ format_ext4_fs() {
 
   cat <<-EOF >> "$run_script"
 	
-	  write_log "Formatting Ext4 ${_fs_use} filesystem on ${_formatting_where}" 2
+	  write_log "Formatting Ext4 ${_ext4_fs_use} filesystem on ${_formatting_where}" 2
 	  mkfs.ext4 ${_ext4_fs_options} "${_ext4_device}" >> "\$logfile" 2>&1
+	
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
-	
+	  # Debug
 	  write_debug_log "EXT4 filesystem info:" 2
 	  tune2fs -l "$_ext4_device" >> "\$logfile" 2>&1
+	
 	EOF
   fi
 }
@@ -698,7 +698,8 @@ get_kernel_type() {
           v3.13 | v3.14 )
             _kernel_pkg_type="virt" ;;
           v3.15 )
-            # This Alpine release has linux-virt and linux-edge4virt packages
+            # This Alpine release has linux-virt
+            # and linux-edge4virt packages.
             case $image_kernel_type in
               edge | edge-special )
                 _kernel_pkg_type="edge4virt" ;;
@@ -707,8 +708,9 @@ get_kernel_type() {
             esac
             ;;
           * )
-            # These Alpine releases no longer have linux-edge4virt package so use
-            # either linux-virt or linux-edge (rather than linux-edge4virt)
+            # These Alpine releases no longer have linux-edge4virt
+            # package so use either linux-virt or linux-edge
+            # (rather than linux-edge4virt).
             case $image_kernel_type in
               edge | edge-special )
                 _kernel_pkg_type="edge" ;;
@@ -751,7 +753,7 @@ get_kernel_type() {
 
 
 #
-# Returns the device name for specified storage
+# Returns the device name for specified storage.
 #
 get_storage_device_name() {
   local _device_type=$1
@@ -774,7 +776,7 @@ get_storage_device_name() {
 
 
 #
-# Returns the device name for specified storage partition
+# Returns the device name for specified storage partition.
 #
 get_storage_partition_name() {
   local _device_type=$1
@@ -796,7 +798,7 @@ get_storage_partition_name() {
 
 
 #
-# Insert function add_fstab_entry into created script
+# Insert function add_fstab_entry into created script.
 #
 insert_chroot_function_add_fstab_entry() {
   cat <<-'EOF' >> "$run_script"
@@ -810,6 +812,7 @@ insert_chroot_function_add_fstab_entry() {
 	  local _entry_log="\${6:-}"
 	
 	  local _fstab_entry
+	
 	  if [ "\$_entry_type" = "BIND" ]; then
 	    _fs_options="bind,\${_fs_options}"
 	    local _fs_passno="0"
@@ -842,7 +845,7 @@ insert_chroot_function_add_fstab_entry() {
 
 
 #
-# Insert function get_kernel_version into created script
+# Insert function get_kernel_version into created script.
 #
 insert_chroot_function_get_kernel_version() {
   local _kernel_type
@@ -860,7 +863,7 @@ insert_chroot_function_get_kernel_version() {
 
 
 #
-# Insert function write_debug_log into created script
+# Insert function write_debug_log into created script.
 #
 insert_chroot_function_write_debug_log() {
   cat <<-'EOF' >> "$run_script"
@@ -870,11 +873,11 @@ insert_chroot_function_write_debug_log() {
 	  local _indent=\${2:-0}
 	
 	  local _current_time
+	
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
-	
 	  _current_time=\$(printf "[%s]" "\$(date -u "+%Y-%m-%d %H:%M:%S")")
 	  # shellcheck disable=SC1117
 	  printf "\$_current_time chroot: %\${_indent}s\${_log_entry}\n" >> /chroot.log
@@ -893,7 +896,7 @@ insert_chroot_function_write_debug_log() {
 
 
 #
-# Insert function write_log into created script
+# Insert function write_log into created script.
 #
 insert_chroot_function_write_log() {
 cat <<-'EOF' >> "$run_script"
@@ -915,7 +918,7 @@ cat <<-'EOF' >> "$run_script"
 
 
 #
-# Insert function check_binfmt_packages into the run script
+# Insert function check_binfmt_packages into the run script.
 #
 insert_runscript_function_check_binfmt_packages() {
   local _alpine_arch_package _binfmt_file
@@ -1033,10 +1036,14 @@ insert_runscript_function_check_binfmt_packages() {
 	EOF
   else
     cat <<-EOF >> "$run_script"
+	
 	      * )
 	        case \$_host_os in
 	          alpine | debian | ubuntu )
-	            printf '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' "\$_host_os" ;;
+	            printf \\
+	              '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' \\
+	              "\$_host_os"
+	            ;;
 	          * )
 	            printf '\nUnsupported host OS!\n\n' ;;
 	        esac
@@ -1096,7 +1103,7 @@ insert_runscript_function_check_binfmt_packages() {
 
 
 #
-# Insert function check_for_required_packages into the run script
+# Insert function check_for_required_packages into the run script.
 #
 insert_runscript_function_check_for_required_packages() {
   local _alpine_package_list _debian_package_list
@@ -1110,8 +1117,8 @@ insert_runscript_function_check_for_required_packages() {
        [ "$image_cloud_software" = "cloud-init" ]; } || \
      { [ "$image_boot_type" = "secure-uefi" ] || \
        [ "$image_boot_type" = "uefi" ]; }; then
-    # FAT/VFAT filesystem is used for both cloud-init CIDATA filesystem on
-    # physical machines and for UEFI ESP partition filesystem.
+    # FAT/VFAT filesystem is used for both cloud-init CIDATA filesystem
+    # on physical machines and for UEFI ESP partition filesystem.
     _alpine_package_list="${_alpine_package_list} dosfstools"
   fi
 
@@ -1171,7 +1178,7 @@ insert_runscript_function_check_for_required_packages() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Checks that the host OS has all necessary packages installed
+	# Checks that the host OS has all necessary packages installed.
 	#
 	check_for_required_packages() {
 	  local _required_packages
@@ -1202,22 +1209,26 @@ insert_runscript_function_check_for_required_packages() {
 	      case \$_host_os_major_version in
 	        3.13 | 3.14 )
 	          # Select:
-	          #    util-linux for: losetup, mount, umount (Busybox versions are not suitable)
+	          #    util-linux for: losetup, mount, umount
+	          #    (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages util-linux"
 	          ;;
 	        3.15 )
 	          # Select:
-	          #    util-linux-misc for: losetup, mount, umount (Busybox versions are not suitable)
+	          #    util-linux-misc for: losetup, mount, umount
+	          #    (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages util-linux-misc"
 	          ;;
 	        3.16 )
 	          # Select:
-	          #    losetup & util-linux-misc for: losetup, mount, umount (Busybox versions are not suitable)
+	          #    losetup & util-linux-misc for: losetup, mount, umount
+	          #    (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages losetup util-linux-misc"
 	          ;;
 	        * )
 	          # Select:
-	          #    losetup, mount, & umount for: losetup, mount, umount (Busybox versions are not suitable)
+	          #    losetup, mount, & umount for: losetup, mount, umount
+	          #    (Busybox versions are not suitable)
 	          _required_packages="\$_required_packages losetup mount umount"
 	          ;;
 	      esac
@@ -1299,7 +1310,10 @@ insert_runscript_function_check_for_required_packages() {
 	    * )
 	      case \$_host_os in
 	        alpine | debian | ubuntu )
-	          printf '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' "\$_host_os" ;;
+	          printf \\
+	            '\nRe-run create-alpine-disk-image specifying '\''--script-host-os %s'\''!\n\n' \\
+	            "\$_host_os"
+	          ;;
 	        * )
 	          printf '\nUnsupported host OS!\n\n' ;;
 	      esac
@@ -1316,14 +1330,14 @@ insert_runscript_function_check_for_required_packages() {
 
 
 #
-# Insert function detect_host_arch into the run script
+# Insert function detect_host_arch into the run script.
 #
 
 insert_runscript_function_detect_host_arch() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Determine the host architecture that this script is being run on
+	# Determine the host architecture that script is being run on.
 	#
 	detect_host_arch() {
 	  uname -m
@@ -1333,13 +1347,13 @@ insert_runscript_function_detect_host_arch() {
 
 
 #
-# Insert function detect_host_os into the run script
+# Insert function detect_host_os into the run script.
 #
 insert_runscript_function_detect_host_os() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Determine the Linux distro that this script is being run on
+	# Determine the Linux distro that script is being run on.
 	#
 	detect_host_os() {
 	  grep "^ID=" /etc/os-release | sed -e 's/^ID=//'
@@ -1349,13 +1363,13 @@ insert_runscript_function_detect_host_os() {
 
 
 #
-# Insert function error_cleanup into the run script
+# Insert function error_cleanup into the run script.
 #
 insert_runscript_function_error_cleanup() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Unmount filesystems whenever an error occurs in the script
+	# Unmount filesystems whenever an error occurs in the script.
 	#
 	# shellcheck disable=SC2317
 	error_cleanup() {
@@ -1406,31 +1420,29 @@ insert_runscript_function_error_cleanup() {
 
 
 #
-# Insert function get_uuid_from_device into the run script
+# Insert function get_uuid_from_device into the run script.
 #
 insert_runscript_function_get_uuid_from_device() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Get the UUID of the filesystem in the specified device
+	# Get the UUID of the filesystem in the specified device.
 	#
 	get_uuid_from_device() {
-	  local _device=$1
-	
-	  blkid -s UUID -o value "$_device"
+	  blkid -s UUID -o value "$1"
 	}
 	EOF
 }
 
 
 #
-# Insert function normal_cleanup into the run script
+# Insert function normal_cleanup into the run script.
 #
 insert_runscript_function_normal_cleanup() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Unmount filesystems mounted inside chroot directory
+	# Unmount filesystems mounted inside chroot directory.
 	#
 	normal_cleanup() {
 	  local _param="${1:-}"
@@ -1459,7 +1471,8 @@ insert_runscript_function_normal_cleanup() {
       ;;
   esac
 
-  if [ "$image_create_boot_partition" = "true" ] || [ -n "$image_lvm_rootfs" ]; then
+  if [ "$image_create_boot_partition" = "true" ] || \
+     [ -n "$image_lvm_rootfs" ]; then
     cat <<-'EOF' >> "$run_script"
 	  unmount_chroot_fs "/boot"
 	EOF
@@ -1484,7 +1497,8 @@ insert_runscript_function_normal_cleanup() {
   fi
 
   if [ -n "$image_encryption_type" ] && \
-     { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; }; then
+     { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
     cat <<-EOF >> "$run_script"
 	
 	  cryptsetup close ${CADI_LUKS_DEVICE_NAME} >> "\$logfile"
@@ -1498,7 +1512,8 @@ insert_runscript_function_normal_cleanup() {
 	    losetup -d "$loop_device" >> "$logfile"
 	    _rc=$?
 	    if [ $_rc -ne 0 ]; then
-	      printf '\nThere was a problem freeing the loop device '\''%s'\''!\n\n' "$loop_device"
+	      printf '\nThere was a problem freeing the loop device '\''%s'\''!\n\n' \
+	        "$loop_device"
 	      exit 1
 	    fi
 	  fi
@@ -1508,13 +1523,13 @@ insert_runscript_function_normal_cleanup() {
 
 
 #
-# Insert function unmount_chroot_fs into the run script
+# Insert function unmount_chroot_fs into the run script.
 #
 insert_runscript_function_unmount_chroot_fs() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Unmount a filesystem inside chroot
+	# Unmount a filesystem inside chroot.
 	#
 	unmount_chroot_fs() {
 	  local _mountpoint="$1"
@@ -1540,18 +1555,18 @@ insert_runscript_function_unmount_chroot_fs() {
 
 
 #
-# Insert function unmount_ramdisk into the run script
+# Insert function unmount_ramdisk into the run script.
 #
 insert_runscript_function_unmount_ramdisk() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Unmount ramdisk
+	# Unmount ramdisk.
 	#
 	unmount_ramdisk() {
 	  local _rc
 	
-	  # Give any previous operations on things using the ramdisk time to complete
+	  # Give any previous operations using the ramdisk time to complete
 	  sleep 10
 	
 	  if mount | grep -q "$ramdisk_dir" ; then
@@ -1573,13 +1588,13 @@ insert_runscript_function_unmount_ramdisk() {
 
 
 #
-# Insert function write_debug_log into the run script
+# Insert function write_debug_log into the run script.
 #
 insert_runscript_function_write_debug_log() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Write debug messages only to the log file
+	# Write debug messages only to the log file.
 	#
 	write_debug_log() {
 	  local _log_entry="$1"
@@ -1609,13 +1624,13 @@ insert_runscript_function_write_debug_log() {
 
 
 #
-# Insert function write_log into the run script
+# Insert function write_log into the run script.
 #
 insert_runscript_function_write_log() {
   cat <<-'EOF' >> "$run_script"
 	
 	#
-	# Write log messages to both the logfile (with timestamp) and stdout
+	# Write log messages to both logfile (with timestamp) and stdout.
 	#
 	write_log() {
 	  local _log_entry="${1:-}"
@@ -1634,7 +1649,7 @@ insert_runscript_function_write_log() {
 
 
 #
-# Insert required functions into the run script
+# Insert required functions into the run script.
 #
 insert_runscript_functions() {
   cat <<-'EOF' >> "$run_script"
@@ -1665,7 +1680,7 @@ insert_runscript_functions() {
 
 
 #
-# Adds an entry to the specified /etc/mkinitfs/features.d/*.modules file
+# Adds an entry to the specified /etc/mkinitfs/features.d/*.modules file.
 #
 initramfs_entry_add() {
   local _modules_entry="$1"
@@ -1677,7 +1692,8 @@ EOF
 
 
 #
-# Complete adding entries to the specified /etc/mkinitfs/features.d/*.modules file
+# Complete adding entries to the specified
+# /etc/mkinitfs/features.d/*.modules file.
 #
 initramfs_entry_finish() {
   cat <<EOF >> "$run_script"
@@ -1687,7 +1703,8 @@ EOF
 
 
 #
-# Prep adding entries to the specified /etc/mkinitfs/features.d/*.modules file
+# Prep adding entries to the specified
+# /etc/mkinitfs/features.d/*.modules file.
 #
 initramfs_entry_initialise() {
   local _modules_file=$1
@@ -1706,21 +1723,21 @@ EOF
 
 
 #
-# Install additional packages
+# Install additional packages.
 #
 install_additional_packages() {
-  local _add_os_config_software_packages _machine_class_software_pkgs
+  local _machine_class_software_pkgs
 
   cat <<-EOF >> "$run_script"
 	
-	_add_packages="$(define_additional_packages)"
+	add_packages="$(define_additional_packages)"
 	EOF
 
   cat <<-'EOF' >> "$run_script"
-	write_log "Install additional packages: \$_add_packages"
+	write_log "Install additional packages: \$add_packages"
 	{
 	  # shellcheck disable=SC2086
-	  apk add \$_add_packages >> /chroot.log 2>&1
+	  apk add \$add_packages >> /chroot.log 2>&1
 	EOF
 
   if [ -n "$debug_enabled" ]; then
@@ -1737,23 +1754,26 @@ install_additional_packages() {
   cat <<-EOF >> "$run_script"
 	}
 	
-	_add_os_config_software_packages="$(define_os_config_software_packages)"
+	add_os_config_software_packages="$(define_os_config_software_packages)"
 	EOF
 
   cat <<-'EOF' >> "$run_script"
-	write_log "Install OS configuration software packages: \$_add_os_config_software_packages"
+	write_log \
+	  "Install OS configuration software packages: \$add_os_config_software_packages"
 	{
 	  # shellcheck disable=SC2086
-	  apk add \$_add_os_config_software_packages >> /chroot.log 2>&1
+	  apk add \$add_os_config_software_packages >> /chroot.log 2>&1
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  write_debug_log "Disk space usage after OS configuration software packages added:"
+	  write_debug_log \
+	    "Disk space usage after OS configuration software packages added:"
 	  busybox df -k >> /chroot.log
-	  write_debug_log "Packages list after OS configuration software packages installed:"
+	  write_debug_log \
+	    "Packages list after OS configuration software packages installed:"
 	  apk info -v | sort >> /chroot.log
 	EOF
   fi
@@ -1788,7 +1808,8 @@ install_additional_packages() {
 	EOF
 
     cat <<-'EOF' >> "$run_script"
-	write_log "Install additional machine type specific packages: \$machine_specific_packages"
+	write_log \
+	  "Install additional machine specific packages: \$machine_specific_packages"
 	{
 	  # shellcheck disable=SC2086
 	  apk add \$machine_specific_packages >> /chroot.log 2>&1
@@ -1813,21 +1834,21 @@ install_additional_packages() {
 
 
 #
-# Install the contents of a user-specified directory into image
+# Install the contents of a user-specified directory into image.
 #
 install_extra_files() {
   cat <<-EOF >> "$run_script"
 	
-	_extra_contents="${extra_files_directory}"
+	extra_contents="${extra_files_directory}"
 	EOF
 
   cat <<-'EOF' >> "$run_script"
-	write_log "Installing contents of specified directory '$_extra_contents' into image"
+	write_log "Installing contents of specified directory '$extra_contents' into image"
 	{
-	  if [ -d "$_extra_contents" ]; then
-	    cp -vpr "$_extra_contents"/* $chroot_dir/ >> $logfile 2>&1
+	  if [ -d "$extra_contents" ]; then
+	    cp -vpr "$extra_contents"/* $chroot_dir/ >> $logfile 2>&1
 	  else
-	    write_log "NOTE: directory $_extra_contents is missing, unable to copy files from there!"
+	    write_log "NOTE: directory $extra_contents is missing, unable to copy files from there!"
 	  fi
 	}
 	EOF
@@ -1835,31 +1856,31 @@ install_extra_files() {
 
 
 #
-# Install extra, user specified, packages
+# Install extra, user specified, packages.
 #
 install_extra_packages() {
   cat <<-EOF >> "$run_script"
 	
-	_extra_packages="${extra_packages_list}"
+	extra_packages="${extra_packages_list}"
 	EOF
 
   cat <<-'EOF' >> "$run_script"
-	write_log "Installing extra packages: \$_extra_packages"
+	write_log "Installing extra packages: \$extra_packages"
 	{
-	  apk add \$_extra_packages >> /chroot.log 2>&1
+	  apk add \$extra_packages >> /chroot.log 2>&1
 	}
 	EOF
 }
 
 
 #
-# Indicate if a string is present in a comma-separated string
+# Indicate if a string is present in a comma-separated string.
 #
 is_in_comma_list() {
-  _comma_list="$1"
-  _check="$2"
+  local _comma_list="$1"
+  local _cl_check_string="$2"
 
-  if is_in_list "$_comma_list" "$_check" ","; then
+  if is_in_list "$_comma_list" "$_cl_check_string" ","; then
     return 0
   else
     return 1
@@ -1868,18 +1889,18 @@ is_in_comma_list() {
 
 
 #
-# Indicate if a string is present in a string with the specified separator
+# Indicate if a string is present in a string with the specified separator.
 #
 is_in_list() {
-  _list="$1"
-  _check="$2"
-  _separator="$3"
+  local _list="$1"
+  local _check_string="$2"
+  local _list_separator="$3"
 
-  if [ "$_list" = "$_check" ]; then
+  if [ "$_list" = "$_check_string" ]; then
     # Present as list only has that single entry
     return 0
-  elif [ "${_list#*"$_separator""$_check"}" != "$_list" ] || \
-     [ "${_list#*"$_check""$_separator"}" != "$_list" ]; then
+  elif [ "${_list#*"$_list_separator""$_check_string"}" != "$_list" ] || \
+     [ "${_list#*"$_check_string""$_list_separator"}" != "$_list" ]; then
     # Present
     return 0
   else
@@ -1890,13 +1911,13 @@ is_in_list() {
 
 
 #
-# Indicate if a string is present in a space-separated string
+# Indicate if a string is present in a space-separated string.
 #
 is_in_space_list() {
-  _space_list="$1"
-  _check="$2"
+  local _space_list="$1"
+  local _sl_check_string="$2"
 
-  if is_in_list "$_space_list" "$_check" " "; then
+  if is_in_list "$_space_list" "$_sl_check_string" " "; then
     return 0
   else
     return 1
@@ -1905,10 +1926,10 @@ is_in_space_list() {
 
 
 #
-# Indicate if there is only a single entry present in a comma-separated string
+# Indicate if there is only a single entry present in a comma-separated string.
 #
 is_single_entry_in_comma_list() {
-  _comma_list="$1"
+  local _comma_list="$1"
 
   if [ "${_comma_list%%,*}" = "$_comma_list" ]; then
     return 0
@@ -1919,7 +1940,7 @@ is_single_entry_in_comma_list() {
 
 
 #
-# Mount the ramdisk
+# Mount the ramdisk.
 #
 mount_ramdisk() {
   cat <<-EOF >> "$run_script"
@@ -1932,7 +1953,7 @@ mount_ramdisk() {
 
 
 #
-# Mount special filesystems from host inside chroot
+# Mount special filesystems from host inside chroot.
 #
 mount_host_special_fs_in_chroot() {
   cat <<-'EOF' >> "$run_script"
@@ -1958,7 +1979,7 @@ mount_host_special_fs_in_chroot() {
 
 
 #
-# Display the help for an individual option, wrapped to 70 chars width
+# Display the help for an individual option, wrapped to 70 chars width.
 #
 option_help() {
   local _option_format="$1"
@@ -1993,7 +2014,7 @@ option_help() {
 
 
 #
-# Outputs a blank line
+# Outputs a blank line.
 #
 output_eof_block_blank_line() {
   output_eof_block_text ""
@@ -2001,7 +2022,7 @@ output_eof_block_blank_line() {
 
 
 #
-# Outputs a tab-indented blank line
+# Outputs a tab-indented blank line.
 #
 output_eof_block_tab_blank_line() {
   output_eof_block_text "\t"
@@ -2009,19 +2030,19 @@ output_eof_block_tab_blank_line() {
 
 
 #
-# Outputs text
+# Outputs text.
 #
 output_eof_block_text(){
-  _line="$1"
+  local _eof_block_line="$1"
 
   cat <<EOF >> "$run_script"
-$(printf "$_line\n")
+$(printf "$_eof_block_line\n")
 EOF
 }
 
 
 #
-# Outputs tab-indented empty line
+# Outputs tab-indented empty line.
 #
 output_script_block_blank_line() {
   output_script_block_text ""
@@ -2029,7 +2050,7 @@ output_script_block_blank_line() {
 
 
 #
-# Outputs tab-indented end of script block marker
+# Outputs tab-indented end of script block marker.
 #
 output_script_block_end_marker() {
   output_script_block_text "_SCRIPT_"
@@ -2037,19 +2058,19 @@ output_script_block_end_marker() {
 
 
 #
-# Outputs tab-indented text
+# Outputs tab-indented text.
 #
 output_script_block_text(){
-  _output_line="$1"
+  local _script_block_line="$1"
 
   cat <<-EOF >> "$run_script"
-$(printf '\t%s\n' "$_output_line")
+$(printf '\t%s\n' "$_script_block_line")
 EOF
 }
 
 
 #
-# Populate the chroot directory with a basic Alpine system
+# Populate the chroot directory with a basic Alpine system.
 #
 setup_alpine_base() {
   if [ "$image_script_host_os" != "alpine" ]; then
@@ -2065,7 +2086,7 @@ setup_alpine_base() {
 
 
 #
-# In the script, setup the loop device for the disk image
+# In the script, setup the loop device for the disk image.
 #
 setup_loop_device() {
   cat <<-EOF >> "$run_script"
@@ -2075,7 +2096,8 @@ setup_loop_device() {
 	  write_log "Ensuring that loop driver is loaded (if necessary)" 2
 	  if [ ! -c /dev/loop-control ]; then
 	    loop_module_filename=\$(modinfo -F filename loop 2>/dev/null)
-	    if [ "\$loop_module_filename" != "" ] && [ "\$loop_module_filename" != "(builtin)" ]; then
+	    if [ "\$loop_module_filename" != "" ] && \\
+	       [ "\$loop_module_filename" != "(builtin)" ]; then
 	      modprobe loop 2>> \$logfile
 	    else
 	      printf '\nThere is a problem with loop devices!\n\n'
@@ -2091,7 +2113,9 @@ setup_loop_device() {
 	      unset loop_device
 	      printf '\nThere was a problem creating the loop device!\n\n'
 	    else
-	      printf '\nThere was a problem creating the loop device '\''%s'\''!\n\n' "\$loop_device"
+	      printf \\
+	        '\nThere was a problem creating the loop device '\''%s'\''!\n\n' \\
+	        "\$loop_device"
 	    fi
 	    exit 1
 	  fi
@@ -2105,7 +2129,7 @@ setup_loop_device() {
 
 
 #
-# Upgrade Alpine packages
+# Upgrade Alpine packages.
 #
 update_upgrade_packages() {
   cat <<-'EOF' >> "$run_script"

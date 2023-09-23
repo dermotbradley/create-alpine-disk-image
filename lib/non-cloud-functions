@@ -13,7 +13,7 @@
 
 
 #
-# Configure /etc/network/interfaces
+# Configure /etc/network/interfaces.
 #
 configure_network_interfaces() {
   cat <<'EOF' >> "$run_script"
@@ -77,7 +77,7 @@ EOF
 
 
 #
-# Configure when no cloud-init or tiny-cloud software
+# Configure when no cloud-init or tiny-cloud software.
 #
 configure_non_autoconfiguration() {
   cat <<-EOF >> "$run_script"
@@ -110,7 +110,7 @@ configure_non_autoconfiguration() {
 
 
 #
-# Create default user account
+# Create default user account.
 #
 create_default_user() {
   cat <<-EOF >> "$run_script"
@@ -203,7 +203,7 @@ create_default_user() {
 
 #
 # Define non cloud-init specific machine packages to install
-# such as growpart, parted, etc
+# such as growpart, parted, etc.
 #
 define_non_cloud_init_machine_packages() {
   local _nonci_pkgs
@@ -218,11 +218,11 @@ define_non_cloud_init_machine_packages() {
 
 
 #
-# Create an init.d script to grow the root partition
+# Create an init.d script to grow the root partition.
 #
 setup_init_d_for_growing_root_partition() {
   local _grow_device _grow_device_part _grow_part_num _part_grow_size
-  local _disk_leave_free_percent
+  local _disk_leave_free_percent _resize_command
   local _resize_logs_lv_device _resize_pv_device
   local _resize_pv_part _resize_root_lv _resize_vg
 
@@ -295,7 +295,8 @@ EOF
   if { [ "$image_encryption_type" = "both" ] || \
        [ "$image_encryption_type" = "luks" ]; } || \
      [ -n "$image_lvm_rootfs" ] || \
-     { [ "$image_os_device_media" = "flash" ] || [ "$image_os_device_media" = "sdcard" ] || \
+     { [ "$image_os_device_media" = "flash" ] || \
+       [ "$image_os_device_media" = "sdcard" ] || \
        [ "$image_os_device_media" = "ssd" ]; }; then
     # growpart does not handle these situations
 

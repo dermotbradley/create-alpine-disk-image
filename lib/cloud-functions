@@ -59,7 +59,7 @@ define_cloud_provider_cli_packages() {
 
 
 #
-# Disable unrequired kernel drivers modules on a cloud machine
+# Disable unrequired kernel drivers modules on a cloud machine.
 #
 disable_kernel_drivers_modules_on_cloud() {
   local _disable_list=""

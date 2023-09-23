@@ -51,3 +51,7 @@ readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional
+#
+# Required for VMware DS: py3-netifaces
+readonly CADI_PACKAGES_ADDITIONAL="py3-netifaces"
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=0

@@ -13,7 +13,7 @@
 
 
 #
-# Define virtual machine specific packages
+# Define virtual machine specific packages.
 #
 define_virtual_machine_packages() {
   local _virtual_pkgs
@@ -27,25 +27,12 @@ define_virtual_machine_packages() {
     fi
   fi
 
-  case $image_cloud_software in
-    cloud-init )
-      case $image_vm_type in
-        vmware )
-          # Required by VMware cloud-init DataSource
-          _virtual_pkgs="$_virtual_pkgs py3-netifaces" ;;
-        generic )
-          # Required by VMware cloud-init DataSource
-          _virtual_pkgs="$_virtual_pkgs py3-netifaces" ;;
-      esac
-      ;;
-  esac
-
   echo "$_virtual_pkgs"
 }
 
 
 #
-# Disable unrequired kernel drivers modules on a virtual machine
+# Disable unrequired kernel drivers modules on a virtual machine.
 #
 disable_kernel_drivers_modules_on_virtual() {
   local _disable_list=""
@@ -75,7 +62,8 @@ disable_kernel_drivers_modules_on_virtual() {
         ;;
       * )
         # Disable Virtualbox modules
-        _disable_list="$_disable_list $CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES" ;;
+        _disable_list="$_disable_list $CADI_VIRTUAL_VIRTUALBOX_KERNEL_MODULES"
+        ;;
     esac
     case $image_vm_type in
       vmware )

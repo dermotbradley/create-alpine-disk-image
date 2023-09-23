@@ -21,7 +21,6 @@ readonly CADI_SUPPORTED_IPV4=true
 readonly CADI_SUPPORTED_IPV6=true
 readonly CADI_SUPPORTED_IPV4_IPV6=true
 readonly CADI_SUPPORTED_NTP_METHODS="pools,ptp,servers"
-readonly CADI_SUPPORTED_OS_BOOT_DISK_SWAP=false
 readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
 
 

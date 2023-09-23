@@ -416,9 +416,12 @@ configure_console_user() {
   fi  
 
   cat <<-EOF >> "$run_script"
-	        write_log "Setting up password-less doas access for '$image_console_only_group' group" 8
+	        write_log \\
+	          "Setting up password-less doas access for '$image_console_only_group' group" 8
 	        {
-	          printf '\n# Enable password-less access for members of group '\''%s'\''\n' "$image_console_only_group"
+	          printf \\
+	            '\n# Enable password-less access for members of group '\''%s'\''\n' \\
+	            "$image_console_only_group"
 	          printf 'permit nopass :%s\n' "$image_console_only_group"
 	        } >> ${_doas_file}
 	
@@ -476,7 +479,8 @@ configure_console_user() {
         cat <<-'EOF' >> "$run_script"
 
 	      write_debug_log "/etc/sshd_config changes:" 4
-	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log || true
+	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config \
+	        >> /chroot.log || true
 	      rm /etc/ssh/sshd_config-orig
 	EOF
         ;;
@@ -843,7 +847,8 @@ configure_firewall_iptables() {
 EOF
 
   cat <<'EOF' >> "$run_script"
-      write_log "Add IPtables kernel modules in /etc/modules-load.d/firewall.conf" 6
+      write_log \
+        "Add IPtables kernel modules in /etc/modules-load.d/firewall.conf" 6
       {
         cat <<-_SCRIPT_ > /etc/modules-load.d/firewall.conf
 	# Firewall-related modules
@@ -1204,236 +1209,12 @@ configure_msmtp() {
 # Configure OpenSSH server daemon
 #
 configure_opensshd() {
-  local _dropbear_rsa_key_length=3072
-  local _rsa_key_length=4096
-
   cat <<-'EOF' >> "$run_script"
 	    write_log "Configuring OpenSSH server" 4
 	    {
 	EOF
 
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	      # Debug
-	      cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
-	      cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
-	
-	EOF
-  fi
-
-
-  if [ -n "$image_harden" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
-    cat <<-'EOF' >> "$run_script"
-	      write_log "Only generate ED25519 host key" 6
-	      sed -i \
-	        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
-	        /etc/conf.d/sshd
-	EOF
-  else
-    if [ -n "$luks_remote_unlock_enabled" ]; then
-      cat <<-EOF >> "$run_script"
-	
-	      _rsa_key_length=$_rsa_key_length
-	EOF
-    else
-      # Dropbear has shorter supported length of RSA key
-      cat <<-EOF >> "$run_script"
-	
-	      _rsa_key_length=$_dropbear_rsa_key_length
-	EOF
-    fi
-
-    cat <<-'EOF' >> "$run_script"
-	      write_log "Only generate ED25519 and \${_rsa_key_length}bit RSA host keys" 6
-	      sed -i \\
-	        -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
-	        -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
-	        /etc/conf.d/sshd
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	
-	      # Configure sshd to:
-	EOF
-
-  if [ -n "$image_harden" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
-    cat <<-'EOF' >> "$run_script"
-	      # - only use ED25519 host key
-	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
-	      # - only use ED25519 & RSA host keys
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	      # - prevent challenge-response logins
-	      # - prevent keyboard-interactive logins
-	      # - prevent logins to accounts with empty passwords
-	      # - prevent root logins
-	      # - disable Agent forwarding
-	      # - use built-in SFTP server
-	      write_log "Prevent root logins" 6
-	      sed -i \
-	        -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
-	        -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
-	        -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
-	        -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
-	        -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
-	        -e 's|^[#]*AllowAgentForwarding .*$|AllowAgentForwarding no|' \
-	        -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
-	        /etc/ssh/sshd_config
-	EOF
-
-  if [ -n "$image_insecure" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	      # - permit password-based logins
-	      write_log "Permit password-based SSH logins" 6
-	      sed -i \
-	        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication yes|' \
-	        /etc/ssh/sshd_config
-	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
-	      # - prevent password-based logins
-	      write_log "Prevent password-based SSH logins" 6
-	      sed -i \
-	        -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
-	        /etc/ssh/sshd_config
-	EOF
-  fi
-
-  if [ -n "$image_enable_pam" ]; then
-    case $image_cloud_software in
-      cloud-init )
-        cat <<-'EOF' >> "$run_script"
-	
-	      # - enable PAM
-	      write_log "Enable PAM support" 6
-	      sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
-	EOF
-        ;;
-      * )
-        cat <<-'EOF' >> "$run_script"
-	
-	      # - disable PAM
-	      write_log "Disabling PAM support" 6
-	      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
-	EOF
-        ;;
-    esac
-  else
-    cat <<-'EOF' >> "$run_script"
-	
-	      # - disable PAM
-	      write_log "Disabling PAM support" 6
-	      sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
-	EOF
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	
-	      # - ensure only key-based authentication is enabled
-	      sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
-	      {
-	        printf '\nAuthenticationMethods "publickey"\n\n'
-	      } >> /etc/ssh/sshd_config
-	EOF
-
-  case $image_ssh_keytypes in
-    ed25519 )
-      : ;;
-    * )
-      # Enable RSA key use
-      cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Enable RSA key use" 6
-	      sed -i \
-	        -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
-	        /etc/ssh/sshd_config
-	EOF
-      ;;
-  esac
-
-  if [ -n "$image_disable_ipv4" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Enable only IPv6 access" 6
-	      sed -i \
-	        -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
-	        -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
-	        -e 's/^#ListenAddress ::.*$/ListenAddress ::/g' \
-	        /etc/ssh/sshd_config
-	EOF
-  elif [ -n "$image_disable_ipv6" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Enable only IPv4 access" 6
-	      sed -i \
-	        -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
-	        -e 's/^#ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
-	        -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
-	        /etc/ssh/sshd_config
-	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Enable both IPv4 and IPv6 access" 6
-	      sed -i \
-	        -e 's/^[#]*AddressFamily .*$/AddressFamily any/g' \
-	        -e 's/^#ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
-	        -e 's/^#ListenAddress ::.*$/ListenAddress ::/g' \
-	        /etc/ssh/sshd_config
-	EOF
-  fi
-
-
-  if [ -n "$image_harden" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Further harden the configuration" 6
-	      # - limit Ciphers to single strong one
-	      # - limit KexAlgorithms to curve 25519
-	      # - limit MAC to single Encrypt-then-MAC version
-	      # - only accept the use of ED25519 public keys
-	      {
-	        printf 'CASignatureAlgorithms  ssh-ed25519\n'
-	        printf 'Ciphers chacha20-poly1305@openssh.com\n'
-	        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
-	        printf 'MACS hmac-sha2-512-etm@openssh.com\n'
-	        printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
-	        printf '\n'
-	      } >> /etc/ssh/sshd_config
-	EOF
-
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Disable RSA key use" 6
-	      sed -i \
-	        -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey \
-	        /etc/ssh/ssh_host_rsa_key|' /etc/ssh/sshd_config
-	EOF
-  else
-    # Basic sensible SSH configuration
-    cat <<-'EOF' >> "$run_script"
-	
-	      write_log "Basic sshd secure configuration" 6
-	      # - limit Ciphers to relatively strong ones
-	      # - limit KexAlgorithms to curve 25519
-	      # - limit MAC to Encrypt-then-MAC versions
-	      # - only accept relatively strong public key types
-	      {
-	        printf 'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n'
-	        printf 'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
-	        printf 'MACS hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com\n'
-	        printf 'PubkeyAcceptedKeyTypes ssh-ed25519,rsa-sha2-512,rsa-sha2-256\n'
-	        printf '\n'
-	      } >> /etc/ssh/sshd_config
-	EOF
-  fi
-
+  harden_openssh_server
 
   cat <<-'EOF' >> "$run_script"
 	
@@ -1445,23 +1226,6 @@ configure_opensshd() {
 
   cat <<-'EOF' >> "$run_script"
 	      } >> /chroot.log 2>&1
-	EOF
-
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	      # Debug
-	      diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
-	      rm /etc/conf.d/sshd-orig
-	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config >> /chroot.log \
-	        || true
-	      rm /etc/ssh/sshd_config-orig
-	EOF
-  fi
-
-
-  cat <<-'EOF' >> "$run_script"
 	    }
 	EOF
 }
@@ -2153,7 +1917,8 @@ enable_getty() {
 	          's|^[#]${_getty_name}:.*|${_getty_name}::respawn:/sbin/getty ${_getty_options}|g' \\
 	          /etc/inittab
 	      else
-	        printf '\n#Additional getty for ${_getty_name}\n${_getty_name}::respawn:/sbin/getty ${_getty_options}\n' \\
+	        printf \\
+	          '\n#Additional getty for ${_getty_name}\n${_getty_name}::respawn:/sbin/getty ${_getty_options}\n' \\
 	          >> /etc/inittab
 	      fi
 	EOF

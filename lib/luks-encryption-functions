@@ -25,13 +25,15 @@ calculate_luks_part_size() {
     # LVM inside LUKS
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_luks_part_size] determining LVM VG size" >> "$sizing_debug"
+      printf '[calculate_luks_part_size] determining LVM VG size\n' \
+        >> "$sizing_debug"
     fi
 
     _luks_total_size=$(calculate_lvm_vg_size)
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_luks_part_size] LVM VG size $_luks_total_size MiB" >> "$sizing_debug"
+      printf '[calculate_luks_part_size] LVM VG size %s MiB\n' \
+        "$_luks_total_size" >> "$sizing_debug"
     fi
 
     _size=$_luks_total_size
@@ -39,13 +41,15 @@ calculate_luks_part_size() {
     # Just rootfs inside LUKS
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_luks_part_size] determining root filesystem size" >> "$sizing_debug"
+      printf '[calculate_luks_part_size] determining root filesystem size\n' \
+        >> "$sizing_debug"
     fi
 
     _luks_total_size=$general_rootfs_size
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_luks_part_size] root filesystem size is $_luks_total_size MiB" >> "$sizing_debug"
+      printf '[calculate_luks_part_size] root filesystem size is %s MiB\n' \
+        "$_luks_total_size" >> "$sizing_debug"
     fi
 
     if [ "$image_create_boot_partition" != "true" ]; then
@@ -53,7 +57,9 @@ calculate_luks_part_size() {
       _luks_total_size=$(( _luks_total_size + general_bootfs_size ))
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_luks_part_size] no separate boot partition so adding $general_bootfs_size MiB boot files to root size, size is now $_luks_total_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_luks_part_size] no separate boot partition so adding %s MiB boot files to root size, size is now %s MiB\n' \
+          "$general_bootfs_size" "$_luks_total_size" >> "$sizing_debug"
       fi
     fi
 
@@ -63,13 +69,18 @@ calculate_luks_part_size() {
       _size=$(( _luks_total_size + _reserved ))
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_luks_part_size] allowing for $image_fs_type $_reserved_percent% reserved space ($(( _reserved )) MiB), size is now $_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_luks_part_size] allowing for %s %s% reserved space (%s MiB), size is now %s MiB\n' \
+          "$image_fs_type" "$_reserved_percent" "$(( _reserved ))" "$_size" \
+          >> "$sizing_debug"
       fi
     else
       _size=$_luks_total_size
 
       if [ -n "$debug_sizing_enabled" ]; then
-        echo "[calculate_luks_part_size] no fs overhead and so size is unchanged at $_size MiB" >> "$sizing_debug"
+        printf \
+          '[calculate_luks_part_size] no fs overhead and so size is unchanged at %s MiB\n' \
+          "$_size" >> "$sizing_debug"
       fi
     fi
   fi
@@ -87,7 +98,9 @@ calculate_luks_part_size() {
   esac
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_luks_part_size] allowing for LUKS overhead ($_luks_overhead MiB), final size is $_size MiB" >> "$sizing_debug"
+    printf \
+      '[calculate_luks_part_size] allowing for LUKS overhead (%s MiB), final size is %s MiB\n' \
+      "$_luks_overhead" "$_size" >> "$sizing_debug"
   fi
 
   echo "$_size"
@@ -95,7 +108,7 @@ calculate_luks_part_size() {
 
 
 #
-# Copy LUKS keyfile into place
+# Copy LUKS keyfile into place.
 #
 copy_luks_keyfile_into_place() {
   cat <<-'EOF' >> "$run_script"
@@ -110,7 +123,7 @@ copy_luks_keyfile_into_place() {
 
 
 #
-# Decide whether to use LUKS v1 or v2
+# Decide whether to use LUKS v1 or v2.
 #
 decide_luks_version() {
   case $image_bootloader in
@@ -122,8 +135,8 @@ decide_luks_version() {
         # AND
         # - GRUB's FDE is enabled
 
-        # GRUB 2.06's LUKSv2 FDE support does not actually appear to work so
-        # only use LUKSv1 until it is fixed.
+        # GRUB 2.06's LUKSv2 FDE support does not actually appear
+        # to work so only use LUKSv1 until it is fixed.
         image_luks_version="1"
       else
         image_luks_version="2"
@@ -136,7 +149,7 @@ decide_luks_version() {
 
 
 #
-# Insert function define_cmdline_for_luks_encryption into created script
+# Insert function define_cmdline_for_luks_encryption into created script.
 #
 insert_chroot_function_define_cmdline_for_luks_encryption() {
   local _cmdline_list
@@ -180,7 +193,7 @@ insert_chroot_function_define_cmdline_for_luks_encryption() {
 
 
 #
-# Create the /etc/crypttab file
+# Create the /etc/crypttab file.
 #
 setup_crypttab() {
   local _crypttab_options="luks"
@@ -211,7 +224,7 @@ setup_crypttab() {
 
 
 #
-# Setup the LUKS device
+# Setup the LUKS device.
 #
 setup_luks_device() {
   cat <<-EOF >> "$run_script"
@@ -255,18 +268,20 @@ setup_luks_device() {
 	EOF
 
   if [ "$image_bootloader" = "grub" ] && \
-     { [ -z "$image_experimental" ] || [ -z "$luks_remote_unlock_enabled" ]; } && \
+     { [ -z "$image_experimental" ] || \
+       [ -z "$luks_remote_unlock_enabled" ]; } && \
      [ -z "$image_no_grub_luks_fde_encryption" ] && \
      [ "$image_create_boot_partition" != "true" ]; then
     # When:
     #  - disk image is encrypted, AND
     #  - bootloader is Grub, AND
-    #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+    #  - remote unlock is not enabled (as otherwise /boot is
+    #    not encrypted), AND
     #  - Grub LUKS encryption support is not disabled, AND
     #  - /boot is not a separate partition
-    # then create a keyfile - this will be placed in the initramfs and used to
-    # unlock the rootfs - this prevents being prompted for passphrase twice,
-    # once by Grub and then again by initramfs.
+    # then create a keyfile - this will be placed in the initramfs and
+    # used to unlock the rootfs - this prevents being prompted for
+    # passphrase twice, once by Grub and then again by initramfs.
     cat <<-EOF >> "$run_script"
 	
 	  write_log "Creating keyfile for LUKS" 2

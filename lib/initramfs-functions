@@ -35,7 +35,7 @@ module_name() {
 
 
 #
-# Show contents of generated initramfs
+# Show contents of generated initramfs.
 #
 show_initramfs_contents() {
   if [ -n "$debug_enabled" ]; then

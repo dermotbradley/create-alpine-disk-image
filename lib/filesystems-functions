@@ -12,7 +12,7 @@
 #############################################################################
 
 #
-# Return a percentage overhead for the particular filesystem type in use
+# Return a percentage overhead for the particular filesystem type in use.
 #
 fs_overhead() {
   local _percent
@@ -33,7 +33,7 @@ fs_overhead() {
 
 
 #
-# Place entries in /etc/fstab for various filesystems
+# Place entries in /etc/fstab for various filesystems.
 #
 configure_fstab() {
   local _fstab_boot_mount_options _fstab_boot_reference _fstab_boot_entry_type
@@ -67,7 +67,8 @@ configure_fstab() {
       ;;
   esac
   if [ -n "$image_encryption_type" ] && \
-     { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; }; then
+     { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
     # LUKS
     _fstab_root_entry_type="DEVICE"
     if [ -n "$image_lvm_rootfs" ]; then
@@ -153,7 +154,8 @@ configure_fstab() {
 
   # /boot as partition or LVM LV
   if [ "$image_create_boot_partition" = "true" ] || \
-     { [ -n "$image_lvm_rootfs" ] && [ "$image_create_boot_partition" != "true" ]; }; then
+     { [ -n "$image_lvm_rootfs" ] && \
+       [ "$image_create_boot_partition" != "true" ]; }; then
     _fstab_boot_mount_options="rw,relatime"
 
     if [ "$image_class" != "physical" ] || \
@@ -167,6 +169,7 @@ configure_fstab() {
               # Sync every 5 minutes, rather than the default of every 5 seconds,
               # to reduce writes to flash storage.
               _fstab_boot_mount_options="$_fstab_boot_mount_options,commit=300"
+              ;;
           esac
           ;;
       esac
@@ -177,7 +180,8 @@ configure_fstab() {
       # RPI 2, 3, or 4 - /boot is actually a bind-mount to /media/sdcard
       add_rpi_boot_fstab_entries "$_fstab_boot_mount_options"
     else
-      if [ -n "$image_lvm_rootfs" ] && [ "$image_create_boot_partition" != "true" ]; then
+      if [ -n "$image_lvm_rootfs" ] && \
+         [ "$image_create_boot_partition" != "true" ]; then
         # /boot as LVM LV
         _fstab_boot_entry_type="DEVICE"
         _fstab_boot_reference="/dev/mapper/${CADI_LVM_VG_NAME}-${CADI_LVM_BOOT_LV_NAME}"
@@ -209,7 +213,8 @@ configure_fstab() {
           flash | sdcard | ssd )
             # Sync every 5 minutes, rather than the default of every 5
             # seconds to reduce writes to flash storage.
-            _fstab_logs_mount_options="$_fstab_logs_mount_options,commit=300" ;;
+            _fstab_logs_mount_options="$_fstab_logs_mount_options,commit=300"
+            ;;
         esac
         ;;
     esac
@@ -238,7 +243,7 @@ configure_fstab() {
 
 
 #
-# Create /etc/filesystems for Busybox mount
+# Create /etc/filesystems for Busybox mount.
 #
 create_etc_filesystems() {
   local _config_fs_types="$1"
@@ -331,6 +336,7 @@ format_and_mount_fs() {
         format_esp_fs
         if [ "$image_boot_reference" = "uuid" ]; then
           cat <<-'EOF' >> "$run_script"
+	
 	  esp_fs_uuid="$(get_uuid_from_device "$uefi_part_device")"
 	EOF
         fi
@@ -348,8 +354,8 @@ format_and_mount_fs() {
 
       if [ "$image_class" = "physical" ] && \
          [ "$(expr "$image_physical_type" : '.*rpi.*')" -gt 0 ]; then
-        # Ensure that RPI boot filesystem label is *not* called "boot" due to
-        # https://github.com/raspberrypi/firmware/issues/1529
+        # Ensure that RPI boot filesystem label is *not* called "boot" due
+        # to https://github.com/raspberrypi/firmware/issues/1529
         _boot_label="$CADI_RPIBOOT_LABEL"
         _boot_fs_type="fat"
         _boot_fat_type="fat32"
@@ -411,7 +417,8 @@ format_and_mount_fs() {
 
   # Set fs device variables
   if [ -n "$image_encryption_type" ] && \
-     { [ "$image_encryption_type" = "both" ] || [ "$image_encryption_type" = "luks" ]; }; then
+     { [ "$image_encryption_type" = "both" ] || \
+       [ "$image_encryption_type" = "luks" ]; }; then
     # LUKS
     if [ -n "$image_lvm_rootfs" ]; then
       _logs_on="LVM-on-LUKS device"
@@ -484,7 +491,8 @@ format_and_mount_fs() {
     case $image_bootloader in
       grub )
         if [ "$image_create_boot_partition" != "true" ]; then
-          # Grub supports LVM and so has boot LV rather than a separate boot partition
+          # Grub supports LVM and so has boot LV rather
+          # than a separate boot partition.
           format_fs "$image_fs_type" "\$boot_part_device" "boot" \
             "$CADI_BOOTFS_LABEL" "$_boot_on"
         fi
@@ -496,10 +504,13 @@ format_and_mount_fs() {
   fi
 
   if [ "$image_boot_reference" = "uuid" ] && \
-     { [ "$image_class" != "physical" ] || [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; } && \
+     { [ "$image_class" != "physical" ] || \
+       [ "$(expr "$image_physical_type" : '.*rpi.*')" -eq 0 ]; } && \
      { [ -z "$image_encryption_type" ] || \
-       { [ "$image_encryption_type" != "both" ] && [ "$image_encryption_type" != "luks" ]; } } && \
-     { [ -z "$image_lvm_rootfs" ] || [ "$image_bootloader" = "syslinux" ]; }; then
+       { [ "$image_encryption_type" != "both" ] && \
+         [ "$image_encryption_type" != "luks" ]; } } && \
+     { [ -z "$image_lvm_rootfs" ] || \
+       [ "$image_bootloader" = "syslinux" ]; }; then
     case $image_os_partitioning_type in
       unpartitioned )
         cat <<-'EOF' >> "$run_script"
@@ -570,7 +581,8 @@ format_and_mount_fs() {
 	
 	  write_log "Mounting ESP filesystem onto $chroot_dir/boot/efi" 2
 	  mkdir -p "$chroot_dir"/boot/efi
-	  mount -o private "$uefi_part_device" "$chroot_dir"/boot/efi >> "$logfile" 2>&1
+	  mount -o private "$uefi_part_device" "$chroot_dir"/boot/efi \
+	    >> "$logfile" 2>&1
 	EOF
 
       if [ -n "$debug_enabled" ]; then
@@ -643,7 +655,7 @@ format_and_mount_fs() {
 
 
 #
-# Create a BTRFS filesystem
+# Create a BTRFS filesystem.
 #
 format_btrfs_fs() {
   local _btrfs_device=$1
@@ -678,7 +690,7 @@ format_btrfs_fs() {
 
 
 #
-# Create a F2FS filesystem
+# Create a F2FS filesystem.
 #
 format_f2fs_fs() {
   local _f2fs_device=$1
@@ -695,7 +707,8 @@ format_f2fs_fs() {
 
   case $image_encryption_type in
     both | fscrypt )
-      write_log "Adding fscrypt encryption feature to filesystem format options" 2
+      write_log \
+        "Adding fscrypt encryption feature to filesystem format options" 2
       _f2fs_fs_options="$_f2fs_fs_options -O encrypt"
       ;;
   esac
@@ -717,7 +730,7 @@ format_f2fs_fs() {
 
 
 #
-# Create a FAT filesystem
+# Create a FAT filesystem.
 #
 format_fat_fs() {
   local _fat_device=$1
@@ -749,8 +762,10 @@ format_fat_fs() {
 
   cat <<-EOF >> "$run_script"
 	
-	  write_log "Formatting FAT${_fat_info_type} $_fat_fs_use filesystem with ${image_os_device_sector_size}-byte sectors on $_fat_formatting_where" 2
-	  mkfs.fat $_fat_mkfs_options "$_fat_device" >> "\$logfile" 2>&1
+	  write_log \\
+	    "Formatting FAT${_fat_info_type} $_fat_fs_use filesystem with ${image_os_device_sector_size}-byte sectors on $_fat_formatting_where" 2
+	  mkfs.fat $_fat_mkfs_options "$_fat_device" \\
+	    >> "\$logfile" 2>&1
 	EOF
 
   if [ -n "$debug_enabled" ]; then
@@ -764,7 +779,7 @@ format_fat_fs() {
 
 
 #
-# Create a filesystem
+# Create a filesystem.
 #
 format_fs() {
   local _type=$1
@@ -790,7 +805,7 @@ format_fs() {
 
 
 #
-# Create an XFS filesystem
+# Create an XFS filesystem.
 #
 format_xfs_fs() {
   local _xfs_device=$1

@@ -13,7 +13,7 @@
 
 
 #
-# Configure tiny-cloud
+# Configure tiny-cloud.
 #
 configure_tiny_cloud() {
   local _cloud_type
@@ -81,7 +81,7 @@ configure_tiny_cloud() {
 
 #
 # Define Cloud-specific tiny-cloud machine specific packages
-# such as aws-cli or nvme-cli
+# such as aws-cli or nvme-cli.
 #
 define_tiny_cloud_machine_packages() {
   local _cloud_pkgs=""
@@ -95,7 +95,7 @@ define_tiny_cloud_machine_packages() {
 
 
 #
-# Define Cloud-specific tiny-cloud packages/sub-packages
+# Define Cloud-specific tiny-cloud packages/sub-packages.
 #
 define_tiny_cloud_packages() {
   local _tiny_pkgs="tiny-cloud"

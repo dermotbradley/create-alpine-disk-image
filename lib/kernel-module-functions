@@ -13,11 +13,13 @@
 
 
 #
-# Disable a set of specified kernel modules
+# Disable a set of specified kernel modules.
 #
 blacklist_list_of_kernel_modules() {
   local _modules_section=$1
   local _modules_blacklist="$2"
+
+  local _module_name
 
   cat <<-EOF >> "$run_script"
 	  write_log "Blacklisting ${_modules_section} kernel modules" 2
@@ -25,9 +27,9 @@ blacklist_list_of_kernel_modules() {
 	    cat <<-_SCRIPT_ > /etc/modprobe.d/blacklist-${_modules_section}-modules.conf
 	EOF
 
-  for MODULE_NAME in $_modules_blacklist; do
+  for _module_name in $_modules_blacklist; do
     cat <<EOF >> "$run_script"
-	blacklist ${MODULE_NAME}
+	blacklist ${_module_name}
 EOF
   done
 
@@ -61,20 +63,25 @@ EOF
 # name of its associated kernel module.
 #
 convert_network_name_to_module() {
-  _driver_name="$1"
+  local _network_driver_name="$1"
 
   local _network_module_name
 
-  case $_driver_name in
+  case $_network_driver_name in
     generic )
       # Add all the supported drivers
-      _network_module_name="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_NETWORK_DRIVERS" "generic")" ;;
+      _network_module_name="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_NETWORK_DRIVERS" "generic")"
+      ;;
     hyperv )
       _network_module_name="hv_netvsc" ;;
+    mlx4 )
+      _network_module_name="mlx4_en" ;;
+    mlx5 )
+      _network_module_name="mlx5_core" ;;
     virtio-net )
       _network_module_name="virtio_net" ;;
     * )
-      _network_module_name="$_driver_name" ;;
+      _network_module_name="$_network_driver_name" ;;
   esac
 
   echo "$_network_module_name"
@@ -86,33 +93,33 @@ convert_network_name_to_module() {
 # name of their associated kernel modules.
 #
 convert_network_names_to_modules() {
-  _driver_names="$1"
+  local _network_driver_names="$1"
 
-  local _list _list_item _network_module_names
+  local _network_list _network_list_item _network_module_names
 
-  if [ "$_driver_names" = "generic" ]; then
-    _list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_NETWORK_DRIVERS" "generic")"
+  if [ "$_network_driver_names" = "generic" ]; then
+    _network_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_NETWORK_DRIVERS" "generic")"
   else
-    _list="$_driver_names"
+    _network_list="$_network_driver_names"
   fi
   while true; do
-    _list_item="$(first_entry_in_comma_list "$_list")"
-    case $_list_item in
+    _network_list_item="$(first_entry_in_comma_list "$_network_list")"
+    case $_network_list_item in
       generic )
         : ;;
       * )
         if [ -n "$_network_module_names" ]; then
-          _network_module_names="${_network_module_names},$(convert_network_name_to_module "${_list_item}")"
+          _network_module_names="${_network_module_names},$(convert_network_name_to_module "${_network_list_item}")"
         else
-          _network_module_names="$(convert_network_name_to_module "${_list_item}")"
+          _network_module_names="$(convert_network_name_to_module "${_network_list_item}")"
         fi
         ;;
     esac
-    if [ "${_list%,*}" = "$_list" ]; then
+    if [ "${_network_list%,*}" = "$_network_list" ]; then
       # No more entries
       break
     else
-      _list="${_list#$_list_item,}"
+      _network_list="${_network_list#$_network_list_item,}"
     fi
   done
 
@@ -125,11 +132,11 @@ convert_network_names_to_modules() {
 # name of its associated kernel module.
 #
 convert_ptp_name_to_module() {
-  _driver_name="$1"
+  local _ptp_driver_name="$1"
 
   local _ptp_module_name
 
-  case $_driver_name in
+  case $_ptp_driver_name in
     hyperv )
       _ptp_module_name="hv_utils" ;;
     kvm )
@@ -147,14 +154,15 @@ convert_ptp_name_to_module() {
 # name of its associated kernel module.
 #
 convert_storage_name_to_module() {
-  _driver_name="$1"
+  local _storage_driver_name="$1"
 
   local _storage_module_name
 
-  case $_driver_name in
+  case $_storage_driver_name in
     generic )
       # Add all the supported drivers
-      _storage_module_name="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_STORAGE_DRIVERS" "generic")" ;;
+      _storage_module_name="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_STORAGE_DRIVERS" "generic")"
+      ;;
     hyperv )
       _storage_module_name="hv_storvsc" ;;
     virtio-blk )
@@ -162,7 +170,7 @@ convert_storage_name_to_module() {
     virtio-scsi )
       _storage_module_name="virtio_scsi" ;;
     * )
-      _storage_module_name="$_driver_name" ;;
+      _storage_module_name="$_storage_driver_name" ;;
   esac
 
   echo "$_storage_module_name"
@@ -174,33 +182,33 @@ convert_storage_name_to_module() {
 # name of their associated kernel modules.
 #
 convert_storage_names_to_modules() {
-  _driver_names="$1"
+  local _storage_driver_names="$1"
 
-  local _list _list_item _storage_module_names
+  local _storage_list _storage_list_item _storage_module_names
 
-  if [ "$_driver_names" = "generic" ]; then
-    _list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_STORAGE_DRIVERS" "generic")"
+  if [ "$_storage_driver_names" = "generic" ]; then
+    _storage_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_STORAGE_DRIVERS" "generic")"
   else
-    _list="$_driver_names"
+    _storage_list="$_storage_driver_names"
   fi
   while true; do
-    _list_item="$(first_entry_in_comma_list "$_list")"
-    case $_list_item in
+    _storage_list_item="$(first_entry_in_comma_list "$_storage_list")"
+    case $_storage_list_item in
       generic )
         : ;;
       * )
         if [ -n "$_storage_module_names" ]; then
-          _storage_module_names="${_storage_module_names},$(convert_storage_name_to_module "${_list_item}")"
+          _storage_module_names="${_storage_module_names},$(convert_storage_name_to_module "${_storage_list_item}")"
         else
-          _storage_module_names="$(convert_storage_name_to_module "${_list_item}")"
+          _storage_module_names="$(convert_storage_name_to_module "${_storage_list_item}")"
         fi
         ;;
     esac
-    if [ "${_list%,*}" = "$_list" ]; then
+    if [ "${_storage_list%,*}" = "$_storage_list" ]; then
       # No more entries
       break
     else
-      _list="${_list#$_list_item,}"
+      _storage_list="${_storage_list#$_storage_list_item,}"
     fi
   done
 
@@ -209,7 +217,7 @@ convert_storage_names_to_modules() {
 
 
 #
-# Create an init.d script for preventing the loading of kernel modules
+# Create an init.d script for preventing the loading of kernel modules.
 #
 create_module_blocking_initd() {
   cat <<'EOF' >> "$run_script"
@@ -260,7 +268,8 @@ EOF
 
             cat <<-'EOF' >> "$run_script"
 	
-	  # Disable the module removal upon stop as otherwise this will give an error
+	  # Disable VirtualBox modules removal upon stop as
+	  # otherwise this will give an error.
 	  sed -i -E -e 's|^(.*/sbin/modprobe -r .*)$|#\1|g' \
 	    /etc/init.d/virtualbox-guest-additions
 	EOF
@@ -288,7 +297,7 @@ EOF
 
 
 #
-# Disable non-server specific kernel modules
+# Disable non-server specific kernel modules.
 #
 disable_kernel_modules() {
   local _disable_modules="" _graphics_driver
@@ -324,9 +333,11 @@ disable_kernel_modules() {
           _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
           case $image_arch in
             aarch64 | armv7 )
-              _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES"
+              ;;
             x86 | x86_64 )
-              _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+              _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES"
+              ;;
           esac
           ;;
         physical )
@@ -349,9 +360,11 @@ disable_kernel_modules() {
             _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
             case $image_arch in
               aarch64 | armv7 )
-                _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES"
+                ;;
               x86 | x86_64 )
-                _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES"
+                ;;
             esac
             ;;
         esac
@@ -400,9 +413,11 @@ disable_kernel_modules() {
             _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
             case $image_arch in
               aarch64 | armv7 )
-                _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES"
+                ;;
               x86 | x86_64 )
-                _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+                _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES"
+                ;;
             esac
             ;;
           physical )
@@ -420,9 +435,11 @@ disable_kernel_modules() {
       _disable_modules="$_disable_modules $CADI_PHYSICAL_GENERAL_KMS_MODULES"
       case $image_arch in
         aarch64 | armv7 )
-          _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES" ;;
+          _disable_modules="$_disable_modules $CADI_PHYSICAL_ARM_KMS_MODULES"
+          ;;
         x86 | x86_64 )
-           _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES" ;;
+          _disable_modules="$_disable_modules $CADI_PHYSICAL_X86_KMS_MODULES"
+          ;;
       esac
       _disable_modules="$_disable_modules $CADI_VIRTUAL_KMS_MODULES"
       ;;
@@ -464,7 +481,8 @@ disable_kernel_modules() {
           fi
           ;;
         * )
-          _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE" ;;
+          _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE"
+          ;;
       esac
 
       # Disable USB keyboard-related modules
@@ -480,7 +498,8 @@ disable_kernel_modules() {
                 : ;;
               * )
                 # Disable USB controller modules
-                _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+                _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES"
+                ;;
             esac
           fi
           ;;
@@ -491,7 +510,8 @@ disable_kernel_modules() {
               : ;;
             * )
               # Disable USB controller modules
-              _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+              _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES"
+              ;;
           esac
           ;;
       esac
@@ -505,7 +525,8 @@ disable_kernel_modules() {
           : ;;
         * )
           # Disable USB controller modules
-          _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES" ;;
+          _disable_modules="$_disable_modules $CADI_USB_CONTROLLER_KERNEL_MODULES"
+          ;;
       esac
       # Disable Azure/Hyper-V keyboard-related module
       _disable_modules="$_disable_modules $CADI_AZURE_HYPERV_KEYBOARD_KERNEL_MODULE"
@@ -549,11 +570,14 @@ disable_kernel_modules() {
 
   case $image_class in
     cloud )
-      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_cloud)" ;;
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_cloud)"
+      ;;
     physical )
-      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_physical)" ;;
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_physical)"
+      ;;
     virtual )
-      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_virtual)" ;;
+      _disable_modules="$_disable_modules $(disable_kernel_drivers_modules_on_virtual)"
+      ;;
   esac
 
   # PTP-related
@@ -570,9 +594,9 @@ disable_kernel_modules() {
 
   _disable_modules="$CADI_UNUSED_FS_KERNEL_MODULES"
   case $image_class in
-
     cloud )
-      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_FS_KERNEL_MODULES" ;;
+      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_FS_KERNEL_MODULES"
+      ;;
 
     virtual )
       case $image_vm_type in
@@ -580,10 +604,10 @@ disable_kernel_modules() {
           # Don't disable for Virtualbox or generic
           : ;;
         * )
-          _disable_modules="$_disable_modules $CADI_VIRTUAL_FS_VIRTUALBOX_KERNEL_MODULES" ;;
+          _disable_modules="$_disable_modules $CADI_VIRTUAL_FS_VIRTUALBOX_KERNEL_MODULES"
+          ;;
       esac
       ;;
-
   esac
 
   cat <<-EOF >> "$run_script"
@@ -609,7 +633,8 @@ disable_kernel_modules() {
   _disable_modules="$_disable_modules $CADI_NET_ALG_KERNEL_MODULES"
   case $image_class in
     cloud )
-      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_NET_KERNEL_MODULES" ;;
+      _disable_modules="$_disable_modules $CADI_CLOUD_UNUSED_NET_KERNEL_MODULES"
+      ;;
 
     virtual )
       case $image_vm_type in
@@ -617,7 +642,8 @@ disable_kernel_modules() {
           # Don't disable for VMware or generic
           : ;;
         * )
-          _disable_modules="$_disable_modules $CADI_NET_VMWARE_KERNEL_MODULES" ;;
+          _disable_modules="$_disable_modules $CADI_NET_VMWARE_KERNEL_MODULES"
+          ;;
       esac
       ;;
   esac
@@ -647,7 +673,7 @@ disable_kernel_modules() {
 
 
 #
-# Disable a set of specified kernel modules
+# Disable a set of specified kernel modules.
 #
 disable_list_of_kernel_modules() {
   local _modules_section=$1
@@ -693,7 +719,7 @@ EOF
 
 
 #
-# Configure modules to be loaded upon boot
+# Configure modules to be loaded upon boot.
 #
 setup_etc_modules() {
   local _network_module _ptp_module _storage_module
@@ -874,7 +900,8 @@ EOF
 	  rm /etc/modules-orig
 	  write_debug_log "Contents of /etc/modules:" 2
 	  cat /etc/modules >> /chroot.log
-	  write_debug_log "Contents of /etc/modules-load.d/$image_env_ref.conf:" 2
+	  write_debug_log \\
+	    "Contents of /etc/modules-load.d/$image_env_ref.conf:" 2
 	  cat /etc/modules-load.d/$image_env_ref.conf >> /chroot.log
 	EOF
   fi

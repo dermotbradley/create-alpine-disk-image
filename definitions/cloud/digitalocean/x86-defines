@@ -39,6 +39,7 @@ readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,virtio-blk"
 
 # Defaults
 readonly CADI_DEFAULT_BOOTLOADER="grub"
+readonly CADI_DEFAULT_CLOCKSOURCE="generic"
 readonly CADI_DEFAULT_DHCP_CLIENT="dhcpcd"
 readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
 readonly CADI_DEFAULT_OS_DEVICE_TYPE="virtio-blk"

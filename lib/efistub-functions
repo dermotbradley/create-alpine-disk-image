@@ -3,7 +3,7 @@
 
 #############################################################################
 ##
-##  uki-functions
+##  efistub-functions
 ##
 ##  Copyright 2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
@@ -13,9 +13,9 @@
 
 
 #
-# Configure UKI.
+# Configure EFISTUB.
 #
-configure_bootloader_uki() {
+configure_bootloader_efistub() {
   local _cmdline _efi_arch_name _efi_filename
 
   _cmdline="$base_cmdline"
@@ -55,7 +55,7 @@ configure_bootloader_uki() {
 
   cat <<-'EOF' >> "$run_script"
 	
-	write_log "Configuring UKI"
+	write_log "Configuring EFISTUB"
 	{
 	EOF
 
@@ -69,16 +69,11 @@ configure_bootloader_uki() {
     case $image_efi_bootstub in
       stubby )
         cat <<-'EOF' >> "$run_script"
-	
 	  cp /usr/share/kernel-hooks.d/secureboot.hook \
 	    /usr/share/kernel-hooks.d/secureboot.hook-orig
 	EOF
         ;;
     esac
-
-    cat <<-'EOF' >> "$run_script"
-	
-	EOF
   fi
 
   if { [ "$image_encryption_type" = "both" ] || \
@@ -142,28 +137,36 @@ configure_bootloader_uki() {
 	EOF
 
   if [ -n "$debug_enabled" ]; then
-    cat <<-EOF >> "$run_script"
+    cat <<-'EOF' >> "$run_script"
 	
 	  # Debug
-	  write_debug_log "secureboot.conf differences:" 2
-	  diff /etc/kernel-hooks.d/secureboot.conf-orig \\
-	    /etc/kernel-hooks.d/secureboot.conf >> /chroot.log || true
-	  rm /etc/kernel-hooks.d/secureboot.conf-orig
+	  {
+	    write_debug_log "secureboot.conf differences:" 2
+	    diff /etc/kernel-hooks.d/secureboot.conf-orig \
+	      /etc/kernel-hooks.d/secureboot.conf >> /chroot.log || true
+	
+	    rm /etc/kernel-hooks.d/secureboot.conf-orig
 	EOF
 
     case $image_efi_bootstub in
       stubby )
         cat <<-EOF >> "$run_script"
 	
-	  write_debug_log "secureboot.hook differences:" 2
-	  diff /usr/share/kernel-hooks.d/secureboot.hook-orig \
-	    /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log || true
-	  write_debug_log "secureboot.hook contents:" 2
-	  cat /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log
-	  rm /usr/share/kernel-hooks.d/secureboot.hook-orig
+	    write_debug_log "secureboot.hook differences:" 2
+	    diff /usr/share/kernel-hooks.d/secureboot.hook-orig \
+	      /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log || true
+	
+	    write_debug_log "secureboot.hook contents:" 2
+	    cat /usr/share/kernel-hooks.d/secureboot.hook >> /chroot.log
+	
+	    rm /usr/share/kernel-hooks.d/secureboot.hook-orig
 	EOF
         ;;
     esac
+
+    cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
   fi
 
   cat <<-'EOF' >> "$run_script"
