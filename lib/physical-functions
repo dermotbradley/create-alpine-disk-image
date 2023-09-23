@@ -13,7 +13,7 @@
 
 
 #
-# Add RPI-specific /boot fstab entries
+# Add RPI-specific /boot fstab entries.
 #
 add_rpi_boot_fstab_entries() {
   local _mount_options="$1"
@@ -27,7 +27,7 @@ add_rpi_boot_fstab_entries() {
 
 
 #
-# For physical machines create the cloud-init YAML config files
+# For physical machines create the cloud-init YAML config files.
 #
 create_physical_machine_cloud_init_yaml_files() {
   local _grow_device _grow_device_short _grow_part_num _part_grow_message
@@ -171,7 +171,6 @@ EOF
      { [ "$image_os_device_media" = "flash" ] || \
        [ "$image_os_device_media" = "sdcard" ] || \
        [ "$image_os_device_media" = "ssd" ]; }; then
-
     # Cannot use cloud-init's growpart and resize_rootfs
 
     case $image_os_device_media in
@@ -401,7 +400,8 @@ EOF
 
       case $image_fs_type in
         btrfs )
-          _resize_command="btrfs filesystem resize max $_resize_root_fs_part" ;;
+          _resize_command="btrfs filesystem resize max $_resize_root_fs_part"
+          ;;
         ext4 )
           _resize_command="resize2fs $_resize_root_fs_part" ;;
         f2fs )
@@ -422,7 +422,8 @@ EOF
 EOF
       case $image_fs_type in
         btrfs )
-          _resize_command="btrfs filesystem resize max $_resize_logs_fs_part" ;;
+          _resize_command="btrfs filesystem resize max $_resize_logs_fs_part"
+          ;;
         ext4 )
           _resize_command="resize2fs $_resize_logs_fs_part" ;;
         f2fs )
@@ -501,7 +502,7 @@ EOF
 
 
 #
-# Define physical machine specific packages
+# Define physical machine specific packages.
 #
 define_physical_machine_packages() {
   local _physical_pkgs
@@ -572,7 +573,7 @@ define_physical_machine_packages() {
 
 
 #
-# Disable unrequired kernel drivers modules on a physical machine
+# Disable unrequired kernel drivers modules on a physical machine.
 #
 disable_kernel_drivers_modules_on_physical() {
   local _disable_list=""
@@ -619,7 +620,7 @@ disable_kernel_drivers_modules_on_physical() {
 
 
 #
-# Determine firmware packages for physical machine
+# Determine firmware packages for physical machine.
 #
 firmware_list_for_physical() {
   local _firmware_list=""
@@ -718,7 +719,7 @@ firmware_list_for_physical() {
 
 
 #
-# Determine microcode packages for physical machine
+# Determine microcode packages for physical machine.
 #
 install_microcode_for_physical() {
   local _microcode_list=""

@@ -13,20 +13,22 @@
 
 
 #
-# Check if Limine supports booting from the selected filesystem type
+# Check if Limine supports booting from the selected filesystem type.
 #
 check_limine_supports_fs() {
   case $image_fs_type in
     ext4 )
       : ;;
     * )
-      error_message "Limine bootloader does not support booting from $image_fs_type filesystem!"
+      error_message \
+        "Limine bootloader does not support booting from $image_fs_type filesystem!"
+      ;;
   esac
 }
 
 
 #
-# Check if Limine supports booting from LUKS
+# Check if Limine supports booting from LUKS.
 #
 check_limine_supports_luks() {
   # Limine does support booting from LUKS
@@ -35,7 +37,7 @@ check_limine_supports_luks() {
 
 
 #
-# Check if Limine supports booting from LVM
+# Check if Limine supports booting from LVM.
 #
 check_limine_supports_lvm() {
   # Limine does support booting from LVM
@@ -44,10 +46,10 @@ check_limine_supports_lvm() {
 
 
 #
-# Configure Limine
+# Configure Limine.
 #
 configure_bootloader_limine() {
-  local _cmdline _config_file_path _kernel_type
+  local _cmdline _kernel_type _limine_cfg_file_path
 
   _cmdline="$base_cmdline"
   _kernel_type="$(get_kernel_type)"
@@ -86,9 +88,9 @@ configure_bootloader_limine() {
 
   case $image_boot_type in
     bios )
-      _config_file_path="/boot/limine.cfg" ;;
+      _limine_cfg_file_path="/boot/limine.cfg" ;;
     uefi )
-      _config_file_path="/boot/limine.cfg"
+      _limine_cfg_file_path="/boot/limine.cfg"
       cat <<-'EOF' >> "$run_script"
 	
 	  mkdir -p /boot/efi/EFI/BOOT
@@ -114,7 +116,7 @@ configure_bootloader_limine() {
 
   write_log "Creating limine.cfg" 2
   {
-    cat <<-_SCRIPT_ >> $_config_file_path
+    cat <<-_SCRIPT_ >> $_limine_cfg_file_path
 	# limine.cfg
 	
 	TIMEOUT=5
@@ -185,7 +187,7 @@ EOF
   cat <<EOF >> "$run_script"
 	_SCRIPT_
 
-    chmod g=r,o=r $_config_file_path
+    chmod g=r,o=r $_limine_cfg_file_path
 EOF
 
   if [ -n "$debug_enabled" ]; then
@@ -193,7 +195,7 @@ EOF
 	
 	    # Debug
 	    write_debug_log "Contents of limine.cfg:" 2
-	    cat $_config_file_path >> /chroot.log 2>&1 || true
+	    cat $_limine_cfg_file_path >> /chroot.log 2>&1 || true
 	EOF
   fi
 
@@ -205,17 +207,10 @@ EOF
 
 
 #
-# Install Limine onto disk
+# Install Limine onto disk.
 #
 install_limine() {
-  local _config_file_path _deploy_options _efi_filename
-
-  case $image_boot_type in
-    bios )
-      _config_file_path="/boot/limine.cfg" ;;
-    uefi )
-      _config_file_path="/boot/efi/EFI/BOOT/limine.cfg" ;;
-  esac
+  local _deploy_options _efi_filename
 
   cat <<-EOF >> "$run_script"
 	
@@ -237,12 +232,13 @@ install_limine() {
 	  cp /usr/share/limine/${_efi_filename} /boot/efi/EFI/BOOT/
 	EOF
       ;;
+
     bios )
+      if [ -z "$debug_enabled" ]; then
+        _deploy_options="-q"
+      fi
       case $image_alpine_release in
         3.17 | 3.18 )
-          if [ -z "$debug_enabled" ]; then
-            _deploy_options="-q"
-          fi
           cat <<-EOF >> "$run_script"
 	  write_log "Running limine-deploy" 4
 	  limine-deploy $_deploy_options \$loop_device >> /chroot.log 2>&1
@@ -251,9 +247,6 @@ install_limine() {
 	EOF
 	  ;;
         * )
-          if [ -z "$debug_enabled" ]; then
-            _deploy_options="-q"
-          fi
           cat <<-EOF >> "$run_script"
 	  write_log "Copying limine-bios.sys to /boot/" 4
 	  cp /usr/share/limine/limine-bios.sys /boot/ >> /chroot.log 2>&1

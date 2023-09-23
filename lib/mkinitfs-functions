@@ -36,16 +36,13 @@ configure_mkinitfs() {
     configure_mkinitfs_feature_bootchart
   fi
   configure_mkinitfs_feature_keymap
-  if [ -n "$luks_remote_unlock_enabled" ]; then
-    configure_mkinitfs_feature_network
-  fi
   if [ "$image_os_device_type" = "usb" ] || \
      { [ -n "$image_disable_optimisation" ] && \
        { [ "$image_keyboard_type" = "usb" ] || \
          [ "$image_keyboard_type" = "generic" ]; }; }; then
     # Either using USB for boot or else USB keyboard support with
-    # non-optimised initramfs USB keyboard support (where this is defined
-    # in usb.modules).
+    # non-optimised initramfs USB keyboard support (where this is
+    # defined in usb.modules).
     configure_mkinitfs_feature_usb
   fi
 
@@ -113,17 +110,14 @@ configure_mkinitfs_conf() {
   fi
 
   _features_list="${_optimise:-}base keymap"
-  if [ -n "$luks_remote_unlock_enabled" ]; then
-    _features_list="$_features_list ${_optimise:-}network"
-  fi
 
   if [ "$image_os_device_type" = "usb" ] || \
      { [ -n "$image_disable_optimisation" ] && \
        { [ "$image_keyboard_type" = "usb" ] || \
          [ "$image_keyboard_type" = "generic" ]; }; }; then
     # Either using USB for boot or else USB keyboard support with
-    # non-optimised initramfs USB keyboard support (where this is defined
-    # in usb.modules).
+    # non-optimised initramfs USB keyboard support (where this is
+    # defined in usb.modules).
     _features_list="$_features_list ${_optimise:-}usb"
   fi
 
@@ -151,11 +145,12 @@ configure_mkinitfs_conf() {
                [ -z "$luks_remote_unlock_enabled" ]; } && \
              [ -z "$image_no_grub_luks_fde_encryption" ] && \
              [ "$image_create_boot_partition" != "true" ]; then
-            # Cryptkey is used for unlock LUKS rootfs without 2nd password prompt.
-            # It applies only when:
+            # Cryptkey is used for unlock LUKS rootfs without 2nd
+            # password prompt. It applies only when:
             #  - disk image is LUKS encrypted, AND
             #  - bootloader is Grub, AND
-            #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+            #  - remote unlock is not enabled (as otherwise /boot
+            #    is not encrypted), AND
             #  - Grub LUKS encryption support is not disabled AND
             #  - /boot is not a separate partition.
             _features_list="$_features_list cryptkey"
@@ -165,7 +160,8 @@ configure_mkinitfs_conf() {
 
       # cryptsetup is required in all rootfs encryption situations
       _features_list="$_features_list ${_optimise:-}cryptsetup"
-      if [ -n "$image_experimental" ] && [ -n "$luks_remote_unlock_enabled" ]; then
+      if [ -n "$image_experimental" ] && \
+         [ -n "$luks_remote_unlock_enabled" ]; then
         # enable SSH remote unlock functionality and also dhcp which it uses
         _features_list="$_features_list ${_optimise:-}dhcp ${_optimise:-}luks_remote_unlock"
       fi
@@ -187,14 +183,15 @@ configure_mkinitfs_conf() {
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
-	  write_debug_log "mkinitfs features list is: ${_features_list}" 2
+	  write_debug_log \\
+	    "mkinitfs features list is: ${_features_list}" 2
 	EOF
   fi
 
   cat <<-EOF >> "$run_script"
 	
-	  sed -i \\
-	    -e "s|^features=\".*\"|features=\"${_features_list}\"|" \\
+	  sed -i -e \\
+	    "s|^features=\".*\"|features=\"${_features_list}\"|" \\
 	    /etc/mkinitfs/mkinitfs.conf
 	EOF
 
@@ -219,7 +216,7 @@ configure_mkinitfs_conf() {
 
 
 #
-# Create/modify base mkinitfs feature files
+# Create/modify base mkinitfs feature files.
 #
 configure_mkinitfs_feature_base() {
   cat <<-'EOF' >> "$run_script"
@@ -288,8 +285,8 @@ configure_mkinitfs_feature_base() {
             if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
                                 "usb"; then
               # Need to add USB HID-related drivers to mkinitfs so that USB
-              # keyboard can work in initramfs (i.e. for typing in Rescue Mode
-              # or entering decryption passphrase for LUKS encryption)
+              # keyboard can work in initramfs (i.e. for typing in Rescue
+              # Mode or entering decryption passphrase for LUKS encryption)
               initramfs_entry_add "# USB keyboard-related modules"
               initramfs_entry_add "kernel/drivers/hid/hid-generic.ko*"
               initramfs_entry_add "kernel/drivers/hid/usbhid/usbhid.ko*"
@@ -338,10 +335,11 @@ configure_mkinitfs_feature_base() {
             if [ "$image_class_subtype" = "azure" ] || \
                [ "$image_class_subtype" = "hyperv" ]; then
               # Need to add Hyper-V keyboard driver to mkinitfs so that
-              # keyboard can work in initramfs (i.e. for typing in Rescue Mode
-              # or entering decryption passphrase for LUKS encryption)
+              # keyboard can work in initramfs (i.e. for typing in Rescue
+              # Mode or entering decryption passphrase for LUKS encryption)
               initramfs_entry_add "# Hyper-V keyboard-related module"
-              initramfs_entry_add "kernel/drivers/input/serio/hyperv-keyboard.ko*"
+              initramfs_entry_add \
+                "kernel/drivers/input/serio/hyperv-keyboard.ko*"
             fi
             ;;
         esac
@@ -401,7 +399,7 @@ configure_mkinitfs_feature_base() {
 
 
 #
-# Create/modify bootchart mkinitfs feature files
+# Create/modify bootchart mkinitfs feature files.
 #
 configure_mkinitfs_feature_bootchart() {
   cat <<-'EOF' >> "$run_script"
@@ -454,7 +452,7 @@ configure_mkinitfs_feature_bootchart() {
 
 
 #
-# Create/modify btrfs mkinitfs feature files
+# Create/modify btrfs mkinitfs feature files.
 #
 configure_mkinitfs_feature_btrfs() {
   cat <<-'EOF' >> "$run_script"
@@ -492,7 +490,8 @@ configure_mkinitfs_feature_btrfs() {
     initramfs_entry_initialise "optimise-btrfs"
     case $image_arch in
       x86 | x86_64 )
-        if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+        if [ -z "$image_cpu_vendor" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
           initramfs_entry_add "kernel/arch/*/crypto/crc32c-intel.ko*"
         fi
         ;;
@@ -536,7 +535,7 @@ configure_mkinitfs_feature_btrfs() {
 
 
 #
-# Create/modify cryptsetup mkinitfs feature files
+# Create/modify cryptsetup mkinitfs feature files.
 #
 configure_mkinitfs_feature_cryptsetup() {
   cat <<-'EOF' >> "$run_script"
@@ -622,7 +621,8 @@ configure_mkinitfs_feature_cryptsetup() {
             initramfs_entry_add "kernel/crypto/nhpoly1305.ko*"
             ;;
           * )
-            if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+            if [ -z "$image_cpu_vendor" ] || \
+               [ "$image_cpu_vendor" = "intel" ]; then
               initramfs_entry_add "kernel/arch/x86/crypto/aesni-intel.ko*"
             fi
             ;;
@@ -658,7 +658,7 @@ configure_mkinitfs_feature_cryptsetup() {
 
 
 #
-# Create/modify ext4 mkinitfs feature files
+# Create/modify ext4 mkinitfs feature files.
 #
 configure_mkinitfs_feature_ext4() {
   cat <<-'EOF' >> "$run_script"
@@ -677,7 +677,8 @@ configure_mkinitfs_feature_ext4() {
     initramfs_entry_initialise "optimise-ext4"
     case $image_arch in
       x86 | x86_64 )
-        if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+        if [ -z "$image_cpu_vendor" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
           initramfs_entry_add "kernel/arch/*/crypto/crc32c-intel.ko*"
         fi
         ;;
@@ -721,7 +722,7 @@ configure_mkinitfs_feature_ext4() {
 
 
 #
-# Create/modify f2fs mkinitfs feature files
+# Create/modify f2fs mkinitfs feature files.
 #
 configure_mkinitfs_feature_f2fs() {
   cat <<-'EOF' >> "$run_script"
@@ -740,7 +741,8 @@ configure_mkinitfs_feature_f2fs() {
     initramfs_entry_initialise "optimise-f2fs"
     case $image_arch in
       x86 | x86_64 )
-        if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+        if [ -z "$image_cpu_vendor" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
           initramfs_entry_add "kernel/arch/*/crypto/crc32-pcmul*"
         fi
         ;;
@@ -781,7 +783,7 @@ configure_mkinitfs_feature_f2fs() {
 
 
 #
-# Create/modify keymap mkinitfs feature files
+# Create/modify keymap mkinitfs feature files.
 #
 configure_mkinitfs_feature_keymap() {
   if [ -n "$debug_enabled" ]; then
@@ -799,7 +801,7 @@ configure_mkinitfs_feature_keymap() {
 
 
 #
-# Create/modify lvm mkinitfs feature files
+# Create/modify lvm mkinitfs feature files.
 #
 configure_mkinitfs_feature_lvm() {
   cat <<-'EOF' >> "$run_script"
@@ -872,136 +874,7 @@ configure_mkinitfs_feature_lvm() {
 
 
 #
-# Create/modify network mkinitfs feature files
-#
-configure_mkinitfs_feature_network() {
-  cat <<-'EOF' >> "$run_script"
-	
-	  # Network
-	  {
-	EOF
-
-  if [ -z "$image_disable_optimisation" ]; then
-    # optimise-network.files
-    cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/optimise-network.files" 2
-	    {
-	EOF
-
-    cat <<-'EOF' >> "$run_script"
-	      echo "# This file is empty"
-	    } > /etc/mkinitfs/features.d/optimise-network.files
-	EOF
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    write_debug_log "optimise-network.files contents:" 2
-	    cat /etc/mkinitfs/features.d/optimise-network.files >> /chroot.log
-	EOF
-    fi
-
-    # optimise-network.modules
-    if [ -n "$luks_remote_unlock_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    write_log "Setting up features.d/optimise-network.modules" 2
-	EOF
-
-      initramfs_entry_initialise "optimise-network"
-
-      if [ -z "$image_disable_ipv6" ]; then
-        initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
-      fi
-
-      # Remote encryption unlocking over network
-      if [ -n "$luks_remote_unlock_enabled" ]; then
-        if [ -n "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" ]; then
-          if [ -n "$image_ethernet_module" ]; then
-            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
-                                "$image_ethernet_module"; then
-              convert_network_names_to_initramfs_entries "$image_ethernet_module"
-              case $image_ethernet_module in
-                r8169 )
-                  initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*" ;;
-              esac
-            else
-              error_message \
-                "Ethernet driver '$image_ethernet_module' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
-            fi
-          elif [ -n "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" ]; then
-            if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
-                                "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
-              convert_network_names_to_initramfs_entries "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"
-            else
-              error_message \
-                "'$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class'!"
-            fi
-          else
-            error_message \
-              "CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER is not defined for '$image_class'!"
-          fi
-        else
-          error_message \
-            "CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS is not defined for '$image_class'!"
-        fi
-      fi
-
-      initramfs_entry_finish
-
-      if [ -n "$debug_enabled" ]; then
-        cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    write_debug_log "optimise-network.modules contents:" 2
-	    cat /etc/mkinitfs/features.d/optimise-network.modules >> /chroot.log
-	EOF
-      fi
-    else
-      cat <<-'EOF' >> "$run_script"
-	    :
-	EOF
-    fi
-  else
-    # network.files & network.modules
-    if [ -n "$luks_remote_unlock_enabled" ]; then
-
-      cat <<-'EOF' >> "$run_script"
-	    write_log "Setting up features.d/network.modules" 2
-	EOF
-
-      if [ -z "$image_disable_ipv6" ]; then
-        initramfs_entry_initialise "network" "append"
-        initramfs_entry_add "kernel/net/ipv6/ipv6.ko*"
-        initramfs_entry_finish
-      fi
-    else
-      cat <<-'EOF' >> "$run_script"
-	    :
-	EOF
-    fi
-
-    if [ -n "$debug_enabled" ]; then
-      cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    write_debug_log "network.files contents:" 2
-	    cat /etc/mkinitfs/features.d/network.files >> /chroot.log
-	    write_debug_log "network.modules contents:" 2
-	    cat /etc/mkinitfs/features.d/network.modules >> /chroot.log
-	EOF
-    fi
-  fi
-
-  cat <<-'EOF' >> "$run_script"
-	  }
-	EOF
-}
-
-
-#
-# Create/modify usb mkinitfs feature files
+# Create/modify usb mkinitfs feature files.
 #
 configure_mkinitfs_feature_usb() {
   cat <<-'EOF' >> "$run_script"
@@ -1070,7 +943,7 @@ configure_mkinitfs_feature_usb() {
 
 
 #
-# Create/modify xfs mkinitfs feature files
+# Create/modify xfs mkinitfs feature files.
 #
 configure_mkinitfs_feature_xfs() {
   cat <<-'EOF' >> "$run_script"
@@ -1106,7 +979,8 @@ configure_mkinitfs_feature_xfs() {
     initramfs_entry_initialise "optimise-xfs"
     case $image_arch in
       x86 | x86_64 )
-        if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+        if [ -z "$image_cpu_vendor" ] || \
+           [ "$image_cpu_vendor" = "intel" ]; then
           initramfs_entry_add "kernel/arch/*/crypto/crc32c-intel.ko*"
         fi
         ;;
@@ -1150,11 +1024,9 @@ configure_mkinitfs_feature_xfs() {
 
 
 #
-# Create mkinitfs feature file for cloud/physical/virtual
+# Create mkinitfs feature file for cloud/physical/virtual.
 #
 configure_mkinitfs_image_type_feature() {
-  local _driver_path _list _list_item
-
   cat <<-EOF >> "$run_script"
 	
 	  # ${image_class}-${image_class_subtype}
@@ -1165,597 +1037,37 @@ configure_mkinitfs_image_type_feature() {
   initramfs_entry_initialise "${image_class}-${image_class_subtype}"
 
   # ACPI Button
-  case $image_acpi_power_method in
-    button )
-      initramfs_entry_add "kernel/drivers/acpi/button.ko*" ;;
-
-    generic )
-      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" "button"; then
-        initramfs_entry_add "kernel/drivers/acpi/button.ko*"
-      fi
-      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" \
-                          "tiny-power-button"; then
-        initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*"
-      fi
-      if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" "gpio"; then
-        case $image_arch in
-          aarch64 )
-            initramfs_entry_add "kernel/drivers/gpio/gpio-pl061.ko*" ;;
-        esac
-      fi
-      ;;
-
-    gpio )
-      initramfs_entry_add "kernel/drivers/gpio/gpio-pl061.ko*" ;;
-
-    tiny-power-button )
-      initramfs_entry_add "kernel/drivers/acpi/tiny-power-button.ko*" ;;
-  esac
+  convert_power_button_methods_to_initramfs_entries
 
   # Crypto devices
-  if [ -n "$CADI_SUPPORTED_CRYPTO_DEVICES" ]; then
-    # Check every crypto device listed
-    _list="$CADI_SUPPORTED_CRYPTO_DEVICES"
-    while true; do
-      _list_item="$(first_entry_in_comma_list "$_list")"
-      case $_list_item in
-        ccp )
-          initramfs_entry_add "kernel/drivers/crypto/ccp" ;;
-        virtio )
-          initramfs_entry_add "kernel/drivers/crypto/virtio" ;;
-        * )
-          error_message "Unknown crypto device type: $_list_item!"
-          ;;
-      esac
-      if [ "${_list%,*}" = "$_list" ]; then
-        # No more entries
-        break
-      else
-        _list="${_list#$_list_item,}"
-      fi
-    done
-  fi
+  convert_crypto_devices_to_initramfs_entries
 
   # RNGs
-  if [ -n "$CADI_SUPPORTED_RNGS" ]; then
-    # Check every RNG device listed
-    _list="$CADI_SUPPORTED_RNGS"
-    while true; do
-      _list_item="$(first_entry_in_comma_list "$_list")"
-      case $_list_item in
-        amd )
-          if [ -z "$image_cpu_vendor" ] || \
-             [ "$image_cpu_vendor" = "amd" ]; then
-            initramfs_entry_add "kernel/drivers/char/hw_random/amd-rng.ko*"
-          fi
-          ;;
-        intel )
-          if [ -z "$image_cpu_vendor" ] || \
-             [ "$image_cpu_vendor" = "intel" ]; then
-            initramfs_entry_add "kernel/drivers/char/hw_random/intel-rng.ko*"
-          fi
-          ;;
-        virtio )
-          initramfs_entry_add "kernel/drivers/char/hw_random/virtio-rng.ko*"
-          ;;
-        * )
-          error_message "Unknown RNG type: $_list_item!"
-          ;;
-      esac
-      if [ "${_list%,*}" = "$_list" ]; then
-        # No more entries
-        break
-      else
-        _list="${_list#$_list_item,}"
-      fi
-    done
-  fi
+  convert_rng_devices_to_initramfs_entries
 
   # Console / Display / KMS
-  case $image_console_device_type in
-    hypervisor )
-      if [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
-                          "hypervisor"; then
-        initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-      else
-        error_message \
-          "Virtio console is not supported by $class_type_description!"
-      fi
-      ;;
-
-    none | serial )
-      : ;;
-
-    * )
-      # normal, normal_and_serial, or generic
-
-      if [ -n "$image_enable_graphics" ] && \
-         [ "$image_enable_graphics" = "true" ]; then
-        # Graphic driver(s) is/are required
-
-        case $image_console_output_type in
-          generic )
-            # Need all relevant DRM driver(s)
-            if [ -n "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" ]; then
-              # Add every graphics driver listed (except "generic")
-              _list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
-              while true; do
-                _list_item="$(first_entry_in_comma_list "$_list")"
-                case $_list_item in
-                  generic )
-                    # Skip this entry
-                    : ;;
-                  * )
-                    _driver_path="$(get_graphics_driver_initfs_path "$_list_item")"
-                    if [ -n "$_driver_path" ]; then
-                      initramfs_entry_add "$_driver_path"
-                    else
-                      error_message "Unknown graphics driver: $_list_item!"
-                    fi
-                    ;;
-                esac
-
-                if [ "${_list%,*}" = "$_list" ]; then
-                  # No more entries
-                  break
-                else
-                  _list="${_list#$_list_item,}"
-                fi
-              done
-            else
-              error_message \
-                "Adding graphic drivers to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
-            fi
-            ;;
-
-          graphics )
-            # Need DRM (or fbdev) driver
-            if [ -n "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" ]; then
-              #  List of supported graphics drivers is defined
-              if [ -n "$image_graphics_driver" ]; then
-                # Override default graphics driver
-                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
-                                    "$image_graphics_driver"; then
-                  if [ "$image_graphics_driver" = "generic" ]; then
-                    # Add every graphics driver listed (except "generic")
-                    _list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
-                    while true; do
-                      _list_item="$(first_entry_in_comma_list "$_list")"
-                      case $_list_item in
-                        generic )
-                          # Skip this entry
-                          : ;;
-                        * )
-                          _driver_path="$(get_graphics_driver_initfs_path "$_list_item")"
-                          if [ -n "$_driver_path" ]; then
-                            initramfs_entry_add "$_driver_path"
-                          else
-                            error_message \
-                              "Unknown graphics driver: $_list_item!"
-                          fi
-                          ;;
-                      esac
-
-                      if [ "${_list%,*}" = "$_list" ]; then
-                        # No more entries
-                        break
-                      else
-                        _list="${_list#$_list_item,}"
-                      fi
-                    done
-                  else
-                    _driver_path="$(get_graphics_driver_initfs_path "$image_graphics_driver")"
-                    if [ -z "$_driver_path" ]; then
-                      error_message \
-                        "Unknown graphics driver: $image_graphics_driver!"
-                    else
-                      initramfs_entry_add "$_driver_path"
-                    fi
-                  fi
-                else
-                  error_message \
-                    "Specified graphic driver '$image_graphics_driver' is not supported by $class_type_description!"
-                fi
-              elif [ -n "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" ]; then
-                # Use the default graphics driver
-                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
-                                    "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
-                  if [ "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" = "generic" ]; then
-                    # Add every graphics driver listed (except "generic")
-                    _list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
-                    while true; do
-                      _list_item="$(first_entry_in_comma_list "$_list")"
-                      case $_list_item in
-                        generic )
-                          # Skip this entry
-                          : ;;
-                        * )
-                          _driver_path="$(get_graphics_driver_initfs_path "$_list_item")"
-                          if [ -n "$_driver_path" ]; then
-                            initramfs_entry_add "$_driver_path"
-                          else
-                            error_message \
-                              "Unknown graphics driver: $_list_item!"
-                          fi
-                          ;;
-                      esac
-
-                      if [ "${_list%,*}" = "$_list" ]; then
-                        # No more entries
-                        break
-                      else
-                        _list="${_list#$_list_item,}"
-                      fi
-                    done
-                  else
-                    _driver_path="$(get_graphics_driver_initfs_path "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER")"
-                    if [ -z "$_driver_path" ]; then
-                      error_message \
-                        "Unknown graphics driver: $CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
-                    else
-                      initramfs_entry_add "$_driver_path"
-                    fi
-                  fi
-                else
-                  error_message \
-                    "Wanted to add default graphic driver '$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER' to initramfs but it is not defined in CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER!"
-                fi
-              elif is_single_entry_in_comma_list \
-                   "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"; then
-                # No default driver defined as supported list has single entry
-                _driver_path="$(get_graphics_driver_initfs_path "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS")"
-                if [ -z "$_driver_path" ]; then
-                  error_message \
-                    "Unknown graphics driver: $CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS!"
-                else
-                  initramfs_entry_add "$_driver_path"
-                fi
-              else
-                # No default graphics driver is defined
-                error_message \
-                  "Wanted to add default graphic driver to initramfs but CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER is not defined!"
-              fi
-            else
-              #  No list of supported graphics drivers is defined
-              error_message \
-                "Wanted to add graphic driver to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined!"
-            fi
-            ;;
-        esac
-      else
-        # Text console
-        if [ "$image_console_device_type" = "generic" ] && \
-           [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
-           is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
-                            "hypervisor"; then
-          initramfs_entry_add "kernel/drivers/char/virtio_console.ko*"
-        fi
-      fi
-      ;;
-  esac
+  convert_display_devices_to_initramfs_entries
 
   # Network - only used for remote encryption unlock
   if [ -n "$luks_remote_unlock_enabled" ]; then
-    if [ -n "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" ]; then
-      if [ -n "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" ] && \
-         is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
-                          "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
-        case $CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER in
-          hyperv )
-            initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*" ;;
-          virtio-net )
-            initramfs_entry_add "kernel/drivers/net/virtio_net.ko*" ;;
-          vmxnet3 )
-            initramfs_entry_add "kernel/drivers/net/vmxnet3" ;;
-        esac
-      else
-        # Add every network driver supported
-        _list="$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS"
-        while true; do
-          _list_item="$(first_entry_in_comma_list "$_list")"
-          case $_list_item in
-            hyperv )
-              initramfs_entry_add "kernel/drivers/net/hyperv/hv_netvsc.ko*" ;;
-            virtio-net )
-              initramfs_entry_add "kernel/drivers/net/virtio_net.ko*" ;;
-            vmxnet3 )
-              initramfs_entry_add "kernel/drivers/net/vmxnet3" ;;
-          esac
-          if [ "${_list%,*}" = "$_list" ]; then
-            # No more entries
-            break
-          else
-            _list="${_list#$_list_item,}"
-          fi
-        done
-      fi
-    else
-      error_message \
-        "Unable to determine network driver to add to initramfs for remote encryption unlocking support!"
-    fi
+    convert_network_boot_devices_to_initramfs_entries
   fi
 
   # Storage
-  if [ -z "$image_os_device_type" ]; then
-    # Automatically select storage driver(s)
-
-    if [ -n "$CADI_DEFAULT_OS_DEVICE_TYPE" ] && \
-       [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
-                        "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
-      case $CADI_DEFAULT_OS_DEVICE_TYPE in
-        generic )
-          initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
-          initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-          initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-          # Device-type specific
-          case $image_class in
-            cloud | virtual )
-              initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-              initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-              ;;
-            physical )
-              case $image_physical_type in
-                rpi* )
-                  initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
-                  initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
-                  initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
-                  initramfs_entry_add "kernel/fs/fat"
-                  initramfs_entry_add "kernel/fs/nls"
-                  ;;
-                * )
-                  initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-              esac
-              ;;
-          esac
-          initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-          ;;
-        hyperv )
-          initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*" ;;
-        nvme )
-          initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*" ;;
-        pvscsi )
-          # VMware's VMDK file provides no way to indicate PVSCSI is used, can only
-          # indicate "lsi_logic" and then later switch the VM to use PVSCSI.
-          initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-          initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-          ;;
-        virtio-blk )
-          initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*" ;;
-        virtio-scsi )
-          initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-          initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-          ;;
-      esac
-    elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ]; then
-      # Add every storage driver supported
-      _list="$CADI_SUPPORTED_OS_DEVICE_TYPES"
-      while true; do
-        _list_item="$(first_entry_in_comma_list "$_list")"
-        case $_list_item in
-          generic )
-            initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*"
-            initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-            initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-            # Device-type specific
-            case $image_class in
-              cloud | virtual )
-                initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*"
-                initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-                ;;
-              physical )
-                case $image_physical_type in
-                  rpi* )
-                    initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
-                    initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
-                    initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
-                    initramfs_entry_add "kernel/fs/fat"
-                    initramfs_entry_add "kernel/fs/nls"
-                    ;;
-                  * )
-                    initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-                esac
-                ;;
-            esac
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-            ;;
-          hyperv )
-            initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*" ;;
-          nvme )
-            initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*" ;;
-          pvscsi )
-            # VMware's VMDK file provides no way to indicate PVSCSI is used,
-            # can only indicate "lsi_logic" and then later switch the VM to
-            # use PVSCSI.
-            initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-            ;;
-          sata | scsi | usb )
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-            ;;
-          sd )
-            initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-          virtio-blk )
-            initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*" ;;
-          virtio-scsi )
-            initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-            initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-            ;;
-        esac
-        if [ "${_list%,*}" = "$_list" ]; then
-          # No more entries
-          break
-        else
-          _list="${_list#$_list_item,}"
-        fi
-      done
-    else
-      error_message \
-        "Unable to determine storage driver to add to initramfs for booting!"
-    fi
-  elif [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ] && \
-       is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
-                        "$image_os_device_type"; then
-    case $image_os_device_type in
-      generic )
-        # Check every storage device listed
-        _list="$CADI_SUPPORTED_OS_DEVICE_TYPES"
-        while true; do
-          _list_item="$(first_entry_in_comma_list "$_list")"
-          case $_list_item in
-            hyperv )
-              initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*" ;;
-            nvme )
-              initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-              if [ "$image_class" = "physical" ]; then
-                initramfs_entry_add "kernel/drivers/pci/controller/vmd.ko*"
-              fi
-              ;;
-            pvscsi )
-              # VMware's VMDK file provides no way to indicate PVSCSI is used,
-              # can only indicate "lsi_logic" and then later switch the VM to
-              # use PVSCSI.
-              initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-              initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-              ;;
-            sata )
-              initramfs_entry_add "kernel/drivers/ata/ahci.ko*"
-              initramfs_entry_add "kernel/drivers/ata/ahci_platform.ko*"
-              initramfs_entry_add "kernel/drivers/ata/libahci.ko*"
-              initramfs_entry_add "kernel/drivers/ata/libahci_platform.ko*"
-              initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-              ;;
-            scsi )
-              initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*" ;;
-            sd )
-              case $image_class in
-                physical )
-                  case $image_physical_type in
-                    rpi* )
-                      initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
-                      initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
-                      initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
-                      initramfs_entry_add "kernel/fs/fat"
-                      initramfs_entry_add "kernel/fs/nls"
-                      ;;
-                    * )
-                      initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-                  esac
-                  ;;
-              esac
-              ;;
-            usb )
-              initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-              initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
-              initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
-              initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
-              ;;
-            virtio-blk )
-              initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*" ;;
-            virtio-scsi )
-              initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-              initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-              ;;
-          esac
-          if [ "${_list%,*}" = "$_list" ]; then
-            # No more entries
-            break
-          else
-            _list="${_list#$_list_item,}"
-          fi
-        done
-        ;;
-
-      hyperv )
-        initramfs_entry_add "kernel/drivers/scsi/hv_storvsc.ko*" ;;
-
-      nvme )
-        initramfs_entry_add "kernel/drivers/nvme/host/nvme.ko*"
-        if [ "$image_class" = "physical" ]; then
-          initramfs_entry_add "kernel/drivers/pci/controller/vmd.ko*"
-        fi
-        ;;
-
-      pvscsi )
-        # VMware's VMDK file provides no way to indicate PVSCSI is used, can
-        # only indicate "lsi_logic" and then later switch the VM to use PVSCSI.
-        initramfs_entry_add "kernel/drivers/message/fusion/mptsas.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-        ;;
-
-      sata )
-        initramfs_entry_add "kernel/drivers/ata/ahci.ko*"
-        initramfs_entry_add "kernel/drivers/ata/ahci_platform.ko*"
-        initramfs_entry_add "kernel/drivers/ata/libahci.ko*"
-        initramfs_entry_add "kernel/drivers/ata/libahci_platform.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-        ;;
-
-      scsi )
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*" ;;
-
-      sd )
-        case $image_class in
-          physical )
-            case $image_physical_type in
-              rpi* )
-                initramfs_entry_add "kernel/drivers/mmc/host/mmc_spi.ko*"
-                initramfs_entry_add "kernel/drivers/mmc/host/of_mmc_spi.ko*"
-                initramfs_entry_add "kernel/drivers/mmc/host/sdhci-iproc.ko*"
-                ;;
-              * )
-                initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-            esac
-            ;;
-          * )
-            initramfs_entry_add "kernel/drivers/mmc/host/sdhci.ko*" ;;
-        esac
-        ;;
-
-      usb )
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/ses.ko*"
-        initramfs_entry_add "kernel/drivers/usb/storage/uas.ko*"
-        initramfs_entry_add "kernel/drivers/usb/storage/usb-storage.ko*"
-        case $image_class in
-          physical )
-            case $image_physical_type in
-              rpi* )
-                initramfs_entry_add "kernel/fs/fat"
-                initramfs_entry_add "kernel/fs/nls"
-                ;;
-            esac
-            ;;
-        esac
-        ;;
-
-      virtio-blk )
-        initramfs_entry_add "kernel/drivers/block/virtio_blk.ko*" ;;
-
-      virtio-scsi )
-        initramfs_entry_add "kernel/drivers/scsi/sd_mod.ko*"
-        initramfs_entry_add "kernel/drivers/scsi/virtio_scsi.ko*"
-        ;;
-    esac
-  fi
+  convert_storage_devices_to_initramfs_entries
 
   # Add additional required modules to initramfs
-  if [ -n "$CADI_ADDITIONAL_INITRAMFS_MODULES" ]; then
-    _list="$CADI_ADDITIONAL_INITRAMFS_MODULES"
-    while true; do
-      _list_item="$(first_entry_in_comma_list "$_list")"
-      initramfs_entry_add "\\\$(find_module_full_path \"$_list_item\")"
-      if [ "${_list%,*}" = "$_list" ]; then
-        # No more entries
-        break
-      else
-        _list="${_list#$_list_item,}"
-      fi
-    done
-  fi
+  convert_addn_modules_to_initramfs_entries
 
   initramfs_entry_finish
+
+  cat <<-EOF >> "$run_script"
+	
+	    # Sort and remove duplicate entries
+	    sort -u -o \\
+	      /etc/mkinitfs/features.d/${image_class}-${image_class_subtype}.modules \\
+	      /etc/mkinitfs/features.d/${image_class}-${image_class_subtype}.modules
+	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
@@ -1773,11 +1085,294 @@ configure_mkinitfs_image_type_feature() {
 
 
 #
-# Given a network driver name will return the required path
-# to it to be used in mkinitfs feature files.
+# For the defined additional modules determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_addn_modules_to_initramfs_entries() {
+  local _addn_module_list _addn_module_list_item
+
+  if [ -n "$CADI_ADDITIONAL_INITRAMFS_MODULES" ]; then
+    _addn_module_list="$CADI_ADDITIONAL_INITRAMFS_MODULES"
+    while true; do
+      _addn_module_list_item="$(first_entry_in_comma_list "$_addn_module_list")"
+      initramfs_entry_add "\\\$(find_module_full_path \"$_addn_module_list_item\")"
+      if [ "${_addn_module_list%,*}" = "$_addn_module_list" ]; then
+        # No more entries
+        break
+      else
+        _addn_module_list="${_addn_module_list#$_addn_module_list_item,}"
+      fi
+    done
+  fi
+}
+
+
+#
+# For the defined crypto device(s) determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_crypto_devices_to_initramfs_entries() {
+  local _cryptodev_list _cryptodev_list_item
+
+  if [ -n "$CADI_SUPPORTED_CRYPTO_DEVICES" ]; then
+    if [ -n "$CADI_DEFAULT_CRYPTO_DEVICE" ]; then
+      # Check default driver
+      if is_in_comma_list "$CADI_SUPPORTED_CRYPTO_DEVICES" \
+                          "$CADI_DEFAULT_CRYPTO_DEVICE"; then
+        if [ "$CADI_DEFAULT_CRYPTO_DEVICE" = "generic" ]; then
+          _cryptodev_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_CRYPTO_DEVICES" "generic")"
+        else
+          _cryptodev_list="$CADI_DEFAULT_CRYPTO_DEVICE"
+        fi
+
+        if [ "$_cryptodev_list" != "none" ]; then
+          # Remove "none" from the list if it is present
+          _cryptodev_list="$(all_entries_in_comma_list_except "$_cryptodev_list" "none")"
+
+          while true; do
+            _cryptodev_list_item="$(first_entry_in_comma_list "$_cryptodev_list")"
+            initramfs_entry_add "$(convert_cryptodev_name_to_module_path "$_cryptodev_list_item")"
+
+            if [ "${_cryptodev_list%,*}" = "$_cryptodev_list" ]; then
+              # No more entries
+              break
+            else
+              _cryptodev_list="${_cryptdev_list#$_cryptodev_list_item,}"
+            fi
+          done
+        fi
+      else
+        error_message \
+          "'$CADI_DEFAULT_CRYPTO_DEVICE' is not defined in CADI_SUPPORTED_CRYPTO_DEVICES for '$image_class $image_class_subtype'!"
+      fi
+    else
+      # No default specified
+      if is_single_entry_in_comma_list "$CADI_SUPPORTED_CRYPTO_DEVICES"; then
+        if [ "$CADI_SUPPORTED_CRYPTO_DEVICES" != "none" ]; then
+          initramfs_entry_add "$(convert_cryptodev_name_to_module_path "$CADI_SUPPORTED_CRYPTO_DEVICES")"
+        fi
+      else
+        error_message \
+          "CADI_DEFAULT_CRYPTO_DEVICE is not defined and $CADI_SUPPORTED_CRYPTO_DEVICES contains more than a single entry for '$image_class $image_class_subtype'!"
+      fi
+    fi
+  else
+    error_message \
+      "CADI_SUPPORTED_CRYPTO_DEVICES is not defined for '$image_class $image_class_subtype'!"
+  fi
+}
+
+
+#
+# Given a crypto device driver name will return the required path to it.
+#
+convert_cryptodev_name_to_module_path() {
+  local _cryptodev_module_path
+
+  case $1 in
+    ccp )
+      _cryptodev_module_path="kernel/drivers/crypto/ccp" ;;
+    virtio )
+      _cryptodev_module_path="kernel/drivers/crypto/virtio" ;;
+  esac
+
+  echo "$_cryptodev_module_path"
+}
+
+
+#
+# For console-related drivers determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_display_devices_to_initramfs_entries() {
+  case $image_console_device_type in
+    hypervisor )
+      convert_text_consoles_to_initramfs_entries ;;
+
+    none | serial )
+      : ;;
+
+    * )
+      # normal, normal_and_serial, or generic
+
+      if [ -n "$image_enable_graphics" ] && \
+         [ "$image_enable_graphics" = "true" ]; then
+        # Graphic driver(s) is/are required
+        case $image_console_output_type in
+          graphics | generic )
+            convert_graphics_names_to_initramfs_entries ;;
+        esac
+      fi
+
+      case $image_console_output_type in
+        # Text driver(s) is/are required
+        text | generic )
+          convert_text_consoles_to_initramfs_entries ;;
+      esac
+      ;;
+  esac
+}
+
+
+#
+# Given a graphics driver name will return the required path to it.
+#
+convert_graphics_name_to_module_path() {
+  local _gfx_driver="$1"
+
+  local _gfx_module_path
+
+  case $_gfx_driver in
+    amd )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/video/fbdev/aty" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/amd" ;;
+      esac
+      ;;
+
+    bochs )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/gpu/drm/bochs/bochs-drm.ko*" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/tiny/bochs.ko*" ;;
+      esac
+      ;;
+
+    hyperv )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/video/fbdev/hyperv_fb.ko*" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*" ;;
+      esac
+      ;;
+
+    i915 )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/video/fbdev/intelfb*" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/i915" ;;
+      esac
+      ;;
+
+    nouveau )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/video/fbdev/nvidia" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/nouveau" ;;
+      esac
+      ;;
+
+    qxl )
+      _path="kernel/drivers/gpu/drm/qxl/qxl.ko*" ;;
+
+    radeon )
+      case $image_alpine_release in
+        v3.13 | v3.14 )
+          _gfx_module_path="kernel/drivers/video/fbdev/aty/radeonfb.ko*" ;;
+        * )
+          _gfx_module_path="kernel/drivers/gpu/drm/radeon" ;;
+      esac
+      ;;
+
+    simpledrm )
+      _gfx_module_path="kernel/drivers/gpu/drm/tiny/simpledrm.ko*" ;;
+
+    virtio-gpu )
+      _gfx_module_path="kernel/drivers/gpu/drm/virtio" ;;
+
+    vmwgfx )
+      _gfx_module_path="kernel/drivers/gpu/drm/vmwgfx" ;;
+  esac
+
+  echo "$_gfx_module_path"
+}
+
+
+#
+# For graphics drivers determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_graphics_names_to_initramfs_entries() {
+  local _graphics_list _graphics_list_item
+
+  if [ -n "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" ]; then
+    if [ -n "$image_graphics_driver" ]; then
+      # Override default graphics driver
+      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
+                          "$image_graphics_driver"; then
+        if [ "$image_graphics_driver" = "generic" ]; then
+          _graphics_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" "generic")"
+        else
+          _graphics_list="$image_graphics_driver"
+        fi
+      else
+        error_message \
+          "Specified graphic driver '$image_graphics_driver' is not defined in CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS for '$class_type_description'!"
+      fi
+    elif [ -n "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" ]; then
+      # Use the default graphics driver
+      if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" \
+                          "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"; then
+        if [ "$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER" = "generic" ]; then
+          _graphics_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" "generic")"
+        else
+          _graphics_list="$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER"
+        fi
+      else
+        error_message \
+          "Wanted to add default graphic driver '$CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER' to initramfs but it is not defined in CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS!"
+      fi
+    elif is_single_entry_in_comma_list \
+             "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" && \
+         [ "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" != "generic" ] && \
+         [ "$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS" != "none" ]; then
+      # Use the single value in supported drivers list
+      _graphics_list="$CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS"
+    else
+      error_message \
+        "Wanted to add default graphic driver to initramfs but CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER is not defined for '$image_class $image_class_subtype'!"
+    fi
+
+    if [ "$_graphics_list" != "none" ]; then
+      # Remove "none" from the list if it is present
+      _graphics_list="$(all_entries_in_comma_list_except "$_graphics_list" "none")"
+
+      while true; do
+        _graphics_list_item="$(first_entry_in_comma_list "$_graphics_list")"
+        if [ -n "$_graphics_list_item" ]; then
+          initramfs_entry_add "$(convert_graphics_name_to_module_path "$_graphics_list_item")"
+        else
+          error_message \
+            "Unknown graphics driver: '$_graphics_list_item' for '$image_class $image_class_subtype'!"
+        fi
+
+        if [ "${_graphics_list%,*}" = "$_graphics_list" ]; then
+          # No more entries
+          break
+        else
+          _graphics_list="${_graphics_list#$_graphics_list_item,}"
+        fi
+      done
+    fi
+  else
+    #  No list of supported graphics drivers is defined
+    error_message \
+      "Wanted to add graphic driver(s) to initramfs but CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS is not defined for '$image_class $image_class_subtype'!"
+  fi
+}
+
+
+#
+# Given a network driver name will return the required path to it.
 #
 convert_network_name_to_module_path() {
-  _network_name="$1"
+  local _network_name="$1"
 
   local _network_module_path
 
@@ -1800,9 +1395,9 @@ convert_network_name_to_module_path() {
       _network_module_path="kernel/drivers/net/ethernet/mellanox" ;;
     mii )
       _network_module_path="kernel/drivers/net/mii.ko*" ;;
-    mlx4_en )
+    mlx4 )
       _network_module_path="kernel/drivers/net/ethernet/mellanox/mlx4" ;;
-    mlx5_core )
+    mlx5 )
       _network_module_path="kernel/drivers/net/ethernet/mellanox/mlx5" ;;
     nvidia )
       _network_module_path="kernel/drivers/net/ethernet/nvidia" ;;
@@ -1823,123 +1418,418 @@ convert_network_name_to_module_path() {
 
 
 #
-# For the specified network drivers determine the module paths
-# and add them to  mkinitfs feature file.
+# For the specified network boot drivers determine the module paths
+# and add them to mkinitfs feature file.
 #
-convert_network_names_to_initramfs_entries() {
-  _network_module_names="$1"
+convert_network_boot_devices_to_initramfs_entries() {
+  local _netdev_list _netdev_list_item _netdev_module_path
 
-  local _list _list_item
-
-  if [ "$_network_module_names" = "generic" ]; then
-    _list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "generic")"
-  else
-    _list="$_network_module_names"
-  fi
-  while true; do
-    _list_item="$(first_entry_in_comma_list "$_list")"
-    case $_list_item in
-      generic )
-        : ;;
-      * )
-        initramfs_entry_add "$(convert_network_name_to_module_path "${_list_item}")"
-        case $_list_item in
-          r8169 | realtek )
-            initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*" ;;
-        esac
-        ;;
-    esac
-    if [ "${_list%,*}" = "$_list" ]; then
-      # No more entries
-      break
+  if [ -n "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" ]; then
+    if [ -n "$image_ethernet_module" ]; then
+      # Network module specified via option
+      if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
+                          "$image_ethernet_module"; then
+        if [ "$image_graphics_driver" = "generic" ]; then
+          _netdev_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "generic")"
+        else
+          _netdev_list="$image_ethernet_module"
+        fi
+      else
+        error_message \
+          "Ethernet driver '$image_ethernet_module' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class_description'!"
+      fi
+    elif [ -n "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" ]; then
+      # Use the default network driver
+      if is_in_comma_list "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" \
+                          "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"; then
+        if [ "$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER" = "generic" ]; then
+          _netdev_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" "generic")"
+        else
+          _netdev_list="$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER"
+        fi
+      else
+        error_message \
+          "'$CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER' is not defined in CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS for '$image_class_description'!"
+      fi
+    elif is_single_entry_in_comma_list \
+             "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" && \
+         [ "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" != "generic" ] && \
+         [ "$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS" != "none" ]; then
+      # Use the single value in supported drivers list
+      _netdev_list="$CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS"
     else
-      _list="${_list#$_list_item,}"
+      error_message \
+        "Wanted to add default network boot driver to initramfs but CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER is not defined and CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS either is not defined or does not contain a single value for '$image_class_description'!"
     fi
-  done
 
-  case $image_class in
-    physical )
-      initramfs_entry_add "$(convert_network_name_to_module_path "mii")" ;;
-  esac
+    if [ "$_netdev_list" != "none" ]; then
+      # Remove "none" from the list if it is present
+      _netdev_list="$(all_entries_in_comma_list_except "$_netdev_list" "none")"
+
+      while true; do
+        _netdev_list_item="$(first_entry_in_comma_list "$_netdev_list")"
+
+        if [ -n "$_netdev_list_item" ]; then
+          _netdev_module_path="$(convert_network_name_to_module_path "$_netdev_list_item")"
+          if [ -n "$_netdev_module_path" ]; then
+            initramfs_entry_add "$_netdev_module_path"
+            case $_netdev_list_item in
+              r8169 | realtek )
+                initramfs_entry_add "kernel/drivers/net/phy/realtek.ko*" ;;
+            esac
+          fi
+        else
+          error_message \
+            "Unknown network driver: '$_netdev_list_item' for '$image_class_description'!"
+        fi
+
+        if [ "${_netdev_list%,*}" = "$_netdev_list" ]; then
+          # No more entries
+          break
+        else
+          _netdev_list="${_netdev_list#$_netdev_list_item,}"
+        fi
+      done
+
+      case $image_class in
+        physical )
+          initramfs_entry_add "$(convert_network_name_to_module_path "mii")" ;;
+      esac
+    fi
+  else
+    error_message \
+      "CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS is not defined for '$image_class_description'!"
+  fi
 }
 
 
 #
-# Given a graphics driver name will return the required path
-# to it to be used in mkinitfs feature files.
+# Given a power button driver name will return the required path to it.
 #
-get_graphics_driver_initfs_path() {
-  _gfx_driver="$1"
+convert_power_button_name_to_module_path() {
+  local _power_button_name="$1"
 
-  local _gfx_path
+  local _power_button_module_path
 
-  case $_gfx_driver in
-    amd )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/video/fbdev/aty" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/amd" ;;
-      esac
-      ;;
-
-    bochs )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/gpu/drm/bochs/bochs-drm.ko*" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/tiny/bochs.ko*" ;;
-      esac
-      ;;
-
-    hyperv )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/video/fbdev/hyperv_fb.ko*" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/hyperv/hyperv_drm.ko*" ;;
-      esac
-      ;;
-
-    i915 )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/video/fbdev/intelfb*" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/i915" ;;
-      esac
-      ;;
-
-    nouveau )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/video/fbdev/nvidia" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/nouveau" ;;
-      esac
-      ;;
-
-    qxl )
-      _path="kernel/drivers/gpu/drm/qxl/qxl.ko*" ;;
-
-    radeon )
-      case $image_alpine_release in
-        v3.13 | v3.14 )
-          _gfx_path="kernel/drivers/video/fbdev/aty/radeonfb.ko*" ;;
-        * )
-          _gfx_path="kernel/drivers/gpu/drm/radeon" ;;
-      esac
-      ;;
-
-    simpledrm )
-      _gfx_path="kernel/drivers/gpu/drm/tiny/simpledrm.ko*" ;;
-
-    virtio-gpu )
-      _gfx_path="kernel/drivers/gpu/drm/virtio" ;;
-
-    vmwgfx )
-      _gfx_path="kernel/drivers/gpu/drm/vmwgfx" ;;
+  case $_power_button_name in
+    button )
+      _power_button_module_path="kernel/drivers/acpi/button.ko*" ;;
+    gpio )
+      _power_button_module_path="kernel/drivers/gpio/gpio-pl061.ko*" ;;
+    tiny-power-button )
+      _power_button_module_path="kernel/drivers/acpi/tiny-power-button.ko*" ;;
   esac
 
-  echo "$_gfx_path"
+  echo "$_power_button_module_path"
+}
+
+
+#
+# For the power button method determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_power_button_methods_to_initramfs_entries() {
+  local _button_list _button_list_item
+
+  if [ "$image_acpi_power_method" = "generic" ]; then
+    _button_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_ACPI_BUTTONS" "generic")"
+  else
+    _button_list="$image_acpi_power_method"
+  fi
+
+  while true; do
+    _button_list_item="$(first_entry_in_comma_list "$_button_list")"
+    if is_in_comma_list "$CADI_SUPPORTED_ACPI_BUTTONS" \
+       "$_button_list_item"; then
+      initramfs_entry_add "$(convert_power_button_name_to_module_path "${_button_list_item}")"
+    fi
+
+    if [ "${_button_list%,*}" = "$_button_list" ]; then
+      # No more entries
+      break
+    else
+      _button_list="${_button_list#$_button_list_item,}"
+    fi
+  done
+}
+
+
+#
+# For the defined RNG device(s) determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_rng_devices_to_initramfs_entries() {
+  local _rngdev_list _rngdev_list_item _rng_module_path
+
+  if [ -n "$CADI_SUPPORTED_RNGS" ]; then
+    if [ -n "$CADI_DEFAULT_RNG" ]; then
+      # Check default driver
+      if is_in_comma_list "$CADI_SUPPORTED_RNGS" \
+                          "$CADI_DEFAULT_RNG"; then
+        if [ "$CADI_DEFAULT_RNG" = "generic" ]; then
+          _rngdev_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_RNGS" "generic")"
+        else
+          _rngdev_list="$CADI_DEFAULT_RNG"
+        fi
+
+        if [ "$_rngdev_list" != "none" ]; then
+          # Remove "none" from the list if it is present
+          _rngdev_list="$(all_entries_in_comma_list_except "$_rngdev_list" "none")"
+
+          while true; do
+            _rngdev_list_item="$(first_entry_in_comma_list "$_rngdev_list")"
+
+            _rng_module_path="$(convert_rngdev_name_to_module_path "$_rngdev_list_item")"
+            if [ -n "$_rng_module_path" ]; then
+              initramfs_entry_add "$_rng_module_path"
+            fi
+
+            if [ "${_rngdev_list%,*}" = "$_rngdev_list" ]; then
+              # No more entries
+              break
+            else
+              _rngdev_list="${_rngdev_list#$_rngdev_list_item,}"
+            fi
+          done
+        fi
+      else
+        error_message \
+          "'$CADI_DEFAULT_RNG' is not defined in CADI_SUPPORTED_RNGS for '$image_class $image_class_subtype'!"
+      fi
+    else
+      # No default specified
+      if is_single_entry_in_comma_list "$CADI_SUPPORTED_RNGS"; then
+        if [ "$CADI_SUPPORTED_RNGS" != "none" ]; then
+          _rng_module_path="$(convert_rngdev_name_to_module_path "$CADI_SUPPORTED_RNGS")"
+          if [ -n "$_rng_module_path" ]; then
+            initramfs_entry_add "$_rng_module_path"
+          fi
+        fi
+      else
+        error_message \
+          "CADI_DEFAULT_RNG is not defined and CADI_SUPPORTED_RNGS contains more than a single entry for '$image_class $image_class_subtype'!"
+      fi
+    fi
+  else
+    error_message \
+      "CADI_SUPPORTED_RNGS is not defined for '$image_class $image_class_subtype'!"
+  fi
+}
+
+
+#
+# Given a RNG device driver name will return the required path to it.
+#
+convert_rngdev_name_to_module_path() {
+  local _rngdev_module_path
+
+  case $1 in
+    amd )
+      if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "amd" ]; then
+        _rngdev_module_path="kernel/drivers/char/hw_random/amd-rng.ko*"
+      fi
+      ;;
+    intel )
+      if [ -z "$image_cpu_vendor" ] || [ "$image_cpu_vendor" = "intel" ]; then
+        _rngdev_module_path="kernel/drivers/char/hw_random/intel-rng.ko*"
+      fi
+      ;;
+    virtio )
+      _rngdev_module_path="kernel/drivers/char/hw_random/virtio-rng.ko*" ;;
+  esac
+
+  echo "$_rngdev_module_path"
+}
+
+
+#
+# For the defined storage driver(s) determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_storage_devices_to_initramfs_entries() {
+  local _storage_list _storage_list_item
+  local _storage_module_list _storage_module_list_item _storage_module_path
+
+  if [ -n "$CADI_SUPPORTED_OS_DEVICE_TYPES" ]; then
+    if [ -n "$image_os_device_type" ]; then
+      # Use the specified storage driver
+      if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                          "$image_os_device_type"; then
+        if [ "$CADI_DEFAULT_OS_DEVICE_TYPE" = "generic" ]; then
+          _storage_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_OS_DEVICE_TYPES" "generic")"
+        else
+          _storage_list="$image_os_device_type"
+        fi
+      else
+        error_message \
+          "'$image_os_device_type' is not defined in CADI_SUPPORTED_OS_DEVICE_TYPES for '$image_class_description'!"
+      fi
+    elif [ -n "$CADI_DEFAULT_OS_DEVICE_TYPE" ]; then
+      # Use the default storage driver
+      if is_in_comma_list "$CADI_SUPPORTED_OS_DEVICE_TYPES" \
+                          "$CADI_DEFAULT_OS_DEVICE_TYPE"; then
+        if [ "$CADI_DEFAULT_OS_DEVICE_TYPE" = "generic" ]; then
+          _storage_list="$(all_entries_in_comma_list_except "$CADI_SUPPORTED_OS_DEVICE_TYPES" "generic")"
+        else
+          _storage_list="$CADI_DEFAULT_OS_DEVICE_TYPE"
+        fi
+      else
+        error_message \
+          "'$CADI_DEFAULT_OS_DEVICE_TYPE' is not defined in CADI_SUPPORTED_OS_DEVICE_TYPES for '$image_class_description'!"
+      fi
+    elif is_single_entry_in_comma_list \
+             "$CADI_SUPPORTED_OS_DEVICE_TYPES" && \
+         [ "$CADI_SUPPORTED_OS_DEVICE_TYPES" != "generic" ] && \
+         [ "$CADI_SUPPORTED_OS_DEVICE_TYPES" != "none" ]; then
+      # Use the single value in supported storage drivers list
+      _netdev_list="$CADI_SUPPORTED_OS_DEVICE_TYPES"
+    else
+      error_message \
+        "Wanted to add default storage driver to initramfs but CADI_DEFAULT_OS_DEVICE_TYPE is not defined and CADI_SUPPORTED_OS_DEVICE_TYPES either is not defined or does not contain a single value for '$image_class_description'!"
+    fi
+
+    if [ "$_storage_list" != "none" ]; then
+      # Remove "none" from the list if it is present
+      _storage_list="$(all_entries_in_comma_list_except "$_storage_list" "none")"
+
+      while true; do
+        _storage_list_item="$(first_entry_in_comma_list "$_storage_list")"
+
+        if [ -n "$_storage_list_item" ]; then
+          _storage_module_path="$(convert_storage_name_to_module_path "$_storage_list_item")"
+          if [ -n "$_storage_module_path" ]; then
+            if is_single_entry_in_comma_list "$_storage_module_path"; then
+              initramfs_entry_add "$_storage_module_path"
+            else
+              _storage_module_list="$_storage_module_path"
+              while true; do
+                _storage_module_list_item="$(first_entry_in_comma_list "$_storage_module_list")"
+                initramfs_entry_add "$_storage_module_list_item"
+
+                if [ "${_storage_module_list%,*}" = "$_storage_module_list" ]; then
+                  # No more entries
+                  break
+                else
+                  _storage_module_list="${_storage_module_list#$_storage_module_list_item,}"
+                fi
+              done
+            fi
+          fi
+        fi
+
+        if [ "${_storage_list%,*}" = "$_storage_list" ]; then
+          # No more entries
+          break
+        else
+          _storage_list="${_storage_list#$_storage_list_item,}"
+        fi
+      done
+    fi
+  else
+    error_message \
+      "CADI_SUPPORTED_OS_DEVICE_TYPES is not defined for '$image_class_description'!"
+  fi
+}
+
+
+#
+# Given a storage driver name will return the required path to it.
+#
+convert_storage_name_to_module_path() {
+  local _storage_module_path
+
+  case $1 in
+    hyperv )
+      _storage_module_path="kernel/drivers/scsi/hv_storvsc.ko*" ;;
+    nvme )
+      _storage_module_path="kernel/drivers/nvme/host/nvme.ko*"
+      case $image_class in
+        physical )
+          case $image_class_subtype in
+            pc )
+              _storage_module_path="$_storage_module_path,kernel/drivers/pci/controller/vmd.ko*"
+          esac
+          ;;
+      esac
+      ;;
+    pvscsi )
+      _storage_module_path="kernel/drivers/scsi/sd_mod.ko*" ;;
+    sata )
+      _storage_module_path="kernel/drivers/ata/ahci.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/ata/ahci_platform.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/ata/libahci.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/ata/libahci_platform.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/scsi/sd_mod.ko*"
+      ;;
+    scsi )
+      _storage_module_path="kernel/drivers/scsi/sd_mod.ko*" ;;
+    sd )
+      case $image_class in
+        physical )
+          case $image_class_subtype in
+            rpi4 )
+              _storage_module_path="kernel/drivers/mmc/host/sdhci-iproc.ko*" ;;
+            rpi* )
+              _storage_module_path="kernel/drivers/mmc/host/mmc_spi.ko*" ;;
+            * )
+              _storage_module_path="kernel/drivers/mmc/host/sdhci.ko*" ;;
+          esac
+          ;;
+      esac
+      ;;
+    usb )
+      _storage_module_path="kernel/drivers/scsi/ses.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/usb/storage/uas.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/usb/storage/usb-storage.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/scsi/sd_mod.ko*"
+      ;;
+    virtio-blk )
+      _storage_module_path="kernel/drivers/block/virtio_blk.ko*" ;;
+    virtio-scsi )
+      _storage_module_path="kernel/drivers/scsi/virtio_scsi.ko*"
+      _storage_module_path="$_storage_module_path,kernel/drivers/scsi/sd_mod.ko*"
+      ;;
+  esac
+
+  echo "$_storage_module_path"
+}
+
+
+#
+# Given a text console driver name will return the required path to it.
+#
+convert_text_console_name_to_module_path() {
+  local _text_console_path
+
+  case $1 in
+    hypervisor )
+      _text_console_path="kernel/drivers/char/virtio_console.ko*" ;;
+  esac
+
+  echo $_text_console_path
+}
+
+
+#
+# For the defined text console device(s) determine the module(s) paths
+# and add them to mkinitfs feature file.
+#
+convert_text_consoles_to_initramfs_entries() {
+  local _text_console_path
+
+  case $image_console_device_type in
+    hypervisor | generic )
+      if [ -n "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" ] && \
+         is_in_comma_list "$CADI_SUPPORTED_CONSOLE_DEVICE_TYPES" \
+                          "hypervisor"; then
+        _text_console_path="$(convert_text_console_name_to_module_path "hypervisor")"
+        if [ -n "$_text_console_path" ]; then
+          initramfs_entry_add "$_text_console_path"
+        fi
+      else
+        error_message \
+          "Virtio console is not supported by $class_type_description!"
+      fi
+      ;;
+  esac
 }

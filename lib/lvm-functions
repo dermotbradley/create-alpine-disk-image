@@ -13,7 +13,7 @@
 
 
 #
-# Calculate size of a LVM LV for a filesystem, taking into account LV overhead
+# Calculate size of LVM LV for a filesystem, taking into account LV overhead.
 #
 # Params:
 #
@@ -25,7 +25,8 @@ calculate_lvm_lv_size() {
   local  _lv_total_size _reserved _reserved_percent
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_lv_size] initial filesystem size is $_fs_size MiB" >> "$sizing_debug"
+    printf '[calculate_lvm_lv_size] initial filesystem size is %s MiB\n' \
+      "$_fs_size" >> "$sizing_debug"
   fi
 
   _reserved_percent=$(fs_overhead)
@@ -34,7 +35,10 @@ calculate_lvm_lv_size() {
     _lv_total_size=$(( _fs_size + _reserved ))
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_lvm_lv_size] allowing for $image_fs_type $_reserved_percent% reserved ($_reserved) MiB), size is now $_lv_total_size MiB" >> "$sizing_debug"
+      printf \
+        '[calculate_lvm_lv_size] allowing for %s %s% reserved (%s) MiB), size is now %s MiB\n' \
+        "$image_fs_type" "$_reserved_percent" "$_reserved" "$_lv_total_size" \
+        >> "$sizing_debug"
     fi
   else
     _lv_total_size=$_fs_size
@@ -44,7 +48,9 @@ calculate_lvm_lv_size() {
   _lv_total_size=$(lvm_round_extents "$_lv_total_size")
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_lv_size] rounding up to next extent, final LV size is now $_lv_total_size MiB" >> "$sizing_debug"
+    printf \
+      '[calculate_lvm_lv_size] rounding up to next extent, final LV size is now %s MiB\n' \
+      "$_lv_total_size" >> "$sizing_debug"
   fi
 
   echo "$_lv_total_size"
@@ -58,20 +64,24 @@ calculate_lvm_part_size() {
   local _lvm_overhead _part_size
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_part_size] determining VG size" >> "$sizing_debug"
+    printf '[calculate_lvm_part_size] determining VG size\n' \
+      >> "$sizing_debug"
   fi
 
   _part_size=$(calculate_lvm_vg_size)
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_part_size] LVM LV size of $_part_size MiB" >> "$sizing_debug"
+    printf '[calculate_lvm_part_size] LVM LV size of %s MiB\n' \
+      "$_part_size" >> "$sizing_debug"
   fi
 
   _lvm_overhead=$(( ((_part_size * CADI_LVM_OVERHEAD_PERCENT + 99) / 100) ))
   _part_size=$(( _part_size + _lvm_overhead ))
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_part_size] adding LVM overhead ($(( _lvm_overhead )) MiB), total LVM partition size is $_part_size MiB" >> "$sizing_debug"
+    printf \
+      '[calculate_lvm_part_size] adding LVM overhead (%s MiB), total LVM partition size is %s MiB\n' \
+      "$(( _lvm_overhead ))" "$_part_size" >> "$sizing_debug"
   fi
 
   echo "$_part_size"
@@ -85,47 +95,57 @@ calculate_lvm_vg_size() {
   local _boot_total_size _root_total_size _logs_total_size _vg_total_size
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_vg_size] determining Root LV size" >> "$sizing_debug"
+    printf '[calculate_lvm_vg_size] determining Root LV size\n' \
+      >> "$sizing_debug"
   fi
 
   _root_total_size=$(calculate_lvm_lv_size "$general_rootfs_size")
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_vg_size] determining Logs LV size" >> "$sizing_debug"
+    printf '[calculate_lvm_vg_size] determining Logs LV size\n' \
+      >> "$sizing_debug"
   fi
 
   case $image_fs_type in
     btrfs )
-      _logs_total_size=$(calculate_lvm_lv_size "$((CADI_LVM_LOGS_LV_SIZE + 12))") ;;
+      _logs_total_size=$(calculate_lvm_lv_size "$((CADI_LVM_LOGS_LV_SIZE + 12))")
+      ;;
     * )
       _logs_total_size=$(calculate_lvm_lv_size "$CADI_LVM_LOGS_LV_SIZE") ;;
   esac
 
   if [ -n "$debug_sizing_enabled" ]; then
     {
-      echo "[calculate_lvm_vg_size] Root LV size is $_root_total_size MiB"
-      echo "[calculate_lvm_vg_size] Logs LV size is $_logs_total_size MiB"
+      printf '[calculate_lvm_vg_size] Root LV size is %s MiB\n' \
+        "$_root_total_size"
+      printf '[calculate_lvm_vg_size] Logs LV size is %s MiB\n' \
+        "$_logs_total_size"
     } >> "$sizing_debug"
   fi
 
   _vg_total_size=$(( _root_total_size + _logs_total_size ))
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[calculate_lvm_vg_size] adding Root & Logs LVs together gives VG size of $_vg_total_size MiB" >> "$sizing_debug"
+    printf \
+      '[calculate_lvm_vg_size] adding Root & Logs LVs together gives VG size of %s MiB\n' \
+      "$_vg_total_size" >> "$sizing_debug"
   fi
 
   if [ "$image_create_boot_partition" != "true" ]; then
     # /boot is a LV as part of VG
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_lvm_vg_size] determining Boot LV size" >> "$sizing_debug"
+      printf '[calculate_lvm_vg_size] determining Boot LV size\n' \
+        >> "$sizing_debug"
     fi
 
     _boot_total_size=$(calculate_lvm_lv_size "$general_bootfs_size")
     _vg_total_size=$(( _vg_total_size + _boot_total_size ))
 
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[calculate_lvm_vg_size] adding Boot LV ($_boot_total_size MiB) gives VG size of $_vg_total_size MiB" >> "$sizing_debug"
+      printf \
+        '[calculate_lvm_vg_size] adding Boot LV (%s MiB) gives VG size of %s MiB\n' \
+        "$_boot_total_size" "$_vg_total_size" >> "$sizing_debug"
     fi
   fi
 
@@ -134,8 +154,9 @@ calculate_lvm_vg_size() {
 
   if [ -n "$debug_sizing_enabled" ]; then
     {
-      echo "[calculate_lvm_vg_size] adding extra 4 MiB extent to size"
-      echo "[calculate_lvm_vg_size] LVM VG total size of $_vg_total_size MiB"
+      printf '[calculate_lvm_vg_size] adding extra 4 MiB extent to size\n'
+      printf '[calculate_lvm_vg_size] LVM VG total size of %s MiB\n' \
+        "$_vg_total_size"
     } >> "$sizing_debug"
   fi
 
@@ -158,7 +179,7 @@ lvm_round_extents() {
 
 
 #
-# Setup the LVM device
+# Setup the LVM device.
 #
 setup_lvm_device() {
   cat <<-'EOF' >> "$run_script"
@@ -218,7 +239,8 @@ setup_lvm_device() {
   fi
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[setup_lvm_device] determining Root LV size for LV creation" >> "$sizing_debug"
+    printf '[setup_lvm_device] determining Root LV size for LV creation\n' \
+      >> "$sizing_debug"
   fi
 
   cat <<-EOF >> "$run_script"
@@ -243,7 +265,8 @@ setup_lvm_device() {
 
   if [ "$image_create_boot_partition" != "true" ]; then
     if [ -n "$debug_sizing_enabled" ]; then
-      echo "[setup_lvm_device] determining Boot LV size for LV creation" >> "$sizing_debug"
+      printf '[setup_lvm_device] determining Boot LV size for LV creation\n' \
+        >> "$sizing_debug"
     fi
 
     cat <<-EOF >> "$run_script"
@@ -268,7 +291,8 @@ setup_lvm_device() {
   fi
 
   if [ -n "$debug_sizing_enabled" ]; then
-    echo "[setup_lvm_device] determining Logs LV size for LV creation" >> "$sizing_debug"
+    printf '[setup_lvm_device] determining Logs LV size for LV creation\n' \
+      >> "$sizing_debug"
   fi
 
   cat <<-EOF >> "$run_script"

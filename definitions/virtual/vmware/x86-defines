@@ -22,6 +22,7 @@ readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
 readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,simpledrm,vmwgfx"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="ps2"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="none"
 readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt,mbr"
 readonly CADI_SUPPORTED_NETWORK_DRIVERS="vmwnet3"
@@ -29,6 +30,7 @@ readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
 readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="pvscsi"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="none"
 readonly CADI_SUPPORTED_STORAGE_DRIVERS="pvscsi"
 
 
@@ -45,3 +47,5 @@ readonly CADI_DEFAULT_DISK_IMAGE_PARTITIONING_TYPE="mbr"
 readonly CADI_ADDITIONAL_NON_INITRAMFS_MODULES="floppy,vmw_balloon,vmw_vmci,vmw_vsock_vmci_transport"
 readonly CADI_DISK_IMAGE_FORMAT="vmdk"
 readonly CADI_DISK_IMAGE_FORMAT_OPTIONS="-o adapter_type=lsilogic,subformat=streamOptimized,compat6"
+readonly CADI_PACKAGES_ADDITIONAL="py3-netifaces"
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=0

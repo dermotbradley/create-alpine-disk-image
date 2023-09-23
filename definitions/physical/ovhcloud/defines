@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-##  physical rpi4 defines
+##  physical ovhcloud defines
 ##
 ##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
@@ -11,25 +11,21 @@
 #############################################################################
 
 
+# https://support.us.ovhcloud.com/hc/en-us/articles/360018521100-How-to-Use-the-Bring-Your-Own-Image-Feature-for-Dedicated-Server
+
 # Supported
-readonly CADI_SUPPORTED_ARCHS="armv7,aarch64"
-readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud"
+readonly CADI_SUPPORTED_ARCHS="x86_64"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="ConfigDrive"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
-readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
 readonly CADI_SUPPORTED_IPV4=true
 readonly CADI_SUPPORTED_IPV6=true
 readonly CADI_SUPPORTED_IPV4_IPV6=true
 readonly CADI_SUPPORTED_NTP_METHODS="pools,servers"
-readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="disk,flash,sdcard,ssd"
-readonly CADI_SUPPORTED_OS_DEVICE_TYPES="sd,usb"
 readonly CADI_SUPPORTED_OS_FILESYSTEMS="ext4,xfs"
 
 
 # Defaults
-readonly CADI_DEFAULT_ARCH="aarch64"
-readonly CADI_DEFAULT_NTP_METHOD="servers"
-readonly CADI_DEFAULT_OS_DEVICE_MEDIA="sdcard"
-readonly CADI_DEFAULT_OS_DEVICE_TYPE="sd"
+readonly CADI_DEFAULT_NTP_METHOD="pools"
 readonly CADI_DEFAULT_OS_FILESYSTEM="ext4"
 
 
@@ -37,4 +33,3 @@ readonly CADI_DEFAULT_OS_FILESYSTEM="ext4"
 readonly CADI_CHRONY_INITSTEPSLEW_THRESHOLD=30
 readonly CADI_CHRONY_MAKESTEP_THRESHOLD=1
 readonly CADI_CHRONY_MAKESTEP_LIMIT=3
-readonly CADI_CLOUD_INIT_USES_FS="VFAT"

@@ -13,7 +13,7 @@
 
 
 #
-# Setup the fscrypt device
+# Setup the fscrypt device.
 #
 setup_fscrypt_device() {
   cat <<-'EOF' >> "$run_script"

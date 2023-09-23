@@ -1,0 +1,491 @@
+#!/bin/sh
+# shellcheck disable=SC2039
+
+#############################################################################
+##
+##  harden-functions
+##
+##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
+##
+##  Licensed via GPL version 2.0
+##
+#############################################################################
+
+
+#
+# Do basic doas configuration
+#
+configure_doas() {
+  local _doas_file
+
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Configure doas" 2
+	  {
+	EOF
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      _doas_file="/etc/doas.d/doas.conf" ;;
+    * )
+      _doas_file="/etc/doas.conf" ;;
+  esac
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	    # Debug
+	    cp ${_doas_file} ${_doas_file}-orig
+	
+	EOF
+  fi
+
+  cat <<EOF >> "$run_script"
+    write_log "Adding doas configuration for root user" 4
+    cat <<-_SCRIPT_ >> ${_doas_file}
+	
+	# Allow root to run doas (i.e. "doas -u <user> <command>")
+	permit nopass root
+	_SCRIPT_
+
+    write_log "Enabling doas configuration for wheel group" 4
+    sed -i -E -e 's/^[#][ ]*(permit persist :wheel)$/\1/g' ${_doas_file}
+EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	    
+	    # Debug
+	    diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
+	    rm ${_doas_file}-orig
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+}
+
+
+#
+# Delete default users & groups that are not required
+#
+harden_delete_unnecessary_users_groups() {
+  cat <<-'EOF' >> "$run_script"
+	
+	write_log "Deleting unnecessary users and groups"
+	{
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	  # Debug
+	  cp /etc/group /etc/group-orig
+	  cp /etc/passwd /etc/passwd-orig
+	  cp /etc/shadow /etc/shadow-orig
+	EOF
+
+    case $image_device_management_type in
+      udev )
+        cat <<-'EOF' >> "$run_script"
+	
+	  cp /lib/udev/rules.d/50-udev-default.rules \
+	    /lib/udev/rules.d/50-udev-default.rules-orig
+	EOF
+        ;;
+    esac
+
+    cat <<-'EOF' >> "$run_script"
+	
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	  write_log "Deleting unnecessary users" 2
+	  {
+	    _unreq_users_list="cyrus ftp games guest halt man news ntp operator"
+	    _unreq_users_list="\$_unreq_users_list postmaster shutdown smmsp squid"
+	    _unreq_users_list="\$_unreq_users_list sync vpopmail xfs"
+	
+	    for _unrequired_user in \$_unreq_users_list
+	    do
+	      write_debug_log "Delete user '\$_unrequired_user'" 4
+	      deluser "\$_unrequired_user" 2> /dev/null
+	    done
+	  }
+	
+	  write_log "Deleting unnecessary groups" 2
+	  {
+	    _unreq_groups_list="abuild cdrw"
+	
+	    for _unrequired_group in \$_unreq_groups_list
+	    do
+	      write_debug_log "Delete group '\$_unrequired_group'" 4
+	      delgroup "\$_unrequired_group"
+	    done
+	EOF
+
+  case $image_device_management_type in
+    udev )
+      cat <<-'EOF' >> "$run_script"
+	
+	    write_log "Remove references to deleted groups from udev rules" 4
+	    {
+	      write_debug_log "Rewrite any wrapped lines into single lines" 6
+	      sed -i -e ':x;/\\$/{N;s/\\\n//g;bx;}' -e 's/ [ ]*/ /g' \
+	        /lib/udev/rules.d/50-udev-default.rules
+	      for _unrequired_group in \$_unreq_groups_list
+	      do
+	        write_debug_log "Remove group \$_unrequired_group references" 6
+	        sed -i -e "/^.*GROUP=\"\$_unrequired_group\".*$/d" \
+	          /lib/udev/rules.d/50-udev-default.rules
+	      done
+	    }
+	EOF
+      ;;
+  esac
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	  # Debug
+	  write_debug_log "Users differences:" 2
+	  diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+	  write_debug_log "Users differences:" 2
+	  diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+	  write_debug_log "Groups differences:" 2
+	  diff /etc/group-orig /etc/group >> /chroot.log || true
+	  rm /etc/group-orig /etc/passwd-orig /etc/shadow-orig
+	EOF
+
+    case $image_device_management_type in
+      udev )
+        cat <<-'EOF' >> "$run_script"
+	  write_debug_log "50-udev-default.rules differences:" 2
+	  diff /lib/udev/rules.d/50-udev-default.rules-orig \
+	    /lib/udev/rules.d/50-udev-default.rules >> /chroot.log || true
+	  rm /lib/udev/rules.d/50-udev-default.rules-orig
+	EOF
+        ;;
+    esac
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	}
+	EOF
+}
+
+
+#
+# Create /etc/profile.d/* files
+#
+harden_etc_profile() {
+  cat <<-'EOF' >> "$run_script"
+	
+	  write_log "Setting system-wide UMASK" 2
+	  {
+	    umask_file="05-umask.sh"
+	    write_log "Creating profile file to set umask to \$umask" 4
+	    {
+	      printf '# Created by create-alpine-disk-image\n\n'
+	      printf 'umask %s\n' "\$umask"
+	    } > /etc/profile.d/\${umask_file}
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	    # Debug
+	    write_debug_log "Contents of /etc/profile.d/\${umask_file}:"
+	    cat /etc/profile.d/\${umask_file} >> /chroot.log || true
+	  }
+	EOF
+  fi
+}
+
+
+#
+# Harden OpenSSH server configuration
+#
+harden_openssh_server() {
+  local _dropbear_rsa_key_length=3072
+  local _rsa_key_length=4096
+  local _sshd_config_file="/etc/ssh/sshd_config.d/99-cadi.conf"
+
+  cat <<-'EOF' >> "$run_script"
+	      write_log "Hardening OpenSSH server configuration" 6
+	      {
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	        # Debug
+	        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
+	        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	
+	EOF
+  fi
+
+  if [ "$image_ssh_keytypes" = "ed25519+rsa" ]; then
+    # Enable RSA in addition to ED25519 host key
+
+    cat <<-EOF >> "$run_script"
+	
+	EOF
+    if [ -z "$luks_remote_unlock_enabled" ]; then
+      cat <<-EOF >> "$run_script"
+	        _rsa_key_length=$_rsa_key_length
+	EOF
+    else
+      # Dropbear has shorter supported length of RSA key
+      cat <<-EOF >> "$run_script"
+	        _rsa_key_length=$_dropbear_rsa_key_length
+	EOF
+    fi
+
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Generate ED25519 and \${_rsa_key_length}bit RSA host keys if missing on sshd startup" 6
+	        sed -i \
+	          -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
+	          -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
+	          /etc/conf.d/sshd
+	EOF
+  else
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Only generate ED25519 host key if missing on sshd startup" 8
+	        sed -i -e \
+	          's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+	          /etc/conf.d/sshd
+	EOF
+  fi
+
+
+  # sshd_config
+  cat <<-'EOF' >> "$run_script"
+	
+	        # Only modify sshd_config if existing setting is not as desired
+	        if ! grep -q -i -E '^subsystem[[:space:]]+sftp[[:space:]]+internal-sftp$' \
+	               /etc/ssh/sshd_config; then
+	          write_log "Use built-in SFTP server" 8
+	          sed -i -e \
+	            's|^[#]*subsystem[[:space:]]+sftp[[:space:]].*$|Subsystem  sftp  internal-sftp|' \
+	           /etc/ssh/sshd_config
+	        fi
+	EOF
+
+  # /etc/ssh/sshd_config.d/01-cadi.conf
+  cat <<-EOF >> "$run_script"
+	
+	        write_log "Creating $_sshd_config_file config file" 8
+	        {
+	          printf '#\n# $_sshd_config_file\n#\n'
+	          printf '# Override settings from /etc/ssh/sshd_config.\n#\n'
+	          printf '# NOTE: the *first* occurrence of a setting in any file in\n'
+	          printf '# /etc/ssh/sshd_config.d/ takes precedence of same setting\n'
+	          printf '# in any later named files.\n#\n'
+	          printf '# Best to verify resultant config using "sshd -T | sort"\n\n'
+	        } > $_sshd_config_file
+	
+	EOF
+
+  if [ "$image_ssh_keytypes" = "ed25519+rsa" ]; then
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Use ED25519 & RSA host keys" 10
+	        {
+	          printf '\n# Use ED25519 & RSA host keys\n'
+	          printf 'HostKey  /etc/ssh/ssh_host_ed25519_key\n'
+	          printf 'HostKey  /etc/ssh/ssh_host_rsa_key\n'
+	          printf 'HostKeyAlgorithms  ssh-ed25519,rsa-sha2-512,rsa-sha2-256\n'
+	EOF
+  else
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Only use ED25519 host key" 10
+	        {
+	          printf '\n# Only use ED25519 host key\n'
+	          printf 'HostKey  /etc/ssh/ssh_host_ed25519_key\n'
+	          printf 'HostKeyAlgorithms  ssh-ed25519\n'
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	
+	EOF
+
+  cat <<-'EOF' >> "$run_script"
+	        write_log "Prevent challenge-response logins" 10
+	        write_log "Prevent keyboard-interactive logins" 10
+	        write_log "Prevent logins to accounts with empty passwords" 10
+	        write_log "Prevent root logins" 10
+	        write_log "Disable Agent forwarding" 10
+	        {
+	          printf '\n# Prevent challenge-response logins\n'
+	          printf 'ChallengeResponseAuthentication  no\n'
+	          printf '\n# Prevent keyboard-interactive logins\n'
+	          printf 'KbdInteractiveAuthentication  no\n'
+	          printf '\n# Prevent logins to accounts with empty passwords\n'
+	          printf 'PermitEmptyPasswords  no\n'
+	          printf '\n# Prevent root logins\n'
+	          printf 'PermitRootLogin  no\n'
+	          printf '\n# Disable Agent forwarding\n'
+	          printf 'AllowAgentForwarding  no\n'
+	EOF
+
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	
+	EOF
+
+  if [ -n "$image_insecure" ]; then
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Permit password-based SSH logins" 10
+	        {
+	          printf '\n# Permit password-based SSH logins\n'
+	          printf 'PasswordAuthentication  yes\n'
+	EOF
+  else
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Prevent password-based SSH logins" 10
+	        {
+	          printf '\n# Prevent password-based SSH logins\n'
+	          printf 'PasswordAuthentication  no\n'
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	
+	EOF
+
+  if [ -n "$image_enable_pam" ]; then
+    case $image_cloud_software in
+      cloud-init )
+        cat <<-'EOF' >> "$run_script"
+	        write_log "Enable PAM" 10
+	        {
+	          printf '\n# Enable PAM support\n'
+	          printf 'UsePAM yes\n'
+	EOF
+        ;;
+      * )
+        cat <<-'EOF' >> "$run_script"
+	        write_log "Disable PAM" 10
+	        {
+	          printf '\n# Disabling PAM support\n'
+	          printf 'UsePAM no\n'
+	EOF
+        ;;
+    esac
+  else
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Disable PAM" 8
+	        {
+	          printf '\n# Disabling PAM support\n'
+	          printf 'UsePAM no\n'
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	
+	        write_log "Ensure only key-based authentication is enabled" 10
+	        {
+	          printf '\n# Ensure only key-based authentication is enabled\n'
+	          printf 'AuthenticationMethods "publickey"\n'
+	        } >> $_sshd_config_file
+	
+	EOF
+
+  if [ -n "$image_disable_ipv4" ]; then
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Enable only IPv6 access" 10
+	        {
+	          printf '\n# Enable only IPv6 access\n'
+	          printf 'AddressFamily inet6\n'
+	          printf 'ListenAddress ::\n'
+	EOF
+  elif [ -n "$image_disable_ipv6" ]; then
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Enable only IPv4 access" 10
+	        {
+	          printf '\n# Enable only IPv6 access\n'
+	          printf 'AddressFamily inet\n'
+	          printf 'ListenAddress 0.0.0.0\n'
+	EOF
+  else
+    cat <<-'EOF' >> "$run_script"
+	        write_log "Enable both IPv4 and IPv6 access" 10
+	        {
+	          printf '\n# Enable IPv4 and IPv6 access\n'
+	          printf 'AddressFamily any\n'
+	          printf 'ListenAddress 0.0.0.0\n'
+	          printf 'ListenAddress ::\n'
+	EOF
+  fi
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	EOF
+
+
+  if [ -n "$image_harden" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Further harden the configuration" 10
+	        {
+	          printf '\n# Limit Ciphers to single strong one\n'
+	          printf 'Ciphers  chacha20-poly1305@openssh.com\n'
+	          printf '\n# Limit KexAlgorithms to curve 25519\n'
+	          printf \
+	            'KexAlgorithms  curve25519-sha256,curve25519-sha256@libssh.org\n'
+	          printf '\n# Limit MAC to single Encrypt-then-MAC version\n'
+	          printf 'MACS  hmac-sha2-512-etm@openssh.com\n'
+	          printf '\n# Only accept the use of ED25519 public keys\n'
+	          printf \
+	            'PubkeyAcceptedKeyTypes  ssh-ed25519,sk-ssh-ed25519@openssh.com\n'
+	EOF
+  else
+    # Basic sensible SSH configuration
+    cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Basic sshd secure configuration" 10
+	        {
+	          printf '\n# Limit Ciphers to relatively strong ones\n'
+	          printf 'Ciphers  chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n'
+	          printf '\n# limit KexAlgorithms to curve 25519\n'
+	          printf \
+	            'KexAlgorithms  curve25519-sha256,curve25519-sha256@libssh.org\n'
+	          printf '\n# Limit MAC to Encrypt-then-MAC versions\n'
+	          printf 'MACS  hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com\n'
+	          printf '\n# Only accept relatively strong public key types\n'
+	          printf \
+	            'PubkeyAcceptedKeyTypes  ssh-ed25519,sk-ssh-ed25519@openssh.com,rsa-sha2-512,rsa-sha2-256\n'
+	EOF
+  fi
+
+  cat <<-EOF >> "$run_script"
+	        } >> $_sshd_config_file
+	EOF
+
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	        # Debug
+	        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+	        rm /etc/conf.d/sshd-orig
+	        write_debug_log "Contents of /etc/ssh/sshd_config file:" 8
+	        cat /etc/ssh/sshd_config >> /chroot.log
+	        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config \\
+	          >> /chroot.log || true
+	        rm /etc/ssh/sshd_config-orig
+	        write_debug_log \\
+	          "Contents of $_sshd_config_file file:" 8
+	        cat $_sshd_config_file >> /chroot.log
+	EOF
+  fi
+
+  cat <<-'EOF' >> "$run_script"
+	      }
+	EOF
+}

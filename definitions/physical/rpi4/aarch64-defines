@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-##  physical-rpi4-aarch64-defines
+##  physical rpi4 aarch64-defines
 ##
 ##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
@@ -21,6 +21,7 @@ readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="normal"
 readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="vc4"
 readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="usb"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="graphics,text"
+readonly CADI_SUPPORTED_CRYPTO_DEVICES="none"
 readonly CADI_SUPPORTED_DHCP_CLIENTS="dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="mbr"
 readonly CADI_SUPPORTED_NETWORK_DRIVERS="none"
@@ -28,6 +29,7 @@ readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
 readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,flash,sdcard,ssd"
 readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,sd,usb"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
+readonly CADI_SUPPORTED_RNGS="none"
 readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,sd,usb"
 
 

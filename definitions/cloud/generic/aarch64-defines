@@ -50,6 +50,11 @@ readonly CADI_DEFAULT_STORAGE_DRIVER="generic"
 
 
 # Additional
+#
+# Required for Azure DS: hvtools py3-passlib
+readonly CADI_PACKAGES_ADDITIONAL="hvtools py3-passlib"
+# Size of package & all their dependencies (in MB)
+readonly CADI_PACKAGES_ADDITIONAL_SIZE=1
 readonly CADI_PACKAGES_EXTRA="nvme-cli"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_EXTRA_SIZE=1

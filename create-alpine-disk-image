@@ -40,6 +40,7 @@ readonly script_dir="$(dirname "$0")"
 . "${script_dir}"/lib/disk-image-functions
 . "${script_dir}"/lib/filesystems-functions
 . "${script_dir}"/lib/fscrypt-encryption-functions
+. "${script_dir}"/lib/harden-functions
 . "${script_dir}"/lib/kernel-module-functions
 . "${script_dir}"/lib/luks-encryption-functions
 . "${script_dir}"/lib/lvm-functions
@@ -51,6 +52,7 @@ readonly script_dir="$(dirname "$0")"
 . "${script_dir}"/lib/mkinitfs-functions
 
 . "${script_dir}"/lib/bootloader-general-functions
+. "${script_dir}"/lib/efistub-functions
 . "${script_dir}"/lib/grub-functions
 . "${script_dir}"/lib/limine-functions
 . "${script_dir}"/lib/rpi-bootloader-functions
@@ -161,6 +163,8 @@ if [ "$image_os_partitioning_type" != "unpartitioned" ]; then
   case $image_boot_type in
     bios )
       partition_bios ;;
+    hybrid )
+      partition_hybrid ;;
     rpi )
       partition_rpi ;;
     secure-uefi | uefi )
@@ -205,11 +209,12 @@ case $image_bootloader in
              [ -z "$remote_luks_unlock_enabled" ]; } && \
            [ -z "$image_no_grub_luks_fde_encryption" ] && \
            [ "$image_create_boot_partition" = "false" ]; then
-          # LUKS keyfile is used to unlock LUKS rootfs without 2nd password prompt.
-          # It applies only when:
+          # LUKS keyfile is used to unlock LUKS rootfs without 2nd
+          # password prompt. It applies only when:
           #  - bootloader is Grub, AND
           #  - disk image is LUKS encrypted, AND
-          #  - remote unlock is not enabled (otherwise /boot is not encrypted), AND
+          #  - remote unlock is not enabled (otherwise /boot is
+          #    not encrypted), AND
           #  - Grub LUKS encryption support is not disabled, AND
           #  - /boot is not a separate partition.
           copy_luks_keyfile_into_place
@@ -295,7 +300,7 @@ if [ -z "$image_disable_optimisation" ]; then
 fi
 if [ -n "$image_harden" ]; then
   create_module_blocking_initd
-  delete_users_groups
+  harden_delete_unnecessary_users_groups
 fi
 
 if [ -n "$remote_unlock_enabled" ] && [ -n "$ssh_public_key" ]; then
@@ -306,11 +311,11 @@ case $image_alpine_release in
   v3.13 | v3.14 | v3.15 | v3.16 )
     case $image_device_management_type in
       mdev | mdevd )
-        # Hack/kludge for grub-probe problems - it will use "udevadm info" to
-        # determine info related to the boot device/fs if eudev package is
-        # installed, if not then it falls back to its own way of figuring stuff out
-        # which does not work for filesystems on a loopback device, so let's
-        # temporarily install eudev to let it use udevadm.
+        # Hack/kludge for grub-probe problems - it will use "udevadm info"
+        # to determine info related to the boot device/fs if eudev package
+        # is installed, if not then it falls back to its own way of figuring
+        # stuff out which does not work for filesystems on a loopback
+        # device, so let's temporarily install eudev to let it use udevadm.
         cat <<-'EOF' >> "$run_script"
 	
 	write_log "Temporarily installing eudev so that grub-probe can use it"
@@ -339,6 +344,8 @@ install_firmware
 show_initramfs_contents
 
 case $image_bootloader in
+  efistub )
+    configure_bootloader_efistub ;;
   grub )
     configure_bootloader_grub ;;
   limine )

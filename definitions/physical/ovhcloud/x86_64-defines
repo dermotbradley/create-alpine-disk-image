@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-##  physical pc x86_64-defines
+##  physical ovhcloud x86_64-defines
 ##
 ##  Copyright 2021-2023 Dermot Bradley <dermot_bradley@yahoo.com>
 ##
@@ -11,51 +11,54 @@
 #############################################################################
 
 
+# https://support.us.ovhcloud.com/hc/en-us/articles/360018521100-How-to-Use-the-Bring-Your-Own-Image-Feature-for-Dedicated-Server
+# https://support.us.ovhcloud.com/hc/en-us/articles/360018521100
+
 # Supported
 readonly CADI_SUPPORTED_ACPI_BUTTONS="button"
 readonly CADI_SUPPORTED_BOOT_REFERENCES="device,label,uuid"
-readonly CADI_SUPPORTED_BOOT_TYPES="bios,hybrid,secure-uefi,uefi"
+readonly CADI_SUPPORTED_BOOT_TYPES="bios,hybrid,uefi"
 readonly CADI_SUPPORTED_BOOTLOADERS_BIOS="grub,limine,syslinux"
 readonly CADI_SUPPORTED_BOOTLOADERS_HYBRID="grub,limine"
-readonly CADI_SUPPORTED_BOOTLOADERS_SECURE_UEFI="grub"
-readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine,uki"
+readonly CADI_SUPPORTED_BOOTLOADERS_UEFI="grub,limine"
 readonly CADI_SUPPORTED_CLOCKSOURCES="generic,acpi_pm,tsc"
 readonly CADI_SUPPORTED_CONSOLE_DEVICE_TYPES="generic,normal,normal_and_serial,serial"
-readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,amd,bochs,i915,nouveau,radeon,simpledrm"
-readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="generic,none,ps2,usb"
+readonly CADI_SUPPORTED_CONSOLE_GRAPHICS_DRIVERS="generic,i915,nouveau,radeon,simpledrm"
+readonly CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES="generic,ps2,usb"
 readonly CADI_SUPPORTED_CONSOLE_OUTPUT_TYPES="generic,graphics,text"
 readonly CADI_SUPPORTED_CRYPTO_DEVICES="generic,none,ccp"
 readonly CADI_SUPPORTED_DHCP_CLIENTS="generic,dhclient,dhcpcd,udhcpc"
 readonly CADI_SUPPORTED_DISK_IMAGE_PARTITIONING_TYPES="gpt,mbr"
-readonly CADI_SUPPORTED_NETWORK_DRIVERS="generic,none,alx,e1000,e1000e,i40e,ice,igb,igbvf,igc,ixgb,ixgbe,ixgbevf,nvidia,r8169,tg3"
-readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="generic,none,alx,e1000,e1000e,i40e,ice,igb,igbvf,igc,ixgb,ixgbe,ixgbevf,nvidia,r8169,tg3"
-readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,flash,sdcard,ssd"
-readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,nvme,sata,scsi,sd,usb"
+readonly CADI_SUPPORTED_NETWORK_DRIVERS="generic,e1000,e1000e,igb,tg3"
+readonly CADI_SUPPORTED_OS_BOOT_NETWORK_DRIVERS="none"
+readonly CADI_SUPPORTED_OS_DEVICE_MEDIAS="generic,disk,ssd"
+readonly CADI_SUPPORTED_OS_DEVICE_TYPES="generic,nvme,sata,scsi"
 readonly CADI_SUPPORTED_OS_SEPARATE_BOOT_PARTITION=true
 readonly CADI_SUPPORTED_RNGS="generic,none,amd,intel"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_BASE_NAME="ttyS"
 readonly CADI_SUPPORTED_SERIAL_CONSOLE_PORT_NUMBER="0"
-readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,sata,scsi,sd,usb"
+readonly CADI_SUPPORTED_STORAGE_DRIVERS="generic,nvme,sata,scsi"
 
 
 # Defaults
 readonly CADI_DEFAULT_BOOT_TYPE="bios"
 readonly CADI_DEFAULT_BOOTLOADER="grub"
-readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal"
-readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="generic"
+readonly CADI_DEFAULT_CONSOLE_DEVICE_TYPE="normal_and_serial"
+readonly CADI_DEFAULT_CONSOLE_GRAPHICS_DRIVER="simpledrm"
 readonly CADI_DEFAULT_CONSOLE_KEYBOARD_TYPE="generic"
 readonly CADI_DEFAULT_CONSOLE_OUTPUT_TYPE="text"
 readonly CADI_DEFAULT_CRYPTO_DEVICE="generic"
-readonly CADI_DEFAULT_DHCP_CLIENT="dhcpcd"
+readonly CADI_DEFAULT_DHCP_CLIENT="dhclient"
 readonly CADI_DEFAULT_NETWORK_DRIVER="generic"
-readonly CADI_DEFAULT_OS_BOOT_NETWORK_DRIVER="none"
-readonly CADI_DEFAULT_OS_DEVICE_MEDIA="disk"
-readonly CADI_DEFAULT_OS_DEVICE_TYPE="sata"
+readonly CADI_DEFAULT_OS_DEVICE_MEDIA="generic"
+readonly CADI_DEFAULT_OS_DEVICE_TYPE="generic"
 readonly CADI_DEFAULT_RNG="generic"
 readonly CADI_DEFAULT_STORAGE_DRIVERS="generic"
 
 
 # Additional
+readonly CADI_DISK_IMAGE_FORMAT="qcow2"
+readonly CADI_DISK_IMAGE_COMPRESSION="gzip"
 readonly CADI_PACKAGES_ADDITIONAL="cpufrequtils,ethtool,irqbalance"
 # Size of package & all their dependencies (in MB)
 readonly CADI_PACKAGES_ADDITIONAL_SIZE=6

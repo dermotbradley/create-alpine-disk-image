@@ -13,20 +13,22 @@
 
 
 #
-# Check if Grub supports booting from the selected filesystem type
+# Check if Grub supports booting from the selected filesystem type.
 #
 check_grub_supports_fs() {
   case $image_fs_type in
     btrfs | ext4 | f2fs | xfs )
       : ;;
     * )
-      error_message "Grub bootloader does not support booting from $image_fs_type filesystem!"
+      error_message \
+        "Grub bootloader does not support booting from $image_fs_type filesystem!"
+      ;;
   esac
 }
 
 
 #
-# Check if Grub supports booting from LUKS
+# Check if Grub supports booting from LUKS.
 #
 check_grub_supports_luks() {
   # Grub does support booting from LUKS
@@ -35,7 +37,7 @@ check_grub_supports_luks() {
 
 
 #
-# Check if Grub supports booting from LVM
+# Check if Grub supports booting from LVM.
 #
 check_grub_supports_lvm() {
   # Grub does support booting from LVM
@@ -44,7 +46,7 @@ check_grub_supports_lvm() {
 
 
 #
-# Configure Grub
+# Configure Grub.
 #
 configure_bootloader_grub() {
   local _cmdline _disable_recovery _enable_luks_cryptodisk _menu_timeout
@@ -88,13 +90,14 @@ configure_bootloader_grub() {
          [ "$image_create_boot_partition" != "true" ]; then
         # Enable Grub LUKS encryption support when:
         #  - disk image is LUKS encrypted, AND
-        #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+        #  - remote unlock is not enabled (as otherwise /boot
+        #    is not encrypted), AND
         #  - Grub LUKS encryption support is not disabled, AND
         #  - /boot is not a separate partition.
         _enable_luks_cryptodisk="y"
 
-        # Cryptkey is used for unlock LUKS rootfs without 2nd password prompt when
-        # GRUB LUKS encryption support is enabled..
+        # Cryptkey is used for unlock LUKS rootfs without 2nd password
+        # prompt when GRUB LUKS encryption support is enabled.
         _cmdline="$_cmdline cryptkey"
       else
         _enable_luks_cryptodisk="n"
@@ -371,9 +374,9 @@ EOF
            [ -z "$luks_remote_unlock_enabled" ]; } && \
          [ -z "$image_no_grub_luks_fde_encryption" ] && \
          [ -z "$needs_boot_partition" ]; then
-        # When using GRUB encryption along with a keyfile (to avoid 2nd prompt),
-        # ensure that initramfs is only readable by root as it contains the
-        # keyfile to decrypt the root partition.
+        # When using GRUB encryption along with a keyfile (to avoid 2nd
+        # prompt) ensure that initramfs is only readable by root as it
+        # contains the keyfile to decrypt the root partition.
         _initramfs_filename="$(get_initramfs_filename)"
         cat <<-EOF >> "$run_script"
 	
@@ -386,7 +389,7 @@ EOF
 
 
 #
-# Enable serial console for Grub
+# Enable serial console for Grub.
 #
 enable_grub_serial_console() {
   local _console_terminal_value _grub_command_options
@@ -432,7 +435,7 @@ enable_grub_serial_console() {
 
 
 #
-# Install GRUB onto disk
+# Install GRUB onto disk.
 #
 install_grub() {
   local _grub_options _grub_efi_options _grub_modules_list
@@ -459,7 +462,8 @@ install_grub() {
            [ "$image_create_boot_partition" != "true" ]; then
           # Grub LUKS encryption support only applies when:
           #  - disk image is LUKS encrypted, AND
-          #  - remote unlock is not enabled (as otherwise /boot is not encrypted), AND
+          #  - remote unlock is not enabled (as otherwise /boot
+          #    is not encrypted), AND
           #  - Grub LUKS encryption support is not disabled AND
           #  - /boot is not a separate partition.
           _grub_modules_list="$_grub_modules_list cryptodisk gcry_rijndael gcry_sha256"
@@ -491,12 +495,21 @@ install_grub() {
       normal | normal_and_serial | generic )
         case $image_arch in
           aarch64 )
-            case $image_keyboard_type in
-              hyperv | usb | generic )
-                if is_in_comma_list "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
-                                    "usb"; then
-                  _grub_modules_list="$_grub_modules_list usb_keyboard ehci ohci"
-                fi
+            case $image_boot_type in
+              secure-uefi | uefi )
+                # grub-efi for aarch64 does not have USB keyboard
+                # or related modules
+                : ;;
+              * )
+                case $image_keyboard_type in
+                  hyperv | usb | generic )
+                    if is_in_comma_list \
+                         "$CADI_SUPPORTED_CONSOLE_KEYBOARD_TYPES" \
+                         "usb"; then
+                      _grub_modules_list="$_grub_modules_list usb_keyboard ehci ohci"
+                    fi
+                    ;;
+                esac
                 ;;
             esac
             ;;
@@ -681,13 +694,14 @@ install_grub() {
   cat <<-EOF >> "$run_script"
 	    2>&1 \\
 	    | sed -e '/^grub-install: info: copying .*$/d' \\
-	    | sed -e '/^grub-install: info: cannot open .*No such file or directory.$/d' \\
+	    | sed -e \\
+	        '/^grub-install: info: cannot open .*No such file or directory.$/d' \\
 	    | tee -a /chroot.log )
 	  if [ "\\\$(echo "\\\$_grub_install_output" | grep "error:")" != "" ]; then
 	    exit 1
 	  fi
 	
-	  write_log "Storing grub-install option for later use" 2
+	  write_log "Storing grub-install options for later use" 2
 	  {
 	    printf "# /etc/grub-install-options.conf\n\n"
 	    printf 'GRUB_INSTALL_OPTIONS="%s' \\
@@ -710,37 +724,11 @@ install_grub() {
 	  } > /etc/grub-install-options.conf
 	  chown root:root /etc/grub-install-options.conf
 	  chmod u=rwx,g=r,o=r /etc/grub-install-options.conf
-	
-	  write_log "Creating script for later use to re-install GRUB" 2
-	  {
-	    echo "#!/bin/sh"
-	    echo
-	    echo "grub-install \\\\\"
-	    echo "  ${_grub_options} \\\\\"
-	EOF
-  if [ -z "$image_disable_optimisation" ]; then
-    cat <<-EOF >> "$run_script"
-	    echo "  --install-modules=\"$_grub_modules_list\" \\\\\"
-	EOF
-  fi
-  case $image_boot_type in
-    bios )
-      # Do not need to specify device for UEFI setup
-      cat <<-'EOF' >> "$run_script"
-	    echo "  /dev/\\\$(readlink /dev/root)"
-	EOF
-      ;;
-  esac
-  cat <<-'EOF' >> "$run_script"
-	    echo
-	    echo "exit"
-	  } > /usr/local/bin/reinstall-grub
-	  chmod +x /usr/local/bin/reinstall-grub
-
-	  if [ -n "\$losetup_package_installed" ]; then
 	EOF
 
   cat <<-EOF >> "$run_script"
+
+	  if [ -n "\\\$losetup_package_installed" ]; then
 	    write_log "Removing ${losetup_package} package that was temporarily installed" 2
 	    apk del ${losetup_package} >> /chroot.log 2>&1
 	  fi
@@ -752,8 +740,6 @@ install_grub() {
 	  # Debug
 	  write_debug_log "/etc/grub-install-options.conf contents:" 2
 	  cat /etc/grub-install-options.conf >> /chroot.log
-	  write_debug_log "/usr/local/bin/reinstall-grub contents:" 2
-	  cat /usr/local/bin/reinstall-grub >> /chroot.log
 	EOF
   fi
 
