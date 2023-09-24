@@ -234,7 +234,7 @@ fi
 
 _chroot_cmd="cat <<EOT"
 if [ "$image_output_chroot_script" = "true" ]; then
-  _chroot_script_filename="debug-chroot-$(change_filename_extension "$filename_for_image" "sh")"
+  _chroot_script_filename="$(dirname $filename_for_image)/debug-chroot-$(basename $(change_filename_extension "$filename_for_image" "sh"))"
   _chroot_cmd="$_chroot_cmd | tee ${_chroot_script_filename}"
 fi
 _chroot_cmd="$_chroot_cmd | chroot \$chroot_dir /bin/sh -eu"

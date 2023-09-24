@@ -189,7 +189,7 @@ basic_os_configuration() {
 
   cat <<-EOF >> "$run_script"
 	    write_log "Setting locale to \\\$locale" 2
-	    sed -i -E -e "s/^(export LANG=)C.UTF-8/\1\\\$locale/" \\
+	    sed -i -E -e "s/^(export LANG=)C.UTF-8/\1\\\$locale/" \\\\
 	      /etc/profile.d/\\\${locale_file}
 	EOF
 
@@ -3240,8 +3240,8 @@ insert_chroot_function_get_kernel_package_version() {
   cat <<-EOF >> "$run_script"
 	
 	get_kernel_package_version() {
-	  echo "\\\$(apk info linux-$_kernel_type | head -n 1 | sed -e "s/^linux-$_kernel_type-//" \\
-	    -e 's/ .*//')"
+	  apk info linux-$_kernel_type | head -n 1 | sed -e "s/^linux-$_kernel_type-//" \\
+	    -e 's/ .*//'
 	}
 	EOF
 }

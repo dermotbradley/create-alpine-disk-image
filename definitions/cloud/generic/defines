@@ -14,7 +14,7 @@
 # Supported
 readonly CADI_SUPPORTED_ARCHS="aarch64,x86,x86_64"
 #readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud,ConfigDrive,Akamai,AliYun,Azure,Bigstep,Ec2,Exoscale,GCE,Hetzner,IBMCloud,OpenStack,Oracle,RbxCloud,Scaleway,UpCloud,Vultr"
-readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud,ConfigDrive,AliYun,Azure,Bigstep,Ec2,Exoscale,GCE,Hetzner,IBMCloud,OpenStack,Oracle,RbxCloud,Scaleway,UpCloud,Vultr"
+readonly CADI_SUPPORTED_CLOUD_INIT_DATASOURCES="NoCloud,ConfigDrive,AliYun,Azure,Bigstep,Ec2,Exoscale,GCE,Hetzner,IBMCloud,OpenStack,Oracle,RbxCloud,Scaleway,UpCloud,Vultr,None"
 readonly CADI_SUPPORTED_CONFIGURATION_TOOLS="cloud-init,none"
 readonly CADI_SUPPORTED_IPV4=true
 readonly CADI_SUPPORTED_IPV6=true

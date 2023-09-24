@@ -47,14 +47,16 @@ configure_doas() {
 	_SCRIPT_
 
     write_log "Enabling doas configuration for wheel group" 4
-    sed -i -E -e 's/^[#][ ]*(permit persist :wheel)$/\1/g' ${_doas_file}
+    sed -i -E -e 's/^[#][ ]*(permit persist :wheel)$/\1/g' \\
+      ${_doas_file}
 EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	    
 	    # Debug
-	    diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
+	    diff ${_doas_file}-orig ${_doas_file} \\
+	      >> /chroot.log || true
 	    rm ${_doas_file}-orig
 	EOF
   fi
@@ -200,9 +202,12 @@ harden_etc_profile() {
 	    # Debug
 	    write_debug_log "Contents of /etc/profile.d/\${umask_file}:"
 	    cat /etc/profile.d/\${umask_file} >> /chroot.log || true
-	  }
 	EOF
   fi
+
+  cat <<-'EOF' >> "$run_script"
+	  }
+	EOF
 }
 
 
@@ -212,18 +217,18 @@ harden_etc_profile() {
 harden_openssh_server() {
   local _dropbear_rsa_key_length=3072
   local _rsa_key_length=4096
-  local _sshd_config_file="/etc/ssh/sshd_config.d/99-cadi.conf"
 
   cat <<-'EOF' >> "$run_script"
 	      write_log "Hardening OpenSSH server configuration" 6
 	      {
 	EOF
 
+  # /etc/conf.d/sshd
+
   if [ -n "$debug_enabled" ]; then
     cat <<-'EOF' >> "$run_script"
 	        # Debug
 	        cp /etc/conf.d/sshd /etc/conf.d/sshd-orig
-	        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
 	
 	EOF
   fi
@@ -261,22 +266,266 @@ harden_openssh_server() {
 	EOF
   fi
 
+  if [ -n "$debug_enabled" ]; then
+    cat <<-EOF >> "$run_script"
+	
+	        # Debug
+	        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
+	        cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	EOF
+  fi
+
 
   # sshd_config
   cat <<-'EOF' >> "$run_script"
 	
 	        # Only modify sshd_config if existing setting is not as desired
-	        if ! grep -q -i -E '^subsystem[[:space:]]+sftp[[:space:]]+internal-sftp$' \
+	        if ! grep -q -i -E \
+	               '^subsystem[[:space:]]+sftp[[:space:]]+internal-sftp$' \
 	               /etc/ssh/sshd_config; then
 	          write_log "Use built-in SFTP server" 8
 	          sed -i -e \
 	            's|^[#]*subsystem[[:space:]]+sftp[[:space:]].*$|Subsystem  sftp  internal-sftp|' \
-	           /etc/ssh/sshd_config
+	            /etc/ssh/sshd_config
 	        fi
 	EOF
 
-  # /etc/ssh/sshd_config.d/01-cadi.conf
-  cat <<-EOF >> "$run_script"
+
+  # sshd_config or /etc/ssh/sshd_config.d/99-cadi.conf
+
+  case $image_alpine_release in
+    v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+      # The version of openssh server in these releases does not support
+      # the "Include" directive to read config from additional files in
+      # /etc/ssh/sshd_config.d/ directory.
+
+      if [ -n "$image_harden" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Only generate ED25519 host key" 6
+	        sed -i -e \
+	          's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519"/' \
+	          /etc/conf.d/sshd
+	EOF
+      else
+        if [ -n "$luks_remote_unlock_enabled" ]; then
+          cat <<-EOF >> "$run_script"
+	
+	        _rsa_key_length=$_rsa_key_length
+	EOF
+        else
+          # Dropbear has shorter supported length of RSA key
+          cat <<-EOF >> "$run_script"
+	
+	        _rsa_key_length=$_dropbear_rsa_key_length
+	EOF
+        fi
+
+        cat <<-'EOF' >> "$run_script"
+	        write_log "Only generate ED25519 and \${_rsa_key_length}bit RSA host keys" 6
+	        sed -i \\
+	          -e 's/^[#]*key_types_to_generate=.*$/key_types_to_generate="ed25519 rsa"/' \
+	          -e "s/^[#]*rsa_bit_size=.*$/rsa_bit_size=\"\${_rsa_key_length}\"/" \
+	          /etc/conf.d/sshd
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	
+	        # Configure sshd to:
+	EOF
+
+      if [ -n "$image_harden" ] || [ "$image_ssh_keytypes" = "ed25519" ]; then
+        cat <<-'EOF' >> "$run_script"
+	        # - only use ED25519 host key
+	EOF
+      else
+        cat <<-'EOF' >> "$run_script"
+	        # - only use ED25519 & RSA host keys
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	        # - prevent challenge-response logins
+	        # - prevent keyboard-interactive logins
+	        # - prevent logins to accounts with empty passwords
+	        # - prevent root logins
+	        # - disable Agent forwarding
+	        # - use built-in SFTP server
+	        write_log "Prevent root logins" 6
+	        sed -i \
+	          -e 's|^#HostKey /etc/ssh/ssh_host_ed25519_key$|HostKey /etc/ssh/ssh_host_ed25519_key|' \
+	          -e 's|^[#]*ChallengeResponseAuthentication .*$|ChallengeResponseAuthentication no|' \
+	          -e 's|^[#]*KbdInteractiveAuthentication .*$|KbdInteractiveAuthentication no|' \
+	          -e 's|^[#]*PermitEmptyPasswords .*$|PermitEmptyPasswords no|' \
+	          -e 's|^[#]*PermitRootLogin .*$|PermitRootLogin no|' \
+	          -e 's|^[#]*AllowAgentForwarding .*$|AllowAgentForwarding no|' \
+	          -e 's|^[#]*Subsystem[ \t].*sftp[ \t].*$|Subsystem sftp internal-sftp|' \
+	          /etc/ssh/sshd_config
+	EOF
+
+      if [ -n "$image_insecure" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	        # - permit password-based logins
+	        write_log "Permit password-based SSH logins" 6
+	        sed -i \
+	          -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication yes|' \
+	          /etc/ssh/sshd_config
+	EOF
+      else
+        cat <<-'EOF' >> "$run_script"
+	        # - prevent password-based logins
+	        write_log "Prevent password-based SSH logins" 6
+	        sed -i \
+	          -e 's|^[#]*PasswordAuthentication .*$|PasswordAuthentication no|' \
+	          /etc/ssh/sshd_config
+	EOF
+      fi
+
+      if [ -n "$image_enable_pam" ]; then
+        case $image_cloud_software in
+          cloud-init )
+            cat <<-'EOF' >> "$run_script"
+	
+	        # - enable PAM
+	        write_log "Enable PAM support" 6
+	        sed -i -e 's|^[#]*UsePAM .*$|UsePAM yes|' /etc/ssh/sshd_config
+	EOF
+            ;;
+          * )
+            cat <<-'EOF' >> "$run_script"
+	
+	        # - disable PAM
+	        write_log "Disabling PAM support" 6
+	        sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
+	EOF
+            ;;
+        esac
+      else
+        cat <<-'EOF' >> "$run_script"
+	
+	        # - disable PAM
+	        write_log "Disabling PAM support" 6
+	        sed -i -e 's|^[#]*UsePAM .*$|#UsePAM no|' /etc/ssh/sshd_config
+	EOF
+      fi
+
+      cat <<-'EOF' >> "$run_script"
+	
+	        # - ensure only key-based authentication is enabled
+	        sed -i -e '/^[#]*AuthenticationMethods .*$/d' /etc/ssh/sshd_config
+	        {
+	          printf '\nAuthenticationMethods "publickey"\n\n'
+	        } >> /etc/ssh/sshd_config
+	EOF
+
+      case $image_ssh_keytypes in
+        ed25519 )
+          : ;;
+        * )
+          # Enable RSA key use
+          cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Enable RSA key use" 6
+	        sed -i \
+	          -e 's|^#HostKey /etc/ssh/ssh_host_rsa_key$|HostKey /etc/ssh/ssh_host_rsa_key|' \
+	          /etc/ssh/sshd_config
+	EOF
+          ;;
+      esac
+
+      if [ -n "$image_disable_ipv4" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Enable only IPv6 access" 6
+	        sed -i \
+	          -e 's/^[#]*AddressFamily .*$/AddressFamily inet6/g' \
+	          -e 's/^ListenAddress 0.0.0.0.*$/#ListenAddress 0.0.0.0/g' \
+	          -e 's/^#ListenAddress ::.*$/ListenAddress ::/g' \
+	          /etc/ssh/sshd_config
+	EOF
+      elif [ -n "$image_disable_ipv6" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Enable only IPv4 access" 6
+	        sed -i \
+	          -e 's/^[#]*AddressFamily .*$/AddressFamily inet/g' \
+	          -e 's/^#ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
+	          -e 's/^ListenAddress ::.*$/#ListenAddress ::/g' \
+	          /etc/ssh/sshd_config
+	EOF
+      else
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Enable both IPv4 and IPv6 access" 6
+	        sed -i \
+	          -e 's/^[#]*AddressFamily .*$/AddressFamily any/g' \
+	          -e 's/^#ListenAddress 0.0.0.0.*$/ListenAddress 0.0.0.0/g' \
+	          -e 's/^#ListenAddress ::.*$/ListenAddress ::/g' \
+	          /etc/ssh/sshd_config
+	EOF
+      fi
+
+      if [ -n "$image_harden" ]; then
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Further harden the configuration" 6
+	        # - limit Ciphers to single strong one
+	        # - limit KexAlgorithms to curve 25519
+	        # - limit MAC to single Encrypt-then-MAC version
+	        # - only accept the use of ED25519 public keys
+	        {
+	          printf 'CASignatureAlgorithms  ssh-ed25519\n'
+	          printf 'Ciphers chacha20-poly1305@openssh.com\n'
+	          printf \
+	            'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+	          printf 'MACS hmac-sha2-512-etm@openssh.com\n'
+	          printf 'PubkeyAcceptedKeyTypes ssh-ed25519\n'
+	          printf '\n'
+	        } >> /etc/ssh/sshd_config
+	EOF
+
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Disable RSA key use" 6
+	        sed -i \
+	          -e 's|^HostKey /etc/ssh/ssh_host_rsa_key$|#HostKey /etc/ssh/ssh_host_rsa_key|' \
+	          /etc/ssh/sshd_config
+	EOF
+      else
+        # Basic sensible SSH configuration
+        cat <<-'EOF' >> "$run_script"
+	
+	        write_log "Basic sshd secure configuration" 6
+	        # - limit Ciphers to relatively strong ones
+	        # - limit KexAlgorithms to curve 25519
+	        # - limit MAC to Encrypt-then-MAC versions
+	        # - only accept relatively strong public key types
+	        {
+	          printf \
+	            'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n'
+	          printf \
+	            'KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org\n'
+	          printf \
+	            'MACS hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com\n'
+	          printf \
+	            'PubkeyAcceptedKeyTypes ssh-ed25519,rsa-sha2-512,rsa-sha2-256\n'
+	          printf '\n'
+	        } >> /etc/ssh/sshd_config
+	EOF
+      fi
+      ;;
+
+    * )
+      # The version of openssh server in these releases does support
+      # the "Include" directive to read config from additional files
+      # in /etc/ssh/sshd_config.d/ directory.
+
+      # /etc/ssh/sshd_config.d/99-cadi.conf
+      local _sshd_config_file="/etc/ssh/sshd_config.d/99-cadi.conf"
+
+      cat <<-EOF >> "$run_script"
 	
 	        write_log "Creating $_sshd_config_file config file" 8
 	        {
@@ -290,8 +539,8 @@ harden_openssh_server() {
 	
 	EOF
 
-  if [ "$image_ssh_keytypes" = "ed25519+rsa" ]; then
-    cat <<-'EOF' >> "$run_script"
+      if [ "$image_ssh_keytypes" = "ed25519+rsa" ]; then
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Use ED25519 & RSA host keys" 10
 	        {
 	          printf '\n# Use ED25519 & RSA host keys\n'
@@ -299,22 +548,19 @@ harden_openssh_server() {
 	          printf 'HostKey  /etc/ssh/ssh_host_rsa_key\n'
 	          printf 'HostKeyAlgorithms  ssh-ed25519,rsa-sha2-512,rsa-sha2-256\n'
 	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
+      else
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Only use ED25519 host key" 10
 	        {
 	          printf '\n# Only use ED25519 host key\n'
 	          printf 'HostKey  /etc/ssh/ssh_host_ed25519_key\n'
 	          printf 'HostKeyAlgorithms  ssh-ed25519\n'
 	EOF
-  fi
+      fi
 
-  cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	
-	EOF
-
-  cat <<-'EOF' >> "$run_script"
 	        write_log "Prevent challenge-response logins" 10
 	        write_log "Prevent keyboard-interactive logins" 10
 	        write_log "Prevent logins to accounts with empty passwords" 10
@@ -331,63 +577,60 @@ harden_openssh_server() {
 	          printf 'PermitRootLogin  no\n'
 	          printf '\n# Disable Agent forwarding\n'
 	          printf 'AllowAgentForwarding  no\n'
-	EOF
-
-  cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	
 	EOF
 
-  if [ -n "$image_insecure" ]; then
-    cat <<-'EOF' >> "$run_script"
+      if [ -n "$image_insecure" ]; then
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Permit password-based SSH logins" 10
 	        {
 	          printf '\n# Permit password-based SSH logins\n'
 	          printf 'PasswordAuthentication  yes\n'
 	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
+      else
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Prevent password-based SSH logins" 10
 	        {
 	          printf '\n# Prevent password-based SSH logins\n'
 	          printf 'PasswordAuthentication  no\n'
 	EOF
-  fi
+      fi
 
-  cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	
 	EOF
 
-  if [ -n "$image_enable_pam" ]; then
-    case $image_cloud_software in
-      cloud-init )
-        cat <<-'EOF' >> "$run_script"
+      if [ -n "$image_enable_pam" ]; then
+        case $image_cloud_software in
+          cloud-init )
+            cat <<-'EOF' >> "$run_script"
 	        write_log "Enable PAM" 10
 	        {
 	          printf '\n# Enable PAM support\n'
 	          printf 'UsePAM yes\n'
 	EOF
-        ;;
-      * )
+            ;;
+          * )
+            cat <<-'EOF' >> "$run_script"
+	        write_log "Disable PAM" 10
+	        {
+	          printf '\n# Disabling PAM support\n'
+	          printf 'UsePAM no\n'
+	EOF
+            ;;
+        esac
+      else
         cat <<-'EOF' >> "$run_script"
 	        write_log "Disable PAM" 10
 	        {
 	          printf '\n# Disabling PAM support\n'
 	          printf 'UsePAM no\n'
 	EOF
-        ;;
-    esac
-  else
-    cat <<-'EOF' >> "$run_script"
-	        write_log "Disable PAM" 8
-	        {
-	          printf '\n# Disabling PAM support\n'
-	          printf 'UsePAM no\n'
-	EOF
-  fi
+      fi
 
-  cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	
 	        write_log "Ensure only key-based authentication is enabled" 10
@@ -398,24 +641,24 @@ harden_openssh_server() {
 	
 	EOF
 
-  if [ -n "$image_disable_ipv4" ]; then
-    cat <<-'EOF' >> "$run_script"
+      if [ -n "$image_disable_ipv4" ]; then
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Enable only IPv6 access" 10
 	        {
 	          printf '\n# Enable only IPv6 access\n'
 	          printf 'AddressFamily inet6\n'
 	          printf 'ListenAddress ::\n'
 	EOF
-  elif [ -n "$image_disable_ipv6" ]; then
-    cat <<-'EOF' >> "$run_script"
+      elif [ -n "$image_disable_ipv6" ]; then
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Enable only IPv4 access" 10
 	        {
 	          printf '\n# Enable only IPv6 access\n'
 	          printf 'AddressFamily inet\n'
 	          printf 'ListenAddress 0.0.0.0\n'
 	EOF
-  else
-    cat <<-'EOF' >> "$run_script"
+      else
+        cat <<-'EOF' >> "$run_script"
 	        write_log "Enable both IPv4 and IPv6 access" 10
 	        {
 	          printf '\n# Enable IPv4 and IPv6 access\n'
@@ -423,14 +666,14 @@ harden_openssh_server() {
 	          printf 'ListenAddress 0.0.0.0\n'
 	          printf 'ListenAddress ::\n'
 	EOF
-  fi
-  cat <<-EOF >> "$run_script"
+      fi
+      cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	EOF
 
 
-  if [ -n "$image_harden" ]; then
-    cat <<-'EOF' >> "$run_script"
+      if [ -n "$image_harden" ]; then
+        cat <<-'EOF' >> "$run_script"
 	
 	        write_log "Further harden the configuration" 10
 	        {
@@ -445,9 +688,9 @@ harden_openssh_server() {
 	          printf \
 	            'PubkeyAcceptedKeyTypes  ssh-ed25519,sk-ssh-ed25519@openssh.com\n'
 	EOF
-  else
-    # Basic sensible SSH configuration
-    cat <<-'EOF' >> "$run_script"
+      else
+        # Basic sensible SSH configuration
+        cat <<-'EOF' >> "$run_script"
 	
 	        write_log "Basic sshd secure configuration" 10
 	        {
@@ -462,26 +705,33 @@ harden_openssh_server() {
 	          printf \
 	            'PubkeyAcceptedKeyTypes  ssh-ed25519,sk-ssh-ed25519@openssh.com,rsa-sha2-512,rsa-sha2-256\n'
 	EOF
-  fi
+      fi
 
-  cat <<-EOF >> "$run_script"
+      cat <<-EOF >> "$run_script"
 	        } >> $_sshd_config_file
 	EOF
+
+      if [ -n "$debug_enabled" ]; then
+        cat <<-EOF >> "$run_script"
+	
+	        # Debug
+	        write_debug_log \\
+	          "Contents of $_sshd_config_file file:" 8
+	        cat $_sshd_config_file >> /chroot.log
+	EOF
+      fi
+      ;;
+  esac
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	
 	        # Debug
-	        diff /etc/conf.d/sshd-orig /etc/conf.d/sshd >> /chroot.log || true
-	        rm /etc/conf.d/sshd-orig
 	        write_debug_log "Contents of /etc/ssh/sshd_config file:" 8
 	        cat /etc/ssh/sshd_config >> /chroot.log
 	        diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config \\
 	          >> /chroot.log || true
 	        rm /etc/ssh/sshd_config-orig
-	        write_debug_log \\
-	          "Contents of $_sshd_config_file file:" 8
-	        cat $_sshd_config_file >> /chroot.log
 	EOF
   fi
 
