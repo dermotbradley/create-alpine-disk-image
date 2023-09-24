@@ -341,17 +341,6 @@ configure_console_user() {
 	    cp /etc/group /etc/group-orig
 	    cp /etc/passwd /etc/passwd-orig
 	    cp /etc/shadow /etc/shadow-orig
-	EOF
-
-    case $image_ssh_server in
-      openssh )
-        cat <<-'EOF' >> "$run_script"
-	    cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
-	EOF
-        ;;
-    esac
-
-    cat <<-'EOF' >> "$run_script"
 	
 	EOF
   fi
@@ -394,9 +383,26 @@ configure_console_user() {
     esac
   fi
 
+  if [ -n "$debug_enabled" ]; then
+    cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
+	      write_debug_log "/etc/group changes:" 4
+	      diff /etc/group-orig /etc/group >> /chroot.log || true
+	      rm /etc/group-orig
+	      write_debug_log "/etc/passwd changes:" 4
+	      diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
+	      rm /etc/passwd-orig
+	      write_debug_log "/etc/shadow changes:" 4
+	      diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
+	      rm /etc/shadow-orig
+	EOF
+  fi
+
+
   cat <<-EOF >> "$run_script"
 	
-	      write_log "Setting up password-less access for '$image_console_only_group' group" 6
+	      write_log "Setting up password-less doas access for '$image_console_only_group' group" 6
 	      {
 	EOF
 
@@ -417,7 +423,7 @@ configure_console_user() {
 
   cat <<-EOF >> "$run_script"
 	        write_log \\
-	          "Setting up password-less doas access for '$image_console_only_group' group" 8
+	          "Setting up doas for '$image_console_only_group' group" 8
 	        {
 	          printf \\
 	            '\n# Enable password-less access for members of group '\''%s'\''\n' \\
@@ -427,19 +433,20 @@ configure_console_user() {
 	
 	        write_log "Adding '$image_console_user' user to '$image_console_only_group' group" 8
 	        addgroup $image_console_user $image_console_only_group >> /chroot.log
-	      }
 	EOF
 
   if [ -n "$debug_enabled" ]; then
     cat <<-EOF >> "$run_script"
 	    
-	      # Debug
-	      diff ${_doas_file}-orig ${_doas_file} >> /chroot.log || true
-	      rm ${_doas_file}-orig
+	        # Debug
+	        diff ${_doas_file}-orig ${_doas_file} \\
+	          >> /chroot.log || true
+	        rm ${_doas_file}-orig
 	EOF
   fi
 
   cat <<-EOF >> "$run_script"
+	      }
 	    }
 	EOF
 
@@ -447,50 +454,81 @@ configure_console_user() {
     openssh )
       cat <<-EOF >> "$run_script"
 	
-	    write_log "Disabling SSH-access for users in '$image_console_only_group' group" 4
+	    write_log "Disabling SSH access for users in '$image_console_only_group' group" 4
 	    {
-	      printf '\n# Deny SSH access for users in '\''%s'\'' group\n' "$image_console_only_group"
-	      printf 'DenyGroups %s\n' "$image_console_only_group"
-	    } >> /etc/ssh/sshd_config
-	EOF
-      ;;
-  esac
-
-  if [ -n "$debug_enabled" ]; then
-    cat <<-'EOF' >> "$run_script"
-	
-	    # Debug
-	    {
-	      write_debug_log "/etc/group changes:" 4
-	      diff /etc/group-orig /etc/group >> /chroot.log || true
-	      rm /etc/group-orig
-	
-	      write_debug_log "/etc/passwd changes:" 4
-	      diff /etc/passwd-orig /etc/passwd >> /chroot.log || true
-	      rm /etc/passwd-orig
-	
-	      write_debug_log "/etc/shadow changes:" 4
-	      diff /etc/shadow-orig /etc/shadow >> /chroot.log || true
-	      rm /etc/shadow-orig
 	EOF
 
-    case $image_ssh_server in
-      openssh )
-        cat <<-'EOF' >> "$run_script"
+      case $image_alpine_release in
+        v3.13 | v3.14 | v3.15 | v3.16 | v3.17 | v3.18 )
+          # The version of openssh server in these releases does not support
+          # the "Include" directive to read config from additional files in
+          # /etc/ssh/sshd_config.d/ directory.
 
+          if [ -n "$debug_enabled" ]; then
+            cat <<-'EOF' >> "$run_script"
+	      # Debug
+	      cp /etc/ssh/sshd_config /etc/ssh/sshd_config-orig
+	
+	EOF
+          fi
+
+          cat <<-EOF >> "$run_script"
+	      {
+	        printf '\n# Deny SSH access for users in '\''%s'\'' group\n' \\
+	          "$image_console_only_group"
+	        printf 'DenyGroups %s\n' "$image_console_only_group"
+	      } >> /etc/ssh/sshd_config
+	EOF
+
+          if [ -n "$debug_enabled" ]; then
+            cat <<-'EOF' >> "$run_script"
+	
+	      # Debug
 	      write_debug_log "/etc/sshd_config changes:" 4
 	      diff /etc/ssh/sshd_config-orig /etc/ssh/sshd_config \
 	        >> /chroot.log || true
 	      rm /etc/ssh/sshd_config-orig
 	EOF
-        ;;
-    esac
+          fi
 
-    cat <<-'EOF' >> "$run_script"
+          cat <<-'EOF' >> "$run_script"
 	    }
 	EOF
-  fi
+          ;;
 
+        * )
+          # The version of openssh server in these releases does support
+          # the "Include" directive to read config from additional files
+          # in /etc/ssh/sshd_config.d/ directory.
+
+          # /etc/ssh/sshd_config.d/99-cadi.conf
+          local _sshd_config_file="/etc/ssh/sshd_config.d/99-cadi.conf"
+
+          cat <<-EOF >> "$run_script"
+	      {
+	        printf '\n# Deny SSH access for users in '\''%s'\'' group\n' \\
+	          "$image_console_only_group"
+	        printf 'DenyGroups %s\n' "$image_console_only_group"
+	      } >> $_sshd_config_file
+	EOF
+
+          if [ -n "$debug_enabled" ]; then
+            cat <<-EOF >> "$run_script"
+	
+	      # Debug
+	      write_debug_log \\
+	        "Contents of $_sshd_config_file file:" 8
+	      cat $_sshd_config_file >> /chroot.log
+	EOF
+          fi
+
+          cat <<-'EOF' >> "$run_script"
+	    }
+	EOF
+          ;;
+      esac
+      ;;
+  esac
 
   cat <<-'EOF' >> "$run_script"
 	  }
@@ -1326,14 +1364,6 @@ configure_services() {
   configure_cron
   configure_dhcp_client
   configure_gettys
-  case $image_console_device_type in
-    none)
-      : ;;
-    * )
-      if [ "$image_no_console_user" = "false" ]; then
-        configure_console_user
-      fi
-  esac
   case $image_ntp_daemon in
     none )
       : ;;
@@ -1342,6 +1372,15 @@ configure_services() {
   esac
   configure_syslogd
   configure_sshd
+
+  case $image_console_device_type in
+    none)
+      : ;;
+    * )
+      if [ "$image_no_console_user" = "false" ]; then
+        configure_console_user
+      fi
+  esac
 
   if [ -n "$image_cpu_governor" ]; then
     configure_cpu_governor

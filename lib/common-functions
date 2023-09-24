@@ -855,8 +855,8 @@ insert_chroot_function_get_kernel_version() {
   cat <<-EOF >> "$run_script"
 	
 	get_kernel_version() {
-	  echo "\\\$(apk info linux-${_kernel_type} | head -n 1 | sed -e "s/^linux-${_kernel_type}-//" \\
-	    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-${_kernel_type}/")"
+	  apk info linux-${_kernel_type} | head -n 1 | sed -e "s/^linux-${_kernel_type}-//" \\
+	    -e 's/-r/-/' -e 's/ .*//' -Ee "s/^(.*)\$/\\1-${_kernel_type}/"
 	}
 	EOF
 }

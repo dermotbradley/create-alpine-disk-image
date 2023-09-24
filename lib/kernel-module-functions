@@ -237,7 +237,7 @@ write_log "Creating init.d script for disabling kernel module loading" 2
 	start() {
 		ebegin "Disabling loading of kernel modules"
 		sysctl -q -w kernel.modules_disabled=1
-		eend $?
+		eend \$?
 	}
 	_SCRIPT_
   chmod a+x /etc/init.d/block-modules-loading
@@ -896,7 +896,7 @@ EOF
     cat <<-EOF >> "$run_script"
 	
 	  # Debug
-	  diff /etc/modules-orig /etc/modules >> /chroot.log | true
+	  diff /etc/modules-orig /etc/modules >> /chroot.log || true
 	  rm /etc/modules-orig
 	  write_debug_log "Contents of /etc/modules:" 2
 	  cat /etc/modules >> /chroot.log
