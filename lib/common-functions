@@ -765,7 +765,7 @@ get_storage_device_name() {
       _device_name="/dev/nvme0n1" ;;
     sd )
       _device_name="/dev/mmcblk0" ;;
-    virtio_blk )
+    virtio-blk )
       _device_name="/dev/vda" ;;
     * )
       _device_name="/dev/sda" ;;
